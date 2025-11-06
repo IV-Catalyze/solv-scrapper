@@ -1519,33 +1519,35 @@ async def main():
     """
     Main function to run the patient form monitor.
     """
-    # Get URL from environment variable - must include location_ids parameter
+    # Get URL from environment variable - use URL as-is without appending location_ids
     url = os.getenv('SOLVHEALTH_QUEUE_URL')
     
     if not url:
         print("❌ Error: SOLVHEALTH_QUEUE_URL environment variable is not set.")
-        print("   Please set it with a URL that includes location_ids parameter, e.g.:")
+        print("   Please set it with the queue URL, e.g.:")
         print("   export SOLVHEALTH_QUEUE_URL='https://manage.solvhealth.com/queue?location_ids=AXjwbE'")
+        print("   or")
+        print("   export SOLVHEALTH_QUEUE_URL='https://manage.solvhealth.com/queue'")
         sys.exit(1)
     
-    # Extract location_id from URL
+    # Extract location_id from URL (optional - will be extracted from current page URL if not in initial URL)
     location_id = extract_location_id_from_url(url)
     
-    if not location_id:
-        print("❌ Error: No location_id found in URL.")
-        print(f"   URL provided: {url}")
-        print("   Please provide a URL with location_ids parameter, e.g.:")
-        print("   https://manage.solvhealth.com/queue?location_ids=AXjwbE")
-        sys.exit(1)
-    
-    location_name = get_location_name(location_id) or f"Location {location_id}"
+    if location_id:
+        location_name = get_location_name(location_id) or f"Location {location_id}"
+    else:
+        location_id = None
+        location_name = "Will be detected from page"
     
     print("=" * 60)
     print("🏥 Patient Form Monitor")
     print("=" * 60)
     print(f"📍 URL: {url}")
-    print(f"📍 Location ID: {location_id}")
-    print(f"📍 Location Name: {location_name}")
+    if location_id:
+        print(f"📍 Location ID: {location_id}")
+        print(f"📍 Location Name: {location_name}")
+    else:
+        print(f"📍 Location: {location_name}")
     print("=" * 60)
     print("\n🔍 Listening for patient submissions...")
     print("   (The browser will open in non-headless mode)")

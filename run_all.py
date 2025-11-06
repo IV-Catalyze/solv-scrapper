@@ -3,10 +3,11 @@
 Run both the patient form monitor and API server simultaneously.
 
 This script starts:
-1. The FastAPI server (api.py) to serve patient data
-2. The patient form monitor (monitor_patient_form.py) to capture data
+1. PostgreSQL database (if not already running)
+2. The FastAPI server (api.py) to serve patient data
+3. The patient form monitor (monitor_patient_form.py) to capture data
 
-Both processes run concurrently and can be stopped with Ctrl+C.
+All processes run concurrently and can be stopped with Ctrl+C.
 """
 
 import os
@@ -22,6 +23,7 @@ from typing import Optional
 class Colors:
     API = '\033[94m'      # Blue
     MONITOR = '\033[92m'  # Green
+    DB = '\033[96m'       # Cyan
     ERROR = '\033[91m'    # Red
     WARNING = '\033[93m'  # Yellow
     RESET = '\033[0m'     # Reset
@@ -48,6 +50,16 @@ def print_info(message: str):
     print(f"{Colors.BOLD}[INFO]{Colors.RESET} {message}")
 
 
+def print_db(message: str):
+    """Print message with DB prefix."""
+    print(f"{Colors.DB}[DATABASE]{Colors.RESET} {message}")
+
+
+def print_warning(message: str):
+    """Print warning message."""
+    print(f"{Colors.WARNING}[WARNING]{Colors.RESET} {message}")
+
+
 def check_requirements():
     """Check if required environment variables and files exist."""
     errors = []
@@ -69,10 +81,143 @@ def check_requirements():
             print_error(f"  - {error}")
         print()
         print_info("Please set SOLVHEALTH_QUEUE_URL, e.g.:")
+        print_info("  export SOLVHEALTH_QUEUE_URL='https://manage.solvhealth.com/queue'")
+        print_info("  or")
         print_info("  export SOLVHEALTH_QUEUE_URL='https://manage.solvhealth.com/queue?location_ids=AXjwbE'")
         return False
     
     return True
+
+
+def is_database_running(host: str = 'localhost', port: int = 5432):
+    """Check if PostgreSQL database is running."""
+    import socket
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
+def start_database():
+    """Start PostgreSQL database if not running."""
+    db_host = os.getenv('DB_HOST', 'localhost')
+    db_port = int(os.getenv('DB_PORT', '5432'))
+    
+    # Check if database is already running
+    if is_database_running(db_host, db_port):
+        print_db(f"Database is already running on {db_host}:{db_port}")
+        return True
+    
+    print_db("Database is not running. Attempting to start...")
+    
+    # Try to start via brew services (macOS)
+    try:
+        # Check if brew is available
+        brew_check = subprocess.run(
+            ['which', 'brew'],
+            capture_output=True,
+            text=True
+        )
+        
+        if brew_check.returncode == 0:
+            # Try to find PostgreSQL service name
+            services = subprocess.run(
+                ['brew', 'services', 'list'],
+                capture_output=True,
+                text=True
+            )
+            
+            if services.returncode == 0:
+                # Look for postgresql services
+                for line in services.stdout.split('\n'):
+                    if 'postgresql' in line.lower() and 'stopped' in line.lower():
+                        # Extract service name (e.g., postgresql@15)
+                        parts = line.split()
+                        if parts:
+                            service_name = parts[0]
+                            print_db(f"Starting PostgreSQL service: {service_name}")
+                            result = subprocess.run(
+                                ['brew', 'services', 'start', service_name],
+                                capture_output=True,
+                                text=True
+                            )
+                            if result.returncode == 0:
+                                print_db(f"Started {service_name}")
+                                # Wait for database to be ready
+                                return wait_for_database(db_host, db_port)
+                            else:
+                                print_warning(f"Failed to start {service_name}: {result.stderr}")
+                
+                # If no stopped service found, try common names
+                for service_name in ['postgresql@15', 'postgresql@14', 'postgresql@13', 'postgresql']:
+                    result = subprocess.run(
+                        ['brew', 'services', 'start', service_name],
+                        capture_output=True,
+                        text=True,
+                        stderr=subprocess.DEVNULL
+                    )
+                    if result.returncode == 0:
+                        print_db(f"Started {service_name}")
+                        return wait_for_database(db_host, db_port)
+    except Exception as e:
+        print_warning(f"Could not start database via brew: {e}")
+    
+    # Try Docker as fallback
+    try:
+        docker_check = subprocess.run(
+            ['which', 'docker'],
+            capture_output=True,
+            text=True
+        )
+        
+        if docker_check.returncode == 0:
+            # Check if postgres container exists
+            containers = subprocess.run(
+                ['docker', 'ps', '-a', '--filter', 'name=postgres', '--format', '{{.Names}}'],
+                capture_output=True,
+                text=True
+            )
+            
+            if containers.stdout.strip():
+                container_name = containers.stdout.strip().split('\n')[0]
+                print_db(f"Starting Docker container: {container_name}")
+                result = subprocess.run(
+                    ['docker', 'start', container_name],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    print_db(f"Started {container_name}")
+                    return wait_for_database(db_host, db_port)
+    except Exception as e:
+        print_warning(f"Could not start database via Docker: {e}")
+    
+    print_error("Could not automatically start database.")
+    print_error("Please start PostgreSQL manually:")
+    print_error("  - macOS: brew services start postgresql@15")
+    print_error("  - Docker: docker start <container_name>")
+    print_error("  - Or start PostgreSQL service manually")
+    return False
+
+
+def wait_for_database(host: str = 'localhost', port: int = 5432, timeout: int = 30):
+    """Wait for database to be ready."""
+    print_db(f"Waiting for database to be ready on {host}:{port}...")
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        if is_database_running(host, port):
+            print_db("Database is ready!")
+            time.sleep(1)  # Give it a moment to fully initialize
+            return True
+        time.sleep(0.5)
+    
+    print_error(f"Database did not become ready within {timeout} seconds")
+    return False
 
 
 def wait_for_api(host: str = 'localhost', port: int = 8000, timeout: int = 30):
@@ -170,8 +315,15 @@ def main():
     print("=" * 70)
     print()
     
-    # Start API server
+    # Start database first (required for API)
     print_info("Starting services...")
+    print()
+    
+    if not start_database():
+        print_error("Failed to start database. API server requires database connection.")
+        print_error("Please start PostgreSQL manually and try again.")
+        sys.exit(1)
+    
     print()
     
     # Start API server as subprocess
@@ -229,13 +381,14 @@ def main():
     
     print()
     print("=" * 70)
-    print_info("Both services are running!")
+    print_info("All services are running!")
     print()
+    print_db(f"🗄️  Database: {os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}")
     print_info(f"📡 API Server: http://localhost:{api_port}")
     print_info(f"📡 API Docs: http://localhost:{api_port}/docs")
     print_info(f"🔍 Monitor: Watching for patient form submissions")
     print()
-    print_info("Press Ctrl+C to stop both services")
+    print_info("Press Ctrl+C to stop all services")
     print("=" * 70)
     print()
     
