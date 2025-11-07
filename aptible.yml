@@ -1,0 +1,8 @@
+services:
+  web:
+    process: web
+    count: 1
+  worker:
+    process: worker
+    count: 1
+

@@ -34,6 +34,13 @@ except ImportError:
     pass  # dotenv is optional
 
 
+def str_to_bool(value: Optional[str]) -> bool:
+    """Convert common truthy/falsey strings to boolean."""
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def extract_location_id_from_url(url):
     """
     Extract location_ids query parameter from URL.
@@ -1818,13 +1825,17 @@ async def main():
         print(f"📍 Location: {location_name}")
     print("=" * 60)
     print("\n🔍 Listening for patient submissions...")
-    print("   (The browser will open in non-headless mode)")
+    headless = str_to_bool(os.getenv("PLAYWRIGHT_HEADLESS"))
+    if headless:
+        print("   (Running in headless mode)")
+    else:
+        print("   (The browser will open in non-headless mode)")
     print("   (Click 'Add Patient' and submit the form to capture data)")
     print("   (Press Ctrl+C to stop)\n")
     
     async with async_playwright() as p:
-        # Launch browser in non-headless mode
-        browser = await p.chromium.launch(headless=False)
+        # Launch browser with mode controlled via environment variable
+        browser = await p.chromium.launch(headless=headless)
         context = await browser.new_context()
         page = await context.new_page()
         

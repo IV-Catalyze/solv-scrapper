@@ -106,6 +106,18 @@ def start_database():
     """Start PostgreSQL database if not running."""
     db_host = os.getenv('DB_HOST', 'localhost')
     db_port = int(os.getenv('DB_PORT', '5432'))
+
+    disable_autostart = os.getenv('RUN_ALL_AUTOSTART_DB', '1').strip().lower() in {'0', 'false', 'no', 'off'}
+    if disable_autostart:
+        print_db("Automatic database startup disabled via RUN_ALL_AUTOSTART_DB")
+        if is_database_running(db_host, db_port):
+            print_db(f"Database is already running on {db_host}:{db_port}")
+            return True
+        print_warning(
+            "Database auto-start is disabled and no database is reachable. "
+            "Please ensure your database is running before invoking run_all.py"
+        )
+        return False
     
     # Check if database is already running
     if is_database_running(db_host, db_port):

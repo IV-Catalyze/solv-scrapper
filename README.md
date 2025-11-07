@@ -131,6 +131,15 @@ The script will extract the `location_ids` parameter from the URL. See `location
 3. **Database errors**: Ensure PostgreSQL is running and credentials in `.env` are correct
 4. **EMR ID not captured**: EMR IDs are captured from API responses; they may take a few seconds to appear
 
+## Deployment (Aptible)
+
+1. Build the image using the included `Dockerfile` (Playwright browsers and system libraries are pre-installed).
+2. Provision a PostgreSQL database on Aptible and capture its credentials.
+3. Set the required environment variables on your Aptible app: `SOLVHEALTH_QUEUE_URL`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, and optionally override `PLAYWRIGHT_HEADLESS` if you need interactive mode.
+4. Deploy with `aptible deploy --app <APP_NAME>`; Aptible reads the `Procfile` to launch the `web` (FastAPI) and `worker` (Playwright monitor) services defined in `aptible.yml`.
+5. Tail logs with `aptible logs --app <APP_NAME> --process web` or `--process worker` to verify the services are healthy.
+6. See `APTIBLE_DEPLOYMENT.md` for a full end-to-end runbook, including pre-deploy smoke tests and troubleshooting tips.
+
 ## Files
 
 - `run_all.py` - **Run both monitor and API server together** (recommended)
