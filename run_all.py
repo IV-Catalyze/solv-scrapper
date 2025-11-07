@@ -106,7 +106,7 @@ def start_database():
     """Start PostgreSQL database if not running."""
     db_host = os.getenv('DB_HOST', 'localhost')
     db_port = int(os.getenv('DB_PORT', '5432'))
-
+    
     disable_autostart = os.getenv('RUN_ALL_AUTOSTART_DB', '1').strip().lower() in {'0', 'false', 'no', 'off'}
     if disable_autostart:
         print_db("Automatic database startup disabled via RUN_ALL_AUTOSTART_DB")

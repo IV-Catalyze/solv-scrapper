@@ -84,6 +84,12 @@ aptible deploy --app patient-form-prod
 
 The Aptible CLI builds the Docker image, uploads it, and creates two service instances (`web`, `worker`) as defined in `aptible.yml`.
 
+### Deploy via GitHub Actions
+
+- Configure repository secrets `APTIBLE_USERNAME` and `APTIBLE_PASSWORD` (robot user recommended).
+- Push to `main` or trigger the `aptible` workflow manually in GitHub Actions.
+- The workflow uses `aptible/aptible-deploy-action@v4` with `type: git`, targeting the `solv-scrapper` app in the `iv-catalyze-dev` environment.
+
 ## 6. Post-Deploy Verification
 
 1. Tail logs:

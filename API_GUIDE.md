@@ -102,6 +102,7 @@ Replace `YOUR_EMR_ID_HERE` with an actual EMR ID from your database.
 curl http://localhost:8000/patient/12345
 ```
 
+
 **Expected response (success):**
 ```json
 {

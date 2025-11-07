@@ -1829,7 +1829,7 @@ async def main():
     if headless:
         print("   (Running in headless mode)")
     else:
-        print("   (The browser will open in non-headless mode)")
+    print("   (The browser will open in non-headless mode)")
     print("   (Click 'Add Patient' and submit the form to capture data)")
     print("   (Press Ctrl+C to stop)\n")
     
