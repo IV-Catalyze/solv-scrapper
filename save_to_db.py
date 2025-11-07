@@ -107,42 +107,30 @@ def normalize_timestamp(timestamp_str: str) -> Optional[datetime]:
 
 
 def normalize_patient_record(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize patient record from JSON to database format."""
+    """Normalize patient record for database insertion."""
+    emr_id = record.get('emrId') or record.get('emr_id') or record.get('emrID')
+
     normalized = {
-        'patient_id': record.get('patientId') or record.get('patient_id') or None,
-        'solv_id': record.get('solvId') or record.get('solv_id') or None,
-        'emr_id': record.get('emrId') or record.get('emr_id') or record.get('emr_id') or None,
+        'emr_id': emr_id.strip() if isinstance(emr_id, str) else emr_id,
+        'booking_id': record.get('booking_id') or record.get('bookingId') or None,
+        'booking_number': record.get('booking_number') or record.get('bookingNumber') or None,
+        'patient_number': record.get('patient_number') or record.get('patientNumber') or None,
         'location_id': record.get('locationId') or record.get('location_id') or None,
         'location_name': record.get('location_name') or record.get('locationName') or None,
-        'legal_first_name': record.get('legalFirstName') or record.get('legal_first_name') or None,
-        'legal_last_name': record.get('legalLastName') or record.get('legal_last_name') or None,
-        'first_name': record.get('firstName') or record.get('first_name') or 
-                     record.get('legalFirstName') or record.get('legal_first_name') or None,
-        'last_name': record.get('lastName') or record.get('last_name') or 
-                    record.get('legalLastName') or record.get('legal_last_name') or None,
-        'mobile_phone': record.get('mobilePhone') or record.get('mobile_phone') or 
-                       record.get('phone') or None,
+        'legal_first_name': record.get('legalFirstName') or record.get('legal_first_name') or record.get('firstName') or None,
+        'legal_last_name': record.get('legalLastName') or record.get('legal_last_name') or record.get('lastName') or None,
         'dob': record.get('dob') or record.get('dateOfBirth') or record.get('date_of_birth') or None,
-        'date_of_birth': None,  # Will be set from normalized dob
-        'reason_for_visit': record.get('reasonForVisit') or record.get('reason_for_visit') or 
-                           record.get('reason') or None,
-        'sex_at_birth': record.get('sexAtBirth') or record.get('sex_at_birth') or None,
-        'gender': record.get('gender') or record.get('sex') or 
-                 record.get('sexAtBirth') or record.get('sex_at_birth') or None,
-        'room': record.get('room') or record.get('roomNumber') or record.get('room_number') or None,
+        'mobile_phone': record.get('mobilePhone') or record.get('mobile_phone') or record.get('phone') or None,
+        'sex_at_birth': record.get('sexAtBirth') or record.get('sex_at_birth') or record.get('gender') or None,
         'captured_at': normalize_timestamp(record.get('captured_at') or record.get('capturedAt')) or datetime.now(),
-        'raw_data': json.dumps(record)
+        'reason_for_visit': record.get('reasonForVisit') or record.get('reason_for_visit') or record.get('reason') or None
     }
-    
-    # Normalize date of birth
-    if normalized['dob']:
-        normalized['date_of_birth'] = normalize_date(normalized['dob'])
-    
-    # Clean up empty strings to None
-    for key, value in normalized.items():
-        if value == '':
-            normalized[key] = None
-    
+
+    for key, value in list(normalized.items()):
+        if isinstance(value, str):
+            value = value.strip()
+            normalized[key] = value or None
+
     return normalized
 
 
@@ -182,62 +170,68 @@ def insert_patients(conn, patients: List[Dict[str, Any]], on_conflict: str = 'ig
     
     insert_query = """
         INSERT INTO patients (
-            patient_id, solv_id, emr_id, location_id, location_name,
-            legal_first_name, legal_last_name, first_name, last_name,
-            mobile_phone, dob, date_of_birth, reason_for_visit,
-            sex_at_birth, gender, room, captured_at, raw_data
+            emr_id,
+            booking_id,
+            booking_number,
+            patient_number,
+            location_id,
+            location_name,
+            legal_first_name,
+            legal_last_name,
+            dob,
+            mobile_phone,
+            sex_at_birth,
+            captured_at,
+            reason_for_visit
         ) VALUES %s
     """
     
     if on_conflict == 'ignore':
         insert_query += """
-            ON CONFLICT (patient_id, location_id, captured_at) DO NOTHING
+            ON CONFLICT (emr_id) DO NOTHING
         """
     elif on_conflict == 'update':
         insert_query += """
-            ON CONFLICT (patient_id, location_id, captured_at) DO UPDATE SET
-                solv_id = EXCLUDED.solv_id,
-                emr_id = EXCLUDED.emr_id,
+            ON CONFLICT (emr_id) DO UPDATE SET
+                booking_id = EXCLUDED.booking_id,
+                booking_number = EXCLUDED.booking_number,
+                patient_number = EXCLUDED.patient_number,
                 location_name = EXCLUDED.location_name,
                 legal_first_name = EXCLUDED.legal_first_name,
                 legal_last_name = EXCLUDED.legal_last_name,
-                first_name = EXCLUDED.first_name,
-                last_name = EXCLUDED.last_name,
-                mobile_phone = EXCLUDED.mobile_phone,
                 dob = EXCLUDED.dob,
-                date_of_birth = EXCLUDED.date_of_birth,
-                reason_for_visit = EXCLUDED.reason_for_visit,
+                mobile_phone = EXCLUDED.mobile_phone,
                 sex_at_birth = EXCLUDED.sex_at_birth,
-                gender = EXCLUDED.gender,
-                room = EXCLUDED.room,
-                raw_data = EXCLUDED.raw_data,
+                captured_at = EXCLUDED.captured_at,
+                reason_for_visit = EXCLUDED.reason_for_visit,
                 updated_at = CURRENT_TIMESTAMP
         """
     
     values = []
     for patient in patients:
         normalized = normalize_patient_record(patient)
+        if not normalized.get('emr_id'):
+            continue
         values.append((
-            normalized['patient_id'],
-            normalized['solv_id'],
             normalized['emr_id'],
+            normalized['booking_id'],
+            normalized['booking_number'],
+            normalized['patient_number'],
             normalized['location_id'],
             normalized['location_name'],
             normalized['legal_first_name'],
             normalized['legal_last_name'],
-            normalized['first_name'],
-            normalized['last_name'],
-            normalized['mobile_phone'],
             normalized['dob'],
-            normalized['date_of_birth'],
-            normalized['reason_for_visit'],
+            normalized['mobile_phone'],
             normalized['sex_at_birth'],
-            normalized['gender'],
-            normalized['room'],
             normalized['captured_at'],
-            normalized['raw_data']
+            normalized['reason_for_visit']
         ))
     
+    if not values:
+        cursor.close()
+        return 0
+
     try:
         execute_values(cursor, insert_query, values)
         conn.commit()

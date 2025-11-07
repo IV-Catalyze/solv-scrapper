@@ -148,41 +148,30 @@ def normalize_timestamp(timestamp_str: str) -> Optional[datetime]:
 
 def normalize_patient_record(record: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize patient record from JSON to database format."""
+    emr_id = record.get('emrId') or record.get('emr_id') or record.get('emrID')
+
     normalized = {
-        'patient_id': record.get('patientId') or record.get('patient_id') or None,
-        'solv_id': record.get('solvId') or record.get('solv_id') or None,
-        'emr_id': record.get('emrId') or record.get('emr_id') or record.get('emr_id') or None,
+        'emr_id': emr_id.strip() if isinstance(emr_id, str) else emr_id,
+        'booking_id': record.get('booking_id') or record.get('bookingId') or None,
+        'booking_number': record.get('booking_number') or record.get('bookingNumber') or None,
+        'patient_number': record.get('patient_number') or record.get('patientNumber') or None,
         'location_id': record.get('locationId') or record.get('location_id') or None,
         'location_name': record.get('location_name') or record.get('locationName') or None,
-        'legal_first_name': record.get('legalFirstName') or record.get('legal_first_name') or None,
-        'legal_last_name': record.get('legalLastName') or record.get('legal_last_name') or None,
-        'first_name': record.get('firstName') or record.get('first_name') or 
-                     record.get('legalFirstName') or record.get('legal_first_name') or None,
-        'last_name': record.get('lastName') or record.get('last_name') or 
-                    record.get('legalLastName') or record.get('legal_last_name') or None,
-        'mobile_phone': record.get('mobilePhone') or record.get('mobile_phone') or 
-                       record.get('phone') or None,
+        'legal_first_name': record.get('legalFirstName') or record.get('legal_first_name') or record.get('firstName') or None,
+        'legal_last_name': record.get('legalLastName') or record.get('legal_last_name') or record.get('lastName') or None,
         'dob': record.get('dob') or record.get('dateOfBirth') or record.get('date_of_birth') or None,
-        'date_of_birth': None,  # Will be set from normalized dob
-        'reason_for_visit': record.get('reasonForVisit') or record.get('reason_for_visit') or 
-                           record.get('reason') or None,
-        'sex_at_birth': record.get('sexAtBirth') or record.get('sex_at_birth') or None,
-        'gender': record.get('gender') or record.get('sex') or 
-                 record.get('sexAtBirth') or record.get('sex_at_birth') or None,
-        'room': record.get('room') or record.get('roomNumber') or record.get('room_number') or None,
+        'mobile_phone': record.get('mobilePhone') or record.get('mobile_phone') or record.get('phone') or None,
+        'sex_at_birth': record.get('sexAtBirth') or record.get('sex_at_birth') or record.get('gender') or None,
         'captured_at': normalize_timestamp(record.get('captured_at') or record.get('capturedAt')) or datetime.now(),
-        'raw_data': json.dumps(record)
+        'reason_for_visit': record.get('reasonForVisit') or record.get('reason_for_visit') or record.get('reason') or None
     }
-    
-    # Normalize date of birth
-    if normalized['dob']:
-        normalized['date_of_birth'] = normalize_date(normalized['dob'])
-    
+
     # Clean up empty strings to None
-    for key, value in normalized.items():
-        if value == '':
-            normalized[key] = None
-    
+    for key, value in list(normalized.items()):
+        if isinstance(value, str):
+            value = value.strip()
+            normalized[key] = value or None
+
     return normalized
 
 
@@ -242,70 +231,73 @@ def save_patient_to_db(patient_data: Dict[str, Any], on_conflict: str = 'update'
         ensure_db_tables_exist(conn)
         
         normalized = normalize_patient_record(patient_data)
-        
+
+        if not normalized.get('emr_id'):
+            print("   ⚠️  Skipping database save: missing emr_id")
+            return False
+
         cursor = conn.cursor()
-        
+
         insert_query = """
             INSERT INTO patients (
-                patient_id, solv_id, emr_id, location_id, location_name,
-                legal_first_name, legal_last_name, first_name, last_name,
-                mobile_phone, dob, date_of_birth, reason_for_visit,
-                sex_at_birth, gender, room, captured_at, raw_data
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                emr_id,
+                booking_id,
+                booking_number,
+                patient_number,
+                location_id,
+                location_name,
+                legal_first_name,
+                legal_last_name,
+                dob,
+                mobile_phone,
+                sex_at_birth,
+                captured_at,
+                reason_for_visit
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
-        
+
         if on_conflict == 'ignore':
             insert_query += """
-                ON CONFLICT (patient_id, location_id, captured_at) DO NOTHING
+                ON CONFLICT (emr_id) DO NOTHING
             """
         elif on_conflict == 'update':
             insert_query += """
-                ON CONFLICT (patient_id, location_id, captured_at) DO UPDATE SET
-                    solv_id = EXCLUDED.solv_id,
-                    emr_id = EXCLUDED.emr_id,
+                ON CONFLICT (emr_id) DO UPDATE SET
+                    booking_id = EXCLUDED.booking_id,
+                    booking_number = EXCLUDED.booking_number,
+                    patient_number = EXCLUDED.patient_number,
                     location_name = EXCLUDED.location_name,
                     legal_first_name = EXCLUDED.legal_first_name,
                     legal_last_name = EXCLUDED.legal_last_name,
-                    first_name = EXCLUDED.first_name,
-                    last_name = EXCLUDED.last_name,
-                    mobile_phone = EXCLUDED.mobile_phone,
                     dob = EXCLUDED.dob,
-                    date_of_birth = EXCLUDED.date_of_birth,
-                    reason_for_visit = EXCLUDED.reason_for_visit,
+                    mobile_phone = EXCLUDED.mobile_phone,
                     sex_at_birth = EXCLUDED.sex_at_birth,
-                    gender = EXCLUDED.gender,
-                    room = EXCLUDED.room,
-                    raw_data = EXCLUDED.raw_data,
+                    captured_at = EXCLUDED.captured_at,
+                    reason_for_visit = EXCLUDED.reason_for_visit,
                     updated_at = CURRENT_TIMESTAMP
             """
-        
+
         values = (
-            normalized['patient_id'],
-            normalized['solv_id'],
             normalized['emr_id'],
+            normalized['booking_id'],
+            normalized['booking_number'],
+            normalized['patient_number'],
             normalized['location_id'],
             normalized['location_name'],
             normalized['legal_first_name'],
             normalized['legal_last_name'],
-            normalized['first_name'],
-            normalized['last_name'],
-            normalized['mobile_phone'],
             normalized['dob'],
-            normalized['date_of_birth'],
-            normalized['reason_for_visit'],
+            normalized['mobile_phone'],
             normalized['sex_at_birth'],
-            normalized['gender'],
-            normalized['room'],
             normalized['captured_at'],
-            normalized['raw_data']
+            normalized['reason_for_visit']
         )
-        
+
         cursor.execute(insert_query, values)
         conn.commit()
         cursor.close()
         
-        emr_status = f" (EMR ID: {normalized['emr_id']})" if normalized['emr_id'] else " (no EMR ID yet)"
-        print(f"   💾 Saved to database{emr_status}")
+        print(f"   💾 Saved to database (EMR ID: {normalized['emr_id']})")
         return True
         
     except psycopg2.Error as e:
@@ -575,8 +567,11 @@ async def save_patient_data(data, output_file="patient_data.json"):
         print(f"   📄 File: {output_path}")
         print(f"   📊 Total entries: {len(data_to_save)}")
         
-        # Save to database after writing to JSON
-        save_patient_to_db(data, on_conflict='update')
+        # Save to database only when EMR ID is available
+        if data.get('emr_id'):
+            save_patient_to_db(data, on_conflict='update')
+        else:
+            print("   ⚠️  Skipping database save (EMR ID not yet available)")
         
     except Exception as e:
         print(f"❌ Error saving patient data: {e}")
@@ -621,6 +616,9 @@ async def setup_form_monitor(page, location_id, location_name):
             'location_id': current_location_id,
             'location_name': current_location_name,
             'emr_id': '',  # Will be filled later
+            'booking_id': form_data.get('booking_id', '') if isinstance(form_data, dict) else '',
+            'booking_number': form_data.get('booking_number', '') if isinstance(form_data, dict) else '',
+            'patient_number': form_data.get('patient_number', '') if isinstance(form_data, dict) else '',
             **form_data
         }
         
@@ -752,6 +750,12 @@ async def setup_form_monitor(page, location_id, location_name):
                     not entry.get('emr_id') and
                     entry_time == captured_at):
                     entry['emr_id'] = patient_data.get('emr_id', '')
+                    if patient_data.get('booking_id'):
+                        entry['booking_id'] = patient_data.get('booking_id', '')
+                    if patient_data.get('patient_number'):
+                        entry['patient_number'] = patient_data.get('patient_number', '')
+                    if patient_data.get('booking_number'):
+                        entry['booking_number'] = patient_data.get('booking_number', '')
                     updated = True
                     break
             
@@ -761,6 +765,12 @@ async def setup_form_monitor(page, location_id, location_name):
                 for entry in reversed(existing_data):
                     if not entry.get('emr_id'):
                         entry['emr_id'] = patient_data.get('emr_id', '')
+                        if patient_data.get('booking_id'):
+                            entry['booking_id'] = patient_data.get('booking_id', '')
+                        if patient_data.get('patient_number'):
+                            entry['patient_number'] = patient_data.get('patient_number', '')
+                        if patient_data.get('booking_number'):
+                            entry['booking_number'] = patient_data.get('booking_number', '')
                         updated = True
                         break
             
@@ -866,6 +876,9 @@ async def setup_form_monitor(page, location_id, location_name):
                     emr_id = None
                     patient_match = None
                     booking_data = None
+                    booking_id = ''
+                    booking_number = ''
+                    patient_number = ''
                     all_patients = []
                     
                     # Check if this is a booking API response
@@ -878,10 +891,25 @@ async def setup_form_monitor(page, location_id, location_name):
                             for integration in integration_status:
                                 if isinstance(integration, dict):
                                     integration_emr_id = integration.get('emr_id')
-                                    if integration_emr_id:
+                                    if integration_emr_id and not emr_id:
                                         emr_id = str(integration_emr_id).strip()
                                         patient_match = booking_data
                                         print(f"   📍 Found EMR ID in integration_status: {emr_id}")
+                                    # Extract booking/patient numbers from requests
+                                    requests = integration.get('requests', [])
+                                    if isinstance(requests, list):
+                                        for request in requests:
+                                            if not isinstance(request, dict):
+                                                continue
+                                            if not booking_number:
+                                                booking_value = request.get('booking_number') or request.get('bookingNumber')
+                                                if booking_value:
+                                                    booking_number = str(booking_value).strip()
+                                            if not patient_number:
+                                                patient_value = request.get('patient_number') or request.get('patientNumber')
+                                                if patient_value:
+                                                    patient_number = str(patient_value).strip()
+                                    if emr_id and booking_number and patient_number:
                                         break
                         
                         # Method 2: Check patient_match_details for external_user_profile_id (which is the EMR ID)
@@ -893,6 +921,11 @@ async def setup_form_monitor(page, location_id, location_name):
                                     emr_id = str(external_user_profile_id).strip()
                                     patient_match = booking_data
                                     print(f"   📍 Found EMR ID in patient_match_details: {emr_id}")
+                                # Sometimes patient number may live here as well
+                                if not patient_number:
+                                    pm_patient_number = patient_match_details.get('patient_number')
+                                    if pm_patient_number:
+                                        patient_number = str(pm_patient_number).strip()
                     
                     # If not found in booking structure, recursively search
                     if not emr_id:
@@ -951,7 +984,12 @@ async def setup_form_monitor(page, location_id, location_name):
                             )
                             
                             # Also try to get booking ID for matching
-                            booking_id = patient_match.get('id') or ''
+                            if not booking_id:
+                                booking_id = patient_match.get('id') or ''
+                            if not booking_number and patient_match.get('booking_number'):
+                                booking_number = str(patient_match.get('booking_number')).strip()
+                            if not patient_number and patient_match.get('patient_number'):
+                                patient_number = str(patient_match.get('patient_number')).strip()
                         
                         # Also check all_patients if we didn't get names from patient_match
                         if not patient_first_name and all_patients:
@@ -1022,6 +1060,10 @@ async def setup_form_monitor(page, location_id, location_name):
                                 pending['emr_id'] = emr_id
                                 if booking_id:
                                     pending['booking_id'] = booking_id
+                                if booking_number:
+                                    pending['booking_number'] = booking_number
+                                if patient_number:
+                                    pending['patient_number'] = patient_number
                                 await update_patient_emr_id(pending)
                                 print(f"   💾 Updated patient data with EMR ID: {emr_id}")
                                 # Remove from pending list
@@ -1036,6 +1078,12 @@ async def setup_form_monitor(page, location_id, location_name):
                                 if not pending.get('emr_id'):
                                     print(f"   📝 Assigning EMR ID to most recent pending patient")
                                     pending['emr_id'] = emr_id
+                                    if booking_id:
+                                        pending['booking_id'] = booking_id
+                                    if booking_number:
+                                        pending['booking_number'] = booking_number
+                                    if patient_number:
+                                        pending['patient_number'] = patient_number
                                     await update_patient_emr_id(pending)
                                     print(f"   💾 Updated patient data with EMR ID: {emr_id}")
                                     pending_patients.remove(pending)

@@ -128,5 +128,46 @@
     "reasonForVisit": "fever",
     "sexAtBirth": "Male",
     "captured_at": "2025-11-06T19:17:00.592614"
+  },
+  {
+    "location_id": "AXjwbE",
+    "location_name": "Exer Urgent Care - Demo",
+    "emr_id": "2312261",
+    "legalFirstName": "test 03",
+    "legalLastName": "test 03",
+    "mobilePhone": "(408) 234-8954",
+    "dob": "11/02/1992",
+    "reasonForVisit": "cough",
+    "sexAtBirth": "Male",
+    "captured_at": "2025-11-07T15:48:08.685921"
+  },
+  {
+    "location_id": "AXjwbE",
+    "location_name": "Exer Urgent Care - Demo",
+    "emr_id": "2312262",
+    "booking_number": "2491277",
+    "patient_number": "2312262",
+    "legalFirstName": "test 04",
+    "legalLastName": "test 04",
+    "mobilePhone": "(408) 345-3583",
+    "dob": "03/06/1992",
+    "reasonForVisit": "soar throt",
+    "sexAtBirth": "Male",
+    "captured_at": "2025-11-07T16:01:00.895924"
+  },
+  {
+    "location_id": "AXjwbE",
+    "location_name": "Exer Urgent Care - Demo",
+    "emr_id": "2312263",
+    "booking_id": "0Pa1Z6",
+    "booking_number": "2491280",
+    "patient_number": "2312263",
+    "legalFirstName": "test 05",
+    "legalLastName": "test 05",
+    "mobilePhone": "(408) 394-5934",
+    "dob": "03/04/2005",
+    "reasonForVisit": "cough",
+    "sexAtBirth": "Male",
+    "captured_at": "2025-11-07T16:30:54.881259"
   }
 ]
