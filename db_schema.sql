@@ -27,11 +27,38 @@ CREATE TABLE IF NOT EXISTS patients (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Create pending patients table (staging area before EMR ID is assigned)
+CREATE TABLE IF NOT EXISTS pending_patients (
+    pending_id SERIAL PRIMARY KEY,
+    emr_id VARCHAR(255),
+    booking_id VARCHAR(255),
+    booking_number VARCHAR(255),
+    patient_number VARCHAR(255),
+    location_id VARCHAR(255) NOT NULL,
+    location_name VARCHAR(255),
+    legal_first_name VARCHAR(255),
+    legal_last_name VARCHAR(255),
+    dob VARCHAR(50),
+    mobile_phone VARCHAR(50),
+    sex_at_birth VARCHAR(50),
+    captured_at TIMESTAMP,
+    reason_for_visit TEXT,
+    raw_payload JSONB,
+    status VARCHAR(20) DEFAULT 'pending',
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_patients_emr_id ON patients(emr_id);
 CREATE INDEX IF NOT EXISTS idx_patients_location_id ON patients(location_id);
 CREATE INDEX IF NOT EXISTS idx_patients_captured_at ON patients(captured_at);
 CREATE INDEX IF NOT EXISTS idx_patients_created_at ON patients(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_pending_patients_status ON pending_patients(status);
+CREATE INDEX IF NOT EXISTS idx_pending_patients_created_at ON pending_patients(created_at);
+CREATE INDEX IF NOT EXISTS idx_pending_patients_emr_id ON pending_patients(emr_id);
 
 -- Ensure new columns exist (for legacy tables)
 ALTER TABLE patients
@@ -45,6 +72,26 @@ ALTER TABLE patients
     ADD COLUMN IF NOT EXISTS sex_at_birth VARCHAR(50),
     ADD COLUMN IF NOT EXISTS captured_at TIMESTAMP,
     ADD COLUMN IF NOT EXISTS reason_for_visit TEXT;
+
+ALTER TABLE pending_patients
+    ADD COLUMN IF NOT EXISTS emr_id VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS booking_id VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS booking_number VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS patient_number VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS location_id VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS location_name VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS legal_first_name VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS legal_last_name VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS dob VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS mobile_phone VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS sex_at_birth VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS captured_at TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS reason_for_visit TEXT,
+    ADD COLUMN IF NOT EXISTS raw_payload JSONB,
+    ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending',
+    ADD COLUMN IF NOT EXISTS error_message TEXT,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
 -- Drop legacy columns that are no longer used
 ALTER TABLE patients
@@ -73,6 +120,12 @@ $$ language 'plpgsql';
 DROP TRIGGER IF EXISTS update_patients_updated_at ON patients;
 CREATE TRIGGER update_patients_updated_at
     BEFORE UPDATE ON patients
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_pending_patients_updated_at ON pending_patients;
+CREATE TRIGGER update_pending_patients_updated_at
+    BEFORE UPDATE ON pending_patients
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 

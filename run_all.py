@@ -273,7 +273,7 @@ def main():
     
     # Get configuration
     api_host = os.getenv('API_HOST', '0.0.0.0')
-    api_port = int(os.getenv('API_PORT', '8000'))
+    api_port_preference = int(os.getenv('API_PORT', '8000'))
     wait_for_api_ready = os.getenv('WAIT_FOR_API', 'true').lower() == 'true'
     
     # Process management
@@ -327,28 +327,71 @@ def main():
     print()
     
     # Start API server as subprocess
-    print_api(f"Starting API server on {api_host}:{api_port}...")
-    api_cmd = [
-        sys.executable, '-m', 'uvicorn',
-        'api:app',
-        '--host', api_host,
-        '--port', str(api_port),
-        '--log-level', 'info'
-    ]
-    
-    api_process = subprocess.Popen(
-        api_cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        universal_newlines=True
-    )
-    
+    api_process = None
+    api_stream_thread = None
+    api_port = None
+
+    max_port_attempts = 20
+    for attempt in range(max_port_attempts):
+        candidate_port = api_port_preference + attempt
+
+        if attempt > 0:
+            print_warning(f"Retrying API server on port {candidate_port}...")
+
+        print_api(f"Starting API server on {api_host}:{candidate_port}...")
+        api_cmd = [
+            sys.executable, '-m', 'uvicorn',
+            'api:app',
+            '--host', api_host,
+            '--port', str(candidate_port),
+            '--log-level', 'info'
+        ]
+
+        process = subprocess.Popen(
+            api_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
+
+        time.sleep(0.6)
+
+        if process.poll() is not None:
+            output = process.stdout.read() if process.stdout else ''
+            output_lower = output.lower() if output else ''
+            if 'address already in use' in output_lower:
+                print_warning(
+                    f"Port {candidate_port} is already in use. Trying next available port."
+                )
+                if output:
+                    for line in output.strip().splitlines():
+                        print_api(line)
+                continue
+            else:
+                if output:
+                    for line in output.strip().splitlines():
+                        print_api(line)
+                print_error("API server exited during startup. Please check logs above.")
+                sys.exit(1)
+
+        # Success
+        api_process = process
+        api_port = candidate_port
+        break
+
+    if not api_process or api_port is None:
+        print_error(
+            f"Unable to start API server after {max_port_attempts} attempts."
+        )
+        print_error("Please free a port or set API_PORT to an available value.")
+        sys.exit(1)
+
     # Stream API output
     api_stream_thread = stream_output(api_process, print_api, "API")
     print_api(f"API server started (PID: {api_process.pid})")
-    
+
     # Wait for API to be ready (optional)
     if wait_for_api_ready:
         if not wait_for_api('localhost', api_port):

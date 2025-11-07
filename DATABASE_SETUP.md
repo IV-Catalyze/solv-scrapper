@@ -47,13 +47,19 @@ DB_PASSWORD=postgres
 
 **Note:** Adjust the password if you set a different one during installation.
 
-### Import Patient Data
+### Promote Pending Patient Data
 
-After setting up the database, import your patient data:
+After setting up the database, promote any captured submissions from the staging table:
 
 ```bash
-# Import from JSON file
-python3 save_to_db.py --file patient_data.json --create-tables
+# Process pending patients captured by the monitor (creates tables if needed)
+python3 save_to_db.py --pending --create-tables --on-conflict update
+```
+
+If you still have historical JSON exports to backfill, you can import them with:
+
+```bash
+python3 save_to_db.py --file path/to/legacy_patient_data.json --on-conflict update
 ```
 
 ### Verify Setup

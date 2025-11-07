@@ -21,7 +21,7 @@ from locations import LOCATION_ID_TO_NAME
 # Import database functions
 try:
     import psycopg2
-    from psycopg2.extras import execute_values
+    from psycopg2.extras import Json
     DB_AVAILABLE = True
 except ImportError:
     DB_AVAILABLE = False
@@ -206,6 +206,286 @@ def ensure_db_tables_exist(conn):
         print(f"   ⚠️  Error ensuring tables exist: {e}")
         conn.rollback()
         return False
+
+
+def _serialize_patient_payload(patient_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a JSON-serializable copy of the patient payload."""
+    try:
+        return json.loads(json.dumps(patient_data, default=str))
+    except (TypeError, ValueError):
+        # Fallback: convert datetimes manually
+        serializable = {}
+        for key, value in patient_data.items():
+            if isinstance(value, datetime):
+                serializable[key] = value.isoformat()
+            else:
+                serializable[key] = value
+        return serializable
+
+
+def persist_pending_patient(patient_data: Dict[str, Any]) -> Optional[int]:
+    """Insert a pending patient record and return its pending_id."""
+    if not DB_AVAILABLE:
+        return None
+
+    conn = get_db_connection()
+    if not conn:
+        return None
+
+    try:
+        ensure_db_tables_exist(conn)
+
+        normalized = normalize_patient_record(patient_data)
+        raw_payload = _serialize_patient_payload(patient_data)
+
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO pending_patients (
+                emr_id,
+                booking_id,
+                booking_number,
+                patient_number,
+                location_id,
+                location_name,
+                legal_first_name,
+                legal_last_name,
+                dob,
+                mobile_phone,
+                sex_at_birth,
+                captured_at,
+                reason_for_visit,
+                raw_payload,
+                status
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING pending_id
+            """,
+            (
+                normalized['emr_id'],
+                normalized['booking_id'],
+                normalized['booking_number'],
+                normalized['patient_number'],
+                normalized['location_id'],
+                normalized['location_name'],
+                normalized['legal_first_name'],
+                normalized['legal_last_name'],
+                normalized['dob'],
+                normalized['mobile_phone'],
+                normalized['sex_at_birth'],
+                normalized['captured_at'],
+                normalized['reason_for_visit'],
+                Json(raw_payload),
+                'pending'
+            )
+        )
+        pending_id_row = cursor.fetchone()
+        conn.commit()
+        cursor.close()
+        if pending_id_row:
+            return pending_id_row[0]
+        return None
+    except Exception as e:
+        conn.rollback()
+        print(f"   ❌ Error saving pending patient: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def update_pending_patient_record(
+    patient_data: Dict[str, Any],
+    status: Optional[str] = None,
+    error_message: Optional[str] = None
+) -> bool:
+    """Update an existing pending patient entry."""
+    if not DB_AVAILABLE:
+        return False
+
+    pending_id = patient_data.get('pending_id')
+    if not pending_id:
+        return False
+
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        normalized = normalize_patient_record(patient_data)
+        raw_payload = _serialize_patient_payload(patient_data)
+
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE pending_patients
+            SET emr_id = %s,
+                booking_id = %s,
+                booking_number = %s,
+                patient_number = %s,
+                location_id = %s,
+                location_name = %s,
+                legal_first_name = %s,
+                legal_last_name = %s,
+                dob = %s,
+                mobile_phone = %s,
+                sex_at_birth = %s,
+                captured_at = %s,
+                reason_for_visit = %s,
+                raw_payload = %s,
+                status = COALESCE(%s, status),
+                error_message = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE pending_id = %s
+            """,
+            (
+                normalized['emr_id'],
+                normalized['booking_id'],
+                normalized['booking_number'],
+                normalized['patient_number'],
+                normalized['location_id'],
+                normalized['location_name'],
+                normalized['legal_first_name'],
+                normalized['legal_last_name'],
+                normalized['dob'],
+                normalized['mobile_phone'],
+                normalized['sex_at_birth'],
+                normalized['captured_at'],
+                normalized['reason_for_visit'],
+                Json(raw_payload),
+                status,
+                error_message,
+                pending_id
+            )
+        )
+        updated = cursor.rowcount > 0
+        conn.commit()
+        cursor.close()
+        return updated
+    except Exception as e:
+        conn.rollback()
+        print(f"   ❌ Error updating pending patient: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def mark_pending_patient_status(
+    pending_id: int,
+    status: str,
+    error_message: Optional[str] = None
+) -> bool:
+    """Update only the status/error message for a pending patient."""
+    if not DB_AVAILABLE:
+        return False
+
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE pending_patients
+            SET status = %s,
+                error_message = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE pending_id = %s
+            """,
+            (status, error_message, pending_id)
+        )
+        updated = cursor.rowcount > 0
+        conn.commit()
+        cursor.close()
+        return updated
+    except Exception as e:
+        conn.rollback()
+        print(f"   ❌ Error updating pending patient status: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def find_pending_patient_id(patient_data: Dict[str, Any]) -> Optional[int]:
+    """Attempt to locate the pending patient row matching provided data."""
+    if not DB_AVAILABLE:
+        return None
+
+    conn = get_db_connection()
+    if not conn:
+        return None
+
+    try:
+        cursor = conn.cursor()
+        normalized = normalize_patient_record(patient_data)
+
+        # Prefer exact booking identifiers when available
+        for column in ('booking_id', 'booking_number', 'patient_number'):
+            value = normalized.get(column)
+            if value:
+                cursor.execute(
+                    f"""
+                    SELECT pending_id
+                    FROM pending_patients
+                    WHERE status IN ('pending', 'ready')
+                      AND {column} = %s
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    (value,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    conn.commit()
+                    cursor.close()
+                    return row[0]
+
+        # Fall back to matching by name + captured_at timestamp
+        first = normalized.get('legal_first_name')
+        last = normalized.get('legal_last_name')
+        captured_at = normalized.get('captured_at')
+
+        if first and last and captured_at:
+            cursor.execute(
+                """
+                SELECT pending_id
+                FROM pending_patients
+                WHERE status IN ('pending', 'ready')
+                  AND LOWER(COALESCE(legal_first_name, '')) = LOWER(%s)
+                  AND LOWER(COALESCE(legal_last_name, '')) = LOWER(%s)
+                  AND captured_at = %s
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (first, last, captured_at)
+            )
+            row = cursor.fetchone()
+            if row:
+                conn.commit()
+                cursor.close()
+                return row[0]
+
+        # As a last resort, match by recent pending entries without EMR ID
+        cursor.execute(
+            """
+            SELECT pending_id
+            FROM pending_patients
+            WHERE status IN ('pending', 'ready')
+              AND emr_id IS NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        )
+        row = cursor.fetchone()
+        conn.commit()
+        cursor.close()
+        if row:
+            return row[0]
+        return None
+    except Exception:
+        conn.rollback()
+        return None
+    finally:
+        conn.close()
 
 
 def save_patient_to_db(patient_data: Dict[str, Any], on_conflict: str = 'update') -> bool:
@@ -524,59 +804,41 @@ async def capture_form_data(page):
         return form_data
 
 
-async def save_patient_data(data, output_file="patient_data.json"):
-    """
-    Save patient data to JSON file.
-    
-    Args:
-        data: Dictionary with patient data
-        output_file: Output filename (default: "patient_data.json")
-    """
+async def save_patient_data(data) -> Optional[int]:
+    """Persist patient data to the pending_patients staging table."""
     try:
-        # Use absolute path to ensure we save in the script directory
-        script_dir = Path(__file__).parent.absolute()
-        output_path = script_dir / output_file
-        
-        print(f"   💾 Saving to: {output_path}")
-        
-        # If file exists, load existing data and append
-        if output_path.exists():
-            try:
-                with open(output_path, 'r', encoding='utf-8') as f:
-                    existing_data = json.load(f)
-                    if isinstance(existing_data, list):
-                        existing_data.append(data)
-                        data_to_save = existing_data
-                    else:
-                        data_to_save = [existing_data, data]
-            except json.JSONDecodeError as e:
-                print(f"   ⚠️  JSON decode error, starting fresh: {e}")
-                # If file is corrupted, start fresh
-                data_to_save = [data]
-        else:
-            data_to_save = [data]
-        
-        # Add timestamp to the data
-        data['captured_at'] = datetime.now().isoformat()
-        
-        # Save to file
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(data_to_save, f, indent=2, ensure_ascii=False)
-        
-        print(f"✅ Saved patient data for {data.get('location_name', 'Unknown')}")
-        print(f"   📄 File: {output_path}")
-        print(f"   📊 Total entries: {len(data_to_save)}")
-        
-        # Save to database only when EMR ID is available
+        # Ensure captured_at is set so we can match the record later
+        if not data.get('captured_at'):
+            data['captured_at'] = datetime.now().isoformat()
+
+        print("   💾 Saving patient submission to pending_patients staging table")
+
+        pending_id = persist_pending_patient(data)
+        if not pending_id:
+            print("   ❌ Failed to persist patient submission to database")
+            return None
+
+        data['pending_id'] = pending_id
+        print(f"✅ Pending patient saved (pending_id={pending_id})")
+
         if data.get('emr_id'):
-            save_patient_to_db(data, on_conflict='update')
+            print("   📎 EMR ID already available, saving directly to patients table")
+            saved = save_patient_to_db(data, on_conflict='update')
+            if saved:
+                mark_pending_patient_status(pending_id, 'completed')
+            else:
+                mark_pending_patient_status(pending_id, 'error', 'Failed to upsert into patients table')
         else:
-            print("   ⚠️  Skipping database save (EMR ID not yet available)")
-        
+            mark_pending_patient_status(pending_id, 'pending')
+            print("   ⏳ Waiting for EMR ID before inserting into patients table")
+
+        return pending_id
+
     except Exception as e:
         print(f"❌ Error saving patient data: {e}")
         import traceback
         traceback.print_exc()
+        return None
 
 
 async def setup_form_monitor(page, location_id, location_name):
@@ -624,8 +886,12 @@ async def setup_form_monitor(page, location_id, location_name):
         
         print(f"   Complete data to save: {complete_data}")
         
-        # Save the data first
-        await save_patient_data(complete_data)
+        # Save the data first and capture the pending_id for future updates
+        pending_id = await save_patient_data(complete_data)
+        if not pending_id:
+            print("   ❌ Failed to persist patient submission; skipping EMR monitoring")
+            return
+        complete_data['pending_id'] = pending_id
         
         # Add to pending patients list for EMR ID monitoring
         pending_patients.append(complete_data)
@@ -711,82 +977,36 @@ async def setup_form_monitor(page, location_id, location_name):
             traceback.print_exc()
     
     async def update_patient_emr_id(patient_data):
-        """
-        Update the patient data in the JSON file with the EMR ID.
-        
-        Args:
-            patient_data: Dictionary with patient data including emr_id
-        """
+        """Update the pending record with the EMR ID and promote it to patients table."""
         try:
-            script_dir = Path(__file__).parent.absolute()
-            output_path = script_dir / "patient_data.json"
-            
-            if not output_path.exists():
-                print(f"   ⚠️  JSON file not found, cannot update EMR ID")
+            if not patient_data.get('pending_id'):
+                pending_id = find_pending_patient_id(patient_data)
+                if pending_id:
+                    patient_data['pending_id'] = pending_id
+                else:
+                    print("   ⚠️  Pending record not found for EMR assignment")
+                    return
+
+            pending_id = patient_data['pending_id']
+
+            updated = update_pending_patient_record(patient_data, status='ready')
+            if not updated:
+                print(f"   ⚠️  Failed to update pending patient (pending_id={pending_id}) with EMR ID")
                 return
-            
-            # Load existing data
-            with open(output_path, 'r', encoding='utf-8') as f:
-                existing_data = json.load(f)
-            
-            if not isinstance(existing_data, list):
-                existing_data = [existing_data]
-            
-            # Find the matching patient and update it
-            # Match by first name, last name, and timestamp (most recent match)
-            patient_first_name = patient_data.get('legalFirstName', '').strip()
-            patient_last_name = patient_data.get('legalLastName', '').strip()
-            captured_at = patient_data.get('captured_at', '')
-            
-            updated = False
-            for entry in existing_data:
-                entry_first = entry.get('legalFirstName', '').strip()
-                entry_last = entry.get('legalLastName', '').strip()
-                entry_time = entry.get('captured_at', '')
-                
-                # Match by name and if EMR ID is not already set
-                if (entry_first == patient_first_name and 
-                    entry_last == patient_last_name and 
-                    not entry.get('emr_id') and
-                    entry_time == captured_at):
-                    entry['emr_id'] = patient_data.get('emr_id', '')
-                    if patient_data.get('booking_id'):
-                        entry['booking_id'] = patient_data.get('booking_id', '')
-                    if patient_data.get('patient_number'):
-                        entry['patient_number'] = patient_data.get('patient_number', '')
-                    if patient_data.get('booking_number'):
-                        entry['booking_number'] = patient_data.get('booking_number', '')
-                    updated = True
-                    break
-            
-            # If no match found, add it as a new entry or update the most recent one
-            if not updated and existing_data:
-                # Update the most recent entry that doesn't have an EMR ID
-                for entry in reversed(existing_data):
-                    if not entry.get('emr_id'):
-                        entry['emr_id'] = patient_data.get('emr_id', '')
-                        if patient_data.get('booking_id'):
-                            entry['booking_id'] = patient_data.get('booking_id', '')
-                        if patient_data.get('patient_number'):
-                            entry['patient_number'] = patient_data.get('patient_number', '')
-                        if patient_data.get('booking_number'):
-                            entry['booking_number'] = patient_data.get('booking_number', '')
-                        updated = True
-                        break
-            
-            if updated:
-                # Save updated data
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    json.dump(existing_data, f, indent=2, ensure_ascii=False)
-                print(f"   ✅ Updated JSON file with EMR ID")
-                
-                # Save to database with updated EMR ID
-                save_patient_to_db(patient_data, on_conflict='update')
+
+            saved = save_patient_to_db(patient_data, on_conflict='update')
+            if saved:
+                mark_pending_patient_status(pending_id, 'completed')
+                print(f"   ✅ Pending patient promoted to patients table (pending_id={pending_id})")
             else:
-                print(f"   ⚠️  Could not find matching patient entry to update")
-                
+                mark_pending_patient_status(pending_id, 'error', 'Failed to upsert into patients table after EMR assignment')
+                print(f"   ❌ Failed to insert pending patient into patients table (pending_id={pending_id})")
+
         except Exception as e:
-            print(f"   ❌ Error updating EMR ID in JSON: {e}")
+            pending_id = patient_data.get('pending_id')
+            if pending_id:
+                mark_pending_patient_status(pending_id, 'error', str(e))
+            print(f"   ❌ Error updating EMR ID in database: {e}")
             import traceback
             traceback.print_exc()
     

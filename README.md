@@ -9,7 +9,7 @@ This project captures patient form data in real-time when the "Add Patient" form
 - Monitors for form submissions
 - Captures all form field data (name, phone, DOB, reason for visit, etc.)
 - Tracks EMR ID assignment from API responses
-- Saves data to JSON file and PostgreSQL database
+- Persists submissions to a PostgreSQL staging table and promotes them once an EMR ID is assigned
 
 ## Features
 
@@ -22,7 +22,7 @@ This project captures patient form data in real-time when the "Add Patient" form
   - Sex at birth
   - Location information
 - **EMR ID Tracking**: Monitors API responses to capture EMR IDs when assigned
-- **Data Storage**: Saves to both JSON file (`patient_data.json`) and PostgreSQL database
+- **Data Storage**: Writes every submission to the `pending_patients` staging table and promotes it to `patients` once an EMR ID is available
 - **Location Management**: Supports multiple locations via location mapping
 
 ## Installation
@@ -85,7 +85,7 @@ The script will:
 1. Open a browser window and navigate to the Solvhealth queue page
 2. Set up form monitoring
 3. Wait for you to submit patient forms
-4. Automatically capture and save form data when forms are submitted
+4. Automatically capture and persist form data when forms are submitted
 
 ### Instructions
 
@@ -97,30 +97,12 @@ The script will:
 
 ## Output
 
-### JSON File
-
-Patient data is saved to `patient_data.json` in JSON format:
-
-```json
-[
-  {
-    "location_id": "AXjwbE",
-    "location_name": "Exer Urgent Care - Demo",
-    "legalFirstName": "John",
-    "legalLastName": "Doe",
-    "mobilePhone": "(555) 123-4567",
-    "dob": "01/15/1990",
-    "reasonForVisit": "General checkup",
-    "sexAtBirth": "Male",
-    "emr_id": "12345",
-    "captured_at": "2024-01-15T10:30:00"
-  }
-]
-```
-
 ### Database
 
-If configured, data is also saved to PostgreSQL database in the `patients` table.
+- Every captured submission is inserted into the `pending_patients` staging table immediately, even before an EMR ID exists.
+- Background monitoring tasks update the staging row as soon as an EMR ID is detected.
+- Once an EMR ID is present, the record is upserted into the primary `patients` table.
+- The `save_to_db.py` utility can be used at any time to reprocess pending rows.
 
 ## Requirements
 
@@ -157,7 +139,6 @@ The script will extract the `location_ids` parameter from the URL. See `location
 - `save_to_db.py` - Database saving utilities
 - `locations.py` - Location ID to name mapping
 - `db_schema.sql` - Database schema
-- `patient_data.json` - Output file for captured form data
 
 ## License
 

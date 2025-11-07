@@ -70,40 +70,34 @@ EOF
 
 ## Usage
 
-### Save patient_data.json to database
+### Process pending patients captured by monitor
 
 ```bash
-python save_to_db.py
+python save_to_db.py --pending --on-conflict update
 ```
 
-### Save a specific JSON file
+### Include pending patients that do not yet have an EMR ID (for troubleshooting)
 
 ```bash
-python save_to_db.py --file patient_data.json
+python save_to_db.py --pending --include-pending-without-emr
 ```
 
-### Save all JSON files from scraped-data directory
+### Import a specific legacy JSON file
 
 ```bash
-python save_to_db.py --all
+python save_to_db.py --file path/to/legacy_patient_data.json --on-conflict update
 ```
 
-### Save files from a custom directory
+### Import all JSON files from a directory
 
 ```bash
-python save_to_db.py --all --directory /path/to/json/files
+python save_to_db.py --all --directory /path/to/json/files --on-conflict update
 ```
 
-### Create tables and import data
+### Create tables and process pending patients in one step
 
 ```bash
-python save_to_db.py --create-tables --all
-```
-
-### Update existing records on conflict
-
-```bash
-python save_to_db.py --all --on-conflict update
+python save_to_db.py --pending --create-tables
 ```
 
 ## Command Line Options

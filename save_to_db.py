@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Save JSON patient data to PostgreSQL database.
+Utilities for promoting patient records to PostgreSQL.
+
+Supports importing historical JSON files as well as processing
+pending records captured by the monitor script.
 """
 
 import json
@@ -245,6 +248,154 @@ def insert_patients(conn, patients: List[Dict[str, Any]], on_conflict: str = 'ig
         raise
 
 
+def fetch_pending_patients(
+    conn,
+    statuses: Optional[List[str]] = None,
+    include_without_emr: bool = False
+) -> List[Dict[str, Any]]:
+    """Load pending patients from staging table."""
+    if statuses is None:
+        statuses = ['pending', 'ready']
+
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT pending_id,
+               emr_id,
+               booking_id,
+               booking_number,
+               patient_number,
+               location_id,
+               location_name,
+               legal_first_name,
+               legal_last_name,
+               dob,
+               mobile_phone,
+               sex_at_birth,
+               captured_at,
+               reason_for_visit,
+               raw_payload,
+               status
+        FROM pending_patients
+        WHERE status = ANY(%s)
+        ORDER BY created_at
+        """,
+        (statuses,)
+    )
+
+    rows = cursor.fetchall()
+    cursor.close()
+
+    pending_records: List[Dict[str, Any]] = []
+    for (
+        pending_id,
+        emr_id,
+        booking_id,
+        booking_number,
+        patient_number,
+        location_id,
+        location_name,
+        legal_first_name,
+        legal_last_name,
+        dob,
+        mobile_phone,
+        sex_at_birth,
+        captured_at,
+        reason_for_visit,
+        raw_payload,
+        status,
+    ) in rows:
+        if isinstance(raw_payload, dict):
+            payload = raw_payload.copy()
+        else:
+            try:
+                payload = json.loads(raw_payload) if raw_payload else {}
+            except (TypeError, json.JSONDecodeError):
+                payload = {}
+
+        payload.setdefault('emr_id', emr_id)
+        payload.setdefault('booking_id', booking_id)
+        payload.setdefault('booking_number', booking_number)
+        payload.setdefault('patient_number', patient_number)
+        payload.setdefault('location_id', location_id)
+        payload.setdefault('location_name', location_name)
+        payload.setdefault('legalFirstName', legal_first_name)
+        payload.setdefault('legalLastName', legal_last_name)
+        payload.setdefault('dob', dob)
+        payload.setdefault('mobilePhone', mobile_phone)
+        payload.setdefault('sexAtBirth', sex_at_birth)
+        if captured_at and not payload.get('captured_at'):
+            payload['captured_at'] = captured_at.isoformat()
+        if reason_for_visit and not payload.get('reasonForVisit'):
+            payload['reasonForVisit'] = reason_for_visit
+
+        payload['pending_id'] = pending_id
+        payload['pending_status'] = status
+
+        if not include_without_emr and not payload.get('emr_id'):
+            continue
+
+        pending_records.append(payload)
+
+    return pending_records
+
+
+def mark_pending_records(
+    conn,
+    pending_ids: List[int],
+    status: str,
+    error_message: Optional[str] = None
+) -> None:
+    """Update status for a batch of pending patient records."""
+    if not pending_ids:
+        return
+
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE pending_patients
+        SET status = %s,
+            error_message = %s,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE pending_id = ANY(%s)
+        """,
+        (status, error_message, pending_ids)
+    )
+    conn.commit()
+    cursor.close()
+
+
+def process_pending_patients(
+    on_conflict: str = 'update',
+    include_without_emr: bool = False
+) -> int:
+    """Process pending patients and promote them to the patients table."""
+    conn = get_db_connection()
+    try:
+        create_tables(conn)
+
+        pending_records = fetch_pending_patients(conn, include_without_emr=include_without_emr)
+        if not pending_records:
+            print("No pending patients found with EMR IDs ready for import.")
+            return 0
+
+        print(f"Found {len(pending_records)} pending patient(s) ready for import")
+
+        inserted = insert_patients(conn, pending_records, on_conflict=on_conflict)
+        if inserted:
+            print(f"✅ Inserted/updated {inserted} patient(s) from pending staging table")
+        else:
+            print("⚠️  No pending patient records were inserted (missing EMR IDs?)")
+
+        pending_ids = [record['pending_id'] for record in pending_records if record.get('emr_id')]
+        if pending_ids:
+            mark_pending_records(conn, pending_ids, 'completed')
+
+        return inserted
+    finally:
+        conn.close()
+
+
 def save_json_to_db(json_file: Path, on_conflict: str = 'ignore'):
     """Save a single JSON file to database."""
     print(f"Processing {json_file.name}...")
@@ -341,6 +492,16 @@ def main():
         help='Create database tables before importing'
     )
     parser.add_argument(
+        '--pending',
+        action='store_true',
+        help='Process pending patients from the staging table (default when no file options provided)'
+    )
+    parser.add_argument(
+        '--include-pending-without-emr',
+        action='store_true',
+        help='Include pending patients without EMR IDs when processing the staging table'
+    )
+    parser.add_argument(
         '--on-conflict',
         choices=['ignore', 'update'],
         default='ignore',
@@ -359,30 +520,34 @@ def main():
             conn.close()
         print()
     
-    # Process files
+    # Process pending records by default unless file options are explicitly provided
+    ran_action = False
+
+    if args.pending or not (args.file or args.all):
+        process_pending_patients(
+            on_conflict=args.on_conflict,
+            include_without_emr=args.include_pending_without_emr
+        )
+        ran_action = True
+
     if args.file:
-        # Process single file
         json_file = Path(args.file)
         if not json_file.exists():
             print(f"Error: File not found: {json_file}")
             sys.exit(1)
         save_json_to_db(json_file, on_conflict=args.on_conflict)
-    elif args.all:
-        # Process all files in directory
+        ran_action = True
+
+    if args.all:
         directory = Path(args.directory)
         if not directory.exists():
             print(f"Error: Directory not found: {directory}")
             sys.exit(1)
         save_all_json_files(directory, on_conflict=args.on_conflict)
-    else:
-        # Default: process patient_data.json
-        json_file = Path('patient_data.json')
-        if json_file.exists():
-            save_json_to_db(json_file, on_conflict=args.on_conflict)
-        else:
-            print("Error: No file specified and patient_data.json not found.")
-            print("Use --file to specify a file, --all to process all files, or --help for more options.")
-            sys.exit(1)
+        ran_action = True
+
+    if not ran_action:
+        print("Nothing to do. Use --help to see available options.")
 
 
 if __name__ == '__main__':
