@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Patient Queue</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
+        crossorigin="anonymous"
+    >
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg: radial-gradient(circle at top, #eef2ff 0%, #f8fafc 45%, #ffffff 100%);
+            --panel: rgba(255, 255, 255, 0.82);
+            --panel-border: rgba(148, 163, 184, 0.25);
+            --text: #0f172a;
+            --muted: #475569;
+            --accent: #2563eb;
+            --accent-soft: rgba(37, 99, 235, 0.12);
+            --soft-shadow: 0 25px 40px -25px rgba(15, 23, 42, 0.45);
+            --radius-lg: 20px;
+            --radius-md: 14px;
+            --field-bg: #ffffff;
+            --field-border: rgba(148, 163, 184, 0.35);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: radial-gradient(circle at top, #0f172a 0%, #1e293b 45%, #020617 100%);
+                --panel: rgba(15, 23, 42, 0.85);
+                --panel-border: rgba(148, 163, 184, 0.12);
+                --text: #e2e8f0;
+                --muted: #94a3b8;
+                --accent: #60a5fa;
+                --accent-soft: rgba(96, 165, 250, 0.16);
+                --soft-shadow: 0 25px 50px -25px rgba(15, 23, 42, 0.75);
+                --field-bg: rgba(15, 23, 42, 0.92);
+                --field-border: rgba(148, 163, 184, 0.25);
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            min-height: 100vh;
+            background-image: var(--bg);
+            color: var(--text);
+            line-height: 1.55;
+            padding: 0 1.5rem 3rem;
+        }
+
+        .page {
+            max-width: 1180px;
+            margin: 0 auto;
+        }
+
+        .hero {
+            display: grid;
+            gap: 1.5rem;
+            padding: 2.75rem 3rem;
+            margin-top: 3.5rem;
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--soft-shadow);
+            backdrop-filter: blur(24px);
+        }
+
+        .hero__title {
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        .hero__title h1 {
+            margin: 0;
+            font-size: clamp(2rem, 4vw, 2.8rem);
+            font-weight: 700;
+            letter-spacing: -0.03em;
+        }
+
+        .hero__meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.4rem 0.9rem;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+        }
+
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: flex-end;
+            margin: 2rem 0 1.5rem;
+            padding: 1.5rem 2rem;
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--soft-shadow);
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .filter-group label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .filters .dropdown {
+            position: relative;
+        }
+
+        .filters .dropdown .btn {
+            font: inherit;
+            padding: 0.55rem 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--field-border);
+            background: var(--field-bg);
+            color: var(--text);
+            min-width: 220px;
+        }
+
+        .filters .dropdown .btn:hover,
+        .filters .dropdown .btn:focus {
+            border-color: var(--accent);
+            color: var(--text);
+        }
+
+        .filters .dropdown-menu {
+            display: none;
+            position: absolute;
+            top: calc(100% + 0.4rem);
+            left: 0;
+            min-width: 240px;
+            padding: 0.5rem 0;
+            margin: 0;
+            background: var(--field-bg);
+            border: 1px solid var(--field-border);
+            border-radius: 12px;
+            box-shadow: var(--soft-shadow);
+            list-style: none;
+            max-height: 260px;
+            overflow-y: auto;
+            z-index: 20;
+        }
+
+        .filters .dropdown-menu.show {
+            display: block;
+        }
+
+        .filters .dropdown-menu .dropdown-item {
+            display: block;
+            padding: 0.45rem 1rem;
+            color: var(--text);
+            text-decoration: none;
+        }
+
+        .filters .dropdown-menu .dropdown-item.active,
+        .filters .dropdown-menu .dropdown-item:hover {
+            background: var(--accent-soft);
+            color: var(--accent);
+        }
+
+        .actions {
+            margin-left: auto;
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        button,
+        .reset-link {
+            font: inherit;
+            border-radius: 12px;
+            padding: 0.65rem 1.4rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        button {
+            background: var(--accent);
+            color: #ffffff;
+            box-shadow: 0 15px 30px -18px rgba(37, 99, 235, 0.75);
+        }
+
+        .reset-link {
+            background: transparent;
+            color: var(--muted);
+            text-decoration: none;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+        }
+
+        .card {
+            background: var(--panel);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--panel-border);
+            box-shadow: var(--soft-shadow);
+            overflow: hidden;
+            backdrop-filter: blur(18px);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: rgba(37, 99, 235, 0.08);
+        }
+
+        th, td {
+            padding: 1rem 1.5rem;
+            text-align: left;
+            font-size: 0.95rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+            vertical-align: top;
+        }
+
+        th {
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-size: 0.75rem;
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        tbody tr:hover {
+            background: rgba(37, 99, 235, 0.05);
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+
+        .empty-state {
+            padding: 3.5rem 2rem;
+            text-align: center;
+            color: var(--muted);
+            font-size: 1rem;
+        }
+
+        .footer-note {
+            margin-top: 1.75rem;
+            color: var(--muted);
+            font-size: 0.85rem;
+            text-align: center;
+        }
+
+        @media (max-width: 960px) {
+            body {
+                padding: 0 1rem 2rem;
+            }
+
+            .hero {
+                padding: 2rem;
+                margin-top: 2.25rem;
+            }
+
+            .filters {
+                padding: 1.25rem;
+            }
+
+            table {
+                display: block;
+                overflow-x: auto;
+                white-space: nowrap;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+    {% set location_label = "All Locations" %}
+    {% if location_id %}
+        {% set candidate = (locations | selectattr('location_id', 'equalto', location_id) | list) %}
+        {% if candidate and candidate[0].location_name %}
+            {% set location_label = candidate[0].location_name %}
+        {% else %}
+            {% set location_label = "Location " ~ location_id %}
+        {% endif %}
+    {% endif %}
+
+    <section class="hero">
+        <div class="hero__title">
+            <h1>Patient Queue</h1>
+            <div class="hero__meta">
+                <span class="pill">{{ location_label }}</span>
+                <span>{{ patients|length }} record{{ patients|length != 1 and 's' or '' }}</span>
+                {% if limit %}
+                    <span>Showing up to {{ limit }} results</span>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <form class="filters" method="get" action="{{ request.url.path }}">
+        <div class="filter-group">
+            <label for="locationDropdown">Location</label>
+            <div class="dropdown">
+                <input type="hidden" name="locationId" id="locationIdInput" value="{{ location_id or '' }}">
+                <button
+                    class="btn btn-outline-secondary dropdown-toggle"
+                    type="button"
+                    id="locationDropdown"
+                    data-bs-toggle="dropdown"
+                    aria-expanded="false"
+                >
+                    {{ location_label }}
+                </button>
+                <ul class="dropdown-menu" aria-labelledby="locationDropdown">
+                    <li>
+                        <a
+                            class="dropdown-item {% if not location_id %}active{% endif %}"
+                            href="#"
+                            data-location-option
+                            data-value=""
+                            data-label="All Locations"
+                        >
+                            All locations
+                        </a>
+                    </li>
+                    {% for loc in locations %}
+                        <li>
+                            <a
+                                class="dropdown-item {% if loc.location_id == location_id %}active{% endif %}"
+                                href="#"
+                                data-location-option
+                                data-value="{{ loc.location_id }}"
+                                data-label="{{ loc.location_name or loc.location_id }}"
+                            >
+                                {{ loc.location_name or loc.location_id }}
+                            </a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        {% if limit %}
+            <input type="hidden" name="limit" value="{{ limit }}">
+        {% endif %}
+
+        <div class="actions">
+            <button type="submit">Apply Filters</button>
+            {% if location_id %}
+                <a class="reset-link" href="{{ request.url.path }}">Reset</a>
+            {% endif %}
+        </div>
+    </form>
+
+    <section class="card">
+        {% if patients %}
+            <table>
+                <thead>
+                <tr>
+                    <th>EMR ID</th>
+                    <th>Patient</th>
+                    <th>Visit Details</th>
+                    <th>Location</th>
+                    <th>Captured</th>
+                    <th>Contact</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for patient in patients %}
+                    <tr>
+                        <td>
+                            <strong>{{ patient.emr_id or "—" }}</strong>
+                        </td>
+                        <td>
+                            <strong>{{ patient.legalFirstName }} {{ patient.legalLastName }}</strong><br>
+                            {% if patient.dob %}
+                                <span class="muted">DOB {{ patient.dob }}</span><br>
+                            {% endif %}
+                            {% if patient.sexAtBirth %}
+                                <span class="muted">Sex at birth: {{ patient.sexAtBirth }}</span><br>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if patient.reasonForVisit %}
+                                {{ patient.reasonForVisit }}
+                            {% else %}
+                                <span class="muted">Reason not provided</span>
+                            {% endif %}
+                            {% if patient.booking_number %}
+                                <div class="muted">Booking #{{ patient.booking_number }}</div>
+                            {% endif %}
+                            {% if patient.appointment_date %}
+                                <div class="muted">Appt: {{ patient.appointment_date }}</div>
+                            {% elif patient.appointment_date_at_clinic_tz %}
+                                <div class="muted">Clinic Time: {{ patient.appointment_date_at_clinic_tz }}</div>
+                            {% elif patient.calendar_date %}
+                                <div class="muted">Calendar: {{ patient.calendar_date }}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if patient.location_name %}
+                                {{ patient.location_name }}
+                            {% else %}
+                                <span class="muted">{{ patient.location_id or "—" }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if patient.captured_display %}
+                                {{ patient.captured_display }}
+                            {% elif patient.captured_at %}
+                                {{ patient.captured_at }}
+                            {% else %}
+                                <span class="muted">Not captured</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if patient.mobilePhone %}
+                                {{ patient.mobilePhone }}
+                            {% else %}
+                                <span class="muted">No phone on file</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="empty-state">
+                No patients match the current filters. Try selecting a different location.
+            </div>
+        {% endif %}
+    </section>
+
+    <div class="footer-note">
+        Data provided by the `/patients` API endpoint.
+    </div>
+</div>
+<script>
+    (function () {
+        const dropdownButton = document.getElementById("locationDropdown");
+        const hiddenInput = document.getElementById("locationIdInput");
+        const dropdownMenu = document.querySelector(".filters .dropdown-menu");
+        if (!dropdownButton || !hiddenInput) {
+            return;
+        }
+
+        const items = document.querySelectorAll("[data-location-option]");
+        const updateButtonLabel = (label) => {
+            dropdownButton.textContent = label;
+        };
+
+        const closeMenu = () => {
+            dropdownButton.setAttribute("aria-expanded", "false");
+            dropdownMenu && dropdownMenu.classList.remove("show");
+        };
+
+        dropdownButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            const expanded = dropdownButton.getAttribute("aria-expanded") === "true";
+            dropdownButton.setAttribute("aria-expanded", expanded ? "false" : "true");
+            dropdownMenu && dropdownMenu.classList.toggle("show", !expanded);
+        });
+
+        items.forEach((item) => {
+            item.addEventListener("click", (event) => {
+                event.preventDefault();
+                const value = item.dataset.value || "";
+                const label = item.dataset.label || item.textContent.trim();
+                hiddenInput.value = value;
+                updateButtonLabel(label);
+                items.forEach((node) => node.classList.remove("active"));
+                item.classList.add("active");
+                closeMenu();
+            });
+        });
+
+        document.addEventListener("click", (event) => {
+            const dropdown = document.querySelector(".filters .dropdown");
+            if (!dropdown || dropdown.contains(event.target)) {
+                return;
+            }
+            closeMenu();
+        });
+    })();
+</script>
+</body>
+</html>
+

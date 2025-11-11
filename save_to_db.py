@@ -11,7 +11,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set, Tuple
 
 try:
     import psycopg2
@@ -109,9 +109,119 @@ def normalize_timestamp(timestamp_str: str) -> Optional[datetime]:
     return None
 
 
+def _sanitize_emr_value(value: Any) -> Optional[str]:
+    """Convert a raw EMR value into a cleaned string."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int,)):
+        text = str(value)
+    elif isinstance(value, float):
+        if value.is_integer():
+            text = str(int(value))
+        else:
+            text = f"{value}".rstrip("0").rstrip(".")
+    else:
+        text = str(value)
+    text = text.strip()
+    return text or None
+
+
+def extract_emr_id(record: Any) -> Optional[str]:
+    """
+    Attempt to extract an EMR ID from a nested patient payload.
+    Prioritises direct EMR fields, then integration status metadata,
+    then patient match details, finally falling back to any key that
+    looks like an EMR field.
+    """
+    if not isinstance(record, (dict, list)):
+        return None
+
+    candidates: List[Tuple[int, str]] = []
+    visited: Set[int] = set()
+
+    priority_fields = (
+        ("emr_id", 0),
+        ("emrId", 0),
+        ("emrID", 0),
+        ("emrid", 0),
+    )
+
+    def add_candidate(raw: Any, priority: int) -> None:
+        cleaned = _sanitize_emr_value(raw)
+        if cleaned:
+            candidates.append((priority, cleaned))
+
+    def walk(node: Any, depth: int = 0) -> None:
+        node_id = id(node)
+        if node_id in visited:
+            return
+        visited.add(node_id)
+
+        if isinstance(node, dict):
+            # Direct priority fields
+            for field, base_priority in priority_fields:
+                if field in node:
+                    add_candidate(node.get(field), base_priority + depth)
+
+            # Explicit integration status structure
+            integration = node.get("integration_status") or node.get("integrationStatus")
+            if isinstance(integration, list):
+                for item in integration:
+                    if isinstance(item, dict):
+                        add_candidate(item.get("emr_id") or item.get("emrId"), 2 + depth)
+                        requests = item.get("requests")
+                        if isinstance(requests, list):
+                            for request in requests:
+                                if isinstance(request, dict):
+                                    add_candidate(
+                                        request.get("patient_number")
+                                        or request.get("patientNumber")
+                                        or request.get("emr_id")
+                                        or request.get("emrId"),
+                                        6 + depth,
+                                    )
+
+            # Patient match details
+            patient_match = node.get("patient_match_details") or node.get("patientMatchDetails")
+            if isinstance(patient_match, dict):
+                add_candidate(patient_match.get("external_user_profile_id"), 4 + depth)
+                add_candidate(patient_match.get("patient_number") or patient_match.get("patientNumber"), 7 + depth)
+
+            # Raw payload nested data
+            raw_payload = node.get("raw_payload")
+            if isinstance(raw_payload, (dict, list)):
+                walk(raw_payload, depth + 1)
+
+            # General heuristic scan
+            for key, value in node.items():
+                key_lower = str(key).lower()
+                if any(token in key_lower for token in ("emr_id", "emrid")):
+                    add_candidate(value, 3 + depth)
+                elif key_lower in {"external_user_profile_id", "patient_number", "patientnumber"}:
+                    add_candidate(value, 8 + depth)
+
+                if key not in {"integration_status", "integrationStatus", "patient_match_details", "patientMatchDetails", "raw_payload"}:
+                    if isinstance(value, (dict, list)):
+                        walk(value, depth + 1)
+
+        elif isinstance(node, list):
+            for item in node:
+                walk(item, depth + 1)
+
+    walk(record, 0)
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
+
+
 def normalize_patient_record(record: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize patient record for database insertion."""
-    emr_id = record.get('emrId') or record.get('emr_id') or record.get('emrID')
+    emr_id = extract_emr_id(record)
 
     normalized = {
         'emr_id': emr_id.strip() if isinstance(emr_id, str) else emr_id,
@@ -179,6 +289,7 @@ def insert_patients(conn, patients: List[Dict[str, Any]], on_conflict: str = 'ig
             patient_number,
             location_id,
             location_name,
+            status,
             legal_first_name,
             legal_last_name,
             dob,
@@ -202,6 +313,7 @@ def insert_patients(conn, patients: List[Dict[str, Any]], on_conflict: str = 'ig
                 location_name = EXCLUDED.location_name,
                 legal_first_name = EXCLUDED.legal_first_name,
                 legal_last_name = EXCLUDED.legal_last_name,
+            status = COALESCE(EXCLUDED.status, patients.status),
                 dob = EXCLUDED.dob,
                 mobile_phone = EXCLUDED.mobile_phone,
                 sex_at_birth = EXCLUDED.sex_at_birth,
@@ -215,6 +327,39 @@ def insert_patients(conn, patients: List[Dict[str, Any]], on_conflict: str = 'ig
         normalized = normalize_patient_record(patient)
         if not normalized.get('emr_id'):
             continue
+        # Attempt to keep EMR IDs in sync with existing booking/patient identifiers
+        lookup_fields: List[Tuple[str, Optional[str]]] = [
+            ("booking_id", normalized.get('booking_id')),
+            ("booking_number", normalized.get('booking_number')),
+            ("patient_number", normalized.get('patient_number')),
+        ]
+        for column, value in lookup_fields:
+            if not value:
+                continue
+            cursor.execute(
+                f"""
+                SELECT id, emr_id
+                FROM patients
+                WHERE {column} = %s
+                ORDER BY updated_at DESC NULLS LAST, captured_at DESC NULLS LAST
+                LIMIT 1
+                """,
+                (value,)
+            )
+            existing = cursor.fetchone()
+            if existing:
+                existing_id, existing_emr = existing
+                if existing_emr != normalized['emr_id']:
+                    cursor.execute(
+                        """
+                        UPDATE patients
+                        SET emr_id = %s,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = %s
+                        """,
+                        (normalized['emr_id'], existing_id)
+                    )
+                break
         values.append((
             normalized['emr_id'],
             normalized['booking_id'],
@@ -222,6 +367,7 @@ def insert_patients(conn, patients: List[Dict[str, Any]], on_conflict: str = 'ig
             normalized['patient_number'],
             normalized['location_id'],
             normalized['location_name'],
+            normalized['status'],
             normalized['legal_first_name'],
             normalized['legal_last_name'],
             normalized['dob'],

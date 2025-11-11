@@ -9,8 +9,10 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 try:
-    from fastapi import FastAPI, HTTPException
-    from fastapi.responses import JSONResponse
+    from fastapi import FastAPI, HTTPException, Query, Request
+    from fastapi.responses import HTMLResponse, JSONResponse
+    from fastapi.templating import Jinja2Templates
+    from pydantic import BaseModel, Field
     import psycopg2
     from psycopg2.extras import RealDictCursor
 except ImportError:
@@ -23,11 +25,273 @@ try:
 except ImportError:
     pass  # dotenv is optional
 
+from pathlib import Path
+
 app = FastAPI(
     title="Patient Data API",
-    description="API to access patient records from the database",
-    version="1.0.0"
+    description=(
+        "Endpoints for retrieving patient queue data rendered in the dashboard UI or consumed as JSON. "
+        "Filters and response fields mirror the helpers defined in `api.py`, such as "
+        "`prepare_dashboard_patients`, `build_patient_payload`, and `decorate_patient_payload`."
+    ),
+    version="1.0.0",
+    openapi_tags=[
+        {"name": "Dashboard", "description": "Server-rendered views for the patient queue."},
+        {"name": "Patients", "description": "JSON APIs for querying patient records and queue data."},
+    ],
 )
+
+templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+def normalize_status(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        return normalized or None
+    return None
+
+
+def parse_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return datetime.min
+        # Handle trailing Z (Zulu time) which datetime.fromisoformat can't parse directly
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            return datetime.fromisoformat(text)
+        except ValueError:
+            pass
+    return datetime.min
+
+DEFAULT_STATUSES = ["checked_in", "confirmed"]
+
+
+class PatientPayload(BaseModel):
+    """Schema describing the normalized patient payload returned by the API."""
+
+    emr_id: Optional[str] = Field(None, description="EMR identifier for the patient.")
+    booking_id: Optional[str] = Field(None, description="Internal booking identifier.")
+    booking_number: Optional[str] = Field(None, description="Human-readable booking number.")
+    patient_number: Optional[str] = Field(None, description="Clinic-specific patient number.")
+    location_id: Optional[str] = Field(None, description="Unique identifier for the clinic location.")
+    location_name: Optional[str] = Field(None, description="Display name of the clinic location.")
+    legalFirstName: Optional[str] = Field(None, description="Patient legal first name.")
+    legalLastName: Optional[str] = Field(None, description="Patient legal last name.")
+    dob: Optional[str] = Field(None, description="Date of birth in ISO 8601 format.")
+    mobilePhone: Optional[str] = Field(None, description="Primary phone number on file.")
+    sexAtBirth: Optional[str] = Field(None, description="Sex at birth or recorded gender marker.")
+    captured_at: Optional[str] = Field(None, description="Timestamp indicating when the record was captured.")
+    reasonForVisit: Optional[str] = Field(None, description="Reason provided for the visit.")
+    created_at: Optional[str] = Field(None, description="Record creation timestamp.")
+    updated_at: Optional[str] = Field(None, description="Record last update timestamp.")
+    status: Optional[str] = Field(None, description="Current queue status for the patient.")
+    appointment_date: Optional[str] = Field(None, description="Scheduled appointment date (if provided).")
+    appointment_date_at_clinic_tz: Optional[str] = Field(
+        None, description="Appointment date/time localized to the clinic timezone."
+    )
+    calendar_date: Optional[str] = Field(None, description="Calendar date associated with the visit.")
+    status_class: Optional[str] = Field(None, description="Normalized status (lowercase/underscored) for styling.")
+    status_label: Optional[str] = Field(None, description="Human-friendly status label.")
+    captured_display: Optional[str] = Field(None, description="Formatted capture timestamp for UI display.")
+    source: Optional[str] = Field(None, description="Origin of the record (e.g., 'confirmed', 'pending').")
+
+    class Config:
+        extra = "allow"
+
+
+def fetch_locations(cursor) -> List[Dict[str, Optional[str]]]:
+    cursor.execute(
+        """
+        SELECT DISTINCT
+            location_id,
+            location_name
+        FROM (
+            SELECT location_id, location_name FROM pending_patients WHERE location_id IS NOT NULL
+            UNION
+            SELECT location_id, location_name FROM patients WHERE location_id IS NOT NULL
+        ) AS combined
+        ORDER BY location_name NULLS LAST, location_id
+        """
+    )
+    rows = cursor.fetchall()
+    locations: List[Dict[str, Optional[str]]] = []
+    for row in rows:
+        loc_id = row.get("location_id")
+        if not loc_id:
+            continue
+        locations.append(
+            {
+                "location_id": loc_id,
+                "location_name": row.get("location_name"),
+            }
+        )
+    return locations
+
+
+def fetch_pending_records(
+    cursor,
+    location_id: Optional[str],
+    limit: Optional[int],
+) -> List[Dict[str, Any]]:
+    query = """
+        SELECT 
+            pending_id AS id,
+            emr_id,
+            booking_id,
+            booking_number,
+            patient_number,
+            location_id,
+            location_name,
+            legal_first_name,
+            legal_last_name,
+            dob,
+            mobile_phone,
+            sex_at_birth,
+            captured_at,
+            reason_for_visit,
+            created_at,
+            updated_at,
+            raw_payload,
+            status,
+            raw_payload->>'status' AS patient_status,
+            raw_payload->>'appointment_date' AS appointment_date,
+            raw_payload->>'appointment_date_at_clinic_tz' AS appointment_date_at_clinic_tz,
+            raw_payload->>'calendar_date' AS calendar_date
+        FROM pending_patients
+    """
+
+    conditions: List[str] = []
+    params: List[Any] = []
+
+    if location_id:
+        conditions.append("location_id = %s")
+        params.append(location_id)
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    query += " ORDER BY captured_at DESC NULLS LAST, updated_at DESC"
+
+    if limit is not None:
+        query += " LIMIT %s"
+        params.append(limit)
+
+    cursor.execute(query, tuple(params))
+    return cursor.fetchall()
+
+
+def fetch_confirmed_records(
+    cursor,
+    location_id: Optional[str],
+    limit: Optional[int],
+) -> List[Dict[str, Any]]:
+    query = """
+        SELECT 
+            id,
+            emr_id,
+            booking_id,
+            booking_number,
+            patient_number,
+            location_id,
+            location_name,
+            status,
+            legal_first_name,
+            legal_last_name,
+            dob,
+            mobile_phone,
+            sex_at_birth,
+            captured_at,
+            reason_for_visit,
+            created_at,
+            updated_at
+        FROM patients
+    """
+
+    conditions: List[str] = []
+    params: List[Any] = []
+
+    if location_id:
+        conditions.append("location_id = %s")
+        params.append(location_id)
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    query += " ORDER BY captured_at DESC NULLS LAST, updated_at DESC"
+
+    if limit is not None:
+        query += " LIMIT %s"
+        params.append(limit)
+
+    cursor.execute(query, tuple(params))
+    return cursor.fetchall()
+
+
+def prepare_dashboard_patients(
+    cursor,
+    location_id: Optional[str],
+    statuses: List[str],
+    limit: Optional[int],
+) -> List[Dict[str, Any]]:
+    selected = [normalize_status(status) for status in statuses if normalize_status(status)]
+    selected_set = set(selected)
+    results: List[Dict[str, Any]] = []
+
+    confirmed_records = fetch_confirmed_records(
+        cursor,
+        location_id,
+        limit,
+    )
+    for record in confirmed_records:
+        payload = build_patient_payload(record)
+        status = normalize_status(payload.get("status")) or "confirmed"
+        payload["status"] = status
+        if selected_set and status not in selected_set:
+            continue
+        payload["source"] = "confirmed"
+        results.append(decorate_patient_payload(payload))
+
+    # Sort by captured_at descending then updated_at
+    def sort_key(item: Dict[str, Any]):
+        captured = parse_datetime(item.get("captured_at"))
+        updated = parse_datetime(item.get("updated_at"))
+        return (captured, updated)
+
+    results.sort(key=sort_key, reverse=True)
+
+    if limit is not None:
+        results = results[:limit]
+
+    return results
+
+
+def fetch_pending_payloads(
+    cursor,
+    location_id: Optional[str],
+    statuses: List[str],
+    limit: Optional[int],
+) -> List[Dict[str, Any]]:
+    selected = [normalize_status(status) for status in statuses if normalize_status(status)]
+    selected_set = set(selected)
+    records = fetch_pending_records(cursor, location_id, None)
+    payloads: List[Dict[str, Any]] = []
+
+    for record in records:
+        payload = build_patient_payload(record)
+        status = normalize_status(payload.get("status")) or normalize_status(record.get("status")) or "checked_in"
+        if selected_set and status not in selected_set:
+            continue
+        payload["status"] = status
+        payloads.append(decorate_patient_payload(payload))
+        if limit is not None and len(payloads) >= limit:
+            break
+
+    return payloads
 
 
 def get_db_connection():
@@ -72,6 +336,13 @@ def build_patient_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     captured = record.get("captured_at")
     if isinstance(captured, datetime):
         captured = captured.isoformat()
+    created = record.get("created_at")
+    if isinstance(created, datetime):
+        created = created.isoformat()
+    updated = record.get("updated_at")
+    if isinstance(updated, datetime):
+        updated = updated.isoformat()
+    raw_payload = record.get("raw_payload")
 
     payload = {
         "emr_id": record.get("emr_id"),
@@ -86,38 +357,165 @@ def build_patient_payload(record: Dict[str, Any]) -> Dict[str, Any]:
         "mobilePhone": record.get("mobile_phone"),
         "sexAtBirth": record.get("sex_at_birth"),
         "captured_at": captured,
-        "reasonForVisit": record.get("reason_for_visit")
+        "reasonForVisit": record.get("reason_for_visit"),
+        "created_at": created,
+        "updated_at": updated,
     }
+
+    status = record.get("patient_status") or record.get("status")
+    if not status and isinstance(raw_payload, dict):
+        status = raw_payload.get("status")
+    if status:
+        payload["status"] = status
+
+    appointment_date = record.get("appointment_date")
+    if appointment_date is None and isinstance(raw_payload, dict):
+        appointment_date = raw_payload.get("appointment_date")
+    if appointment_date:
+        payload["appointment_date"] = appointment_date
+
+    appointment_date_clinic_tz = record.get("appointment_date_at_clinic_tz")
+    if appointment_date_clinic_tz is None and isinstance(raw_payload, dict):
+        appointment_date_clinic_tz = raw_payload.get("appointment_date_at_clinic_tz")
+    if appointment_date_clinic_tz:
+        payload["appointment_date_at_clinic_tz"] = appointment_date_clinic_tz
+
+    calendar_date = record.get("calendar_date")
+    if calendar_date is None and isinstance(raw_payload, dict):
+        calendar_date = raw_payload.get("calendar_date")
+    if calendar_date:
+        payload["calendar_date"] = calendar_date
 
     return payload
 
 
-@app.get("/")
-async def root():
-    """Root endpoint with API information."""
-    return {
-        "message": "Patient Data API",
-        "version": "1.0.0",
-        "endpoints": {
-            "GET /patient/{emr_id}": "Get patient record by EMR ID",
-            "GET /patients?locationId=...": "List patient records filtered by location ID"
-        }
-    }
+def decorate_patient_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Add presentation-friendly fields to the patient payload."""
+    status_class = normalize_status(payload.get("status")) or "unknown"
+    payload["status_class"] = status_class
+    payload["status_label"] = status_class.replace("_", " ").title()
+
+    captured_display = None
+    captured_raw = payload.get("captured_at")
+    captured_dt = parse_datetime(captured_raw)
+    if captured_dt > datetime.min:
+        captured_display = captured_dt.strftime("%b %d, %Y %I:%M %p").lstrip("0").replace(" 0", " ")
+    payload["captured_display"] = captured_display
+
+    return payload
 
 
-@app.get("/patient/{emr_id}")
-async def get_patient_by_emr_id(emr_id: str):
+@app.get(
+    "/",
+    tags=["Dashboard"],
+    summary="Render the patient dashboard",
+    response_class=HTMLResponse,
+    responses={
+        200: {
+            "content": {"text/html": {"example": "<!-- HTML dashboard rendered via Jinja template -->"}},
+            "description": "HTML table view of the patient queue filtered by the supplied query parameters.",
+        },
+        500: {"description": "Database or server error while preparing the dashboard."},
+    },
+)
+async def root(
+    request: Request,
+    locationId: Optional[str] = Query(
+        default=None,
+        alias="locationId",
+        description="Location identifier to filter patients by."
+    ),
+    statuses: Optional[List[str]] = Query(
+        default=None,
+        alias="statuses",
+        description="Filter patients by status. Provide multiple values by repeating the query parameter."
+    ),
+    limit: Optional[int] = Query(
+        default=None,
+        ge=1,
+        alias="limit",
+        description="Maximum number of records to return."
+    ),
+):
     """
-    Get a patient record by EMR ID.
-    
-    Returns the most recent patient record matching the given EMR ID.
-    If multiple records exist, returns the one with the latest captured_at timestamp.
-    
-    Args:
-        emr_id: The EMR ID of the patient to retrieve
-        
-    Returns:
-        Patient record as JSON, or 404 if not found
+    Render the patient queue dashboard as HTML.
+
+    Parameters mirror the `/patients` JSON endpoint and rely on `prepare_dashboard_patients()` to construct
+    the records displayed in the template.
+    """
+    if statuses is None:
+        normalized_statuses = DEFAULT_STATUSES.copy()
+    else:
+        normalized_statuses = [
+            normalize_status(status)
+            for status in statuses
+            if isinstance(status, str)
+        ]
+        normalized_statuses = [status for status in normalized_statuses if status]
+        if not normalized_statuses:
+            normalized_statuses = DEFAULT_STATUSES.copy()
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        locations = fetch_locations(cursor)
+        patients = prepare_dashboard_patients(cursor, locationId, normalized_statuses, limit)
+
+        status_summary: Dict[str, int] = {}
+        for patient in patients:
+            status = patient.get("status_class") or "unknown"
+            status_summary[status] = status_summary.get(status, 0) + 1
+
+        return templates.TemplateResponse(
+            "patients_table.html",
+            {
+                "request": request,
+                "patients": patients,
+                "location_id": locationId,
+                "selected_statuses": normalized_statuses,
+                "limit": limit,
+                "locations": locations,
+                "default_statuses": DEFAULT_STATUSES,
+                "status_summary": status_summary,
+            },
+        )
+    except psycopg2.Error as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.get(
+    "/patient/{emr_id}",
+    tags=["Patients"],
+    summary="Get latest patient record by EMR ID",
+    response_model=PatientPayload,
+    responses={
+        200: {"description": "Most recent patient record normalized by `build_patient_payload()`."},
+        404: {"description": "No patient found for the supplied EMR ID."},
+        500: {"description": "Database or server error while fetching the record."},
+    },
+)
+async def get_patient_by_emr_id(emr_id: str) -> PatientPayload:
+    """
+    Return the most recent patient record matching the supplied EMR ID.
+
+    The query orders rows by `captured_at DESC` and uses `build_patient_payload()` to normalize the result.
     """
     conn = None
     cursor = None
@@ -162,7 +560,7 @@ async def get_patient_by_emr_id(emr_id: str):
         
         response_payload = build_patient_payload(record)
 
-        return JSONResponse(content=response_payload)
+        return PatientPayload(**response_payload)
         
     except HTTPException:
         # Re-raise HTTP exceptions
@@ -193,14 +591,51 @@ if __name__ == "__main__":
     uvicorn.run(app, host=host, port=port)
 
 
-@app.get("/patients")
-async def list_patients(locationId: Optional[str] = None, limit: Optional[int] = None):
-    """
-    List patient records filtered by location ID.
-    Returns records ordered by captured_at descending.
-    """
+@app.get(
+    "/patients",
+    tags=["Patients"],
+    summary="List patient queue data for a location",
+    response_model=List[PatientPayload],
+    responses={
+        200: {"description": "Ordered list of patient payloads from `prepare_dashboard_patients()`."},
+        400: {"description": "Missing or invalid query parameters."},
+        500: {"description": "Database or server error while assembling the queue."},
+    },
+)
+async def list_patients(
+    request: Request,
+    locationId: Optional[str] = Query(
+        default=None,
+        alias="locationId",
+        description="Location identifier to filter patients by. Required."
+    ),
+    limit: Optional[int] = Query(
+        default=None,
+        ge=1,
+        alias="limit",
+        description="Maximum number of records to return."
+    ),
+    statuses: Optional[List[str]] = Query(
+        default=None,
+        alias="statuses",
+        description="Filter patients by status. Provide multiple values by repeating the query parameter."
+    )
+):
+    """Return the patient queue as JSON, mirroring the data rendered in the dashboard view."""
     if not locationId:
         raise HTTPException(status_code=400, detail="locationId query parameter is required")
+
+    if statuses is None:
+        normalized_statuses = DEFAULT_STATUSES.copy()
+    else:
+        normalized_statuses = [
+            normalize_status(status)
+            for status in statuses
+            if isinstance(status, str)
+        ]
+        normalized_statuses = [status for status in normalized_statuses if status]
+        if not normalized_statuses:
+            raise HTTPException(status_code=400, detail="At least one valid status must be provided")
 
     conn = None
     cursor = None
@@ -209,39 +644,8 @@ async def list_patients(locationId: Optional[str] = None, limit: Optional[int] =
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-        query = """
-            SELECT 
-                id,
-                emr_id,
-                booking_id,
-                booking_number,
-                patient_number,
-                location_id,
-                location_name,
-                legal_first_name,
-                legal_last_name,
-                dob,
-                mobile_phone,
-                sex_at_birth,
-                captured_at,
-                reason_for_visit,
-                created_at,
-                updated_at
-            FROM patients
-            WHERE location_id = %s AND emr_id IS NOT NULL
-            ORDER BY captured_at DESC
-        """
-
-        params: List[Any] = [locationId]
-        if limit is not None:
-            query += " LIMIT %s"
-            params.append(limit)
-
-        cursor.execute(query, tuple(params))
-        records = cursor.fetchall()
-
-        payload = [build_patient_payload(record) for record in records]
-        return JSONResponse(content=payload)
+        patients = prepare_dashboard_patients(cursor, locationId, normalized_statuses, limit)
+        return [PatientPayload(**patient) for patient in patients]
 
     except psycopg2.Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

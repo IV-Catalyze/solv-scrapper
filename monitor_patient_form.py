@@ -12,7 +12,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Set, Tuple
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
@@ -153,9 +153,142 @@ def normalize_timestamp(timestamp_str: str) -> Optional[datetime]:
     return None
 
 
+STATUS_ALIAS_MAP = {
+    "mark_as_ready": "ready",
+    "mark_ready": "ready",
+    "ready_for_visit": "ready",
+    "ready_to_be_seen": "ready",
+    "check_in": "checked_in",
+    "checkedin": "checked_in",
+    "in_room": "in_exam_room",
+    "in_room_exam": "in_exam_room",
+    "inroom": "in_exam_room",
+}
+
+
+def normalize_status_value(status: Any) -> Optional[str]:
+    """Normalize queue status text to lowercase underscore format with known aliases."""
+    if status is None:
+        return None
+
+    if isinstance(status, str):
+        text = status.strip()
+    else:
+        text = str(status).strip()
+
+    if not text:
+        return None
+
+    normalized = text.lower().replace(" ", "_").replace("-", "_")
+    return STATUS_ALIAS_MAP.get(normalized, normalized)
+
+
+def _sanitize_emr_value(value: Any) -> Optional[str]:
+    """Convert a raw EMR value into a cleaned string representation."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        text = str(value)
+    elif isinstance(value, float):
+        if value.is_integer():
+            text = str(int(value))
+        else:
+            text = f"{value}".rstrip("0").rstrip(".")
+    else:
+        text = str(value)
+    text = text.strip()
+    return text or None
+
+
+def extract_emr_id(record: Any) -> Optional[str]:
+    """
+    Attempt to extract an EMR ID from a nested patient payload.
+    Prioritises explicit EMR fields, then integration status details,
+    then patient match metadata, finally falling back to any key that
+    resembles an EMR identifier.
+    """
+    if not isinstance(record, (dict, list)):
+        return None
+
+    candidates: List[Tuple[int, str]] = []
+    visited: Set[int] = set()
+
+    priority_fields = (
+        ("emr_id", 0),
+        ("emrId", 0),
+        ("emrID", 0),
+        ("emrid", 0),
+    )
+
+    def add_candidate(raw: Any, priority: int) -> None:
+        cleaned = _sanitize_emr_value(raw)
+        if cleaned:
+            candidates.append((priority, cleaned))
+
+    def walk(node: Any, depth: int = 0) -> None:
+        node_id = id(node)
+        if node_id in visited:
+            return
+        visited.add(node_id)
+
+        if isinstance(node, dict):
+            for field, base_priority in priority_fields:
+                if field in node:
+                    add_candidate(node.get(field), base_priority + depth)
+
+            integration = node.get("integration_status") or node.get("integrationStatus")
+            if isinstance(integration, list):
+                for item in integration:
+                    if isinstance(item, dict):
+                        add_candidate(item.get("emr_id") or item.get("emrId"), 2 + depth)
+                        requests = item.get("requests")
+                        if isinstance(requests, list):
+                            for request in requests:
+                                if isinstance(request, dict):
+                                    add_candidate(
+                                        request.get("patient_number")
+                                        or request.get("patientNumber")
+                                        or request.get("emr_id")
+                                        or request.get("emrId"),
+                                        6 + depth,
+                                    )
+
+            patient_match = node.get("patient_match_details") or node.get("patientMatchDetails")
+            if isinstance(patient_match, dict):
+                add_candidate(patient_match.get("external_user_profile_id"), 4 + depth)
+                add_candidate(patient_match.get("patient_number") or patient_match.get("patientNumber"), 7 + depth)
+
+            raw_payload = node.get("raw_payload")
+            if isinstance(raw_payload, (dict, list)):
+                walk(raw_payload, depth + 1)
+
+            for key, value in node.items():
+                key_lower = str(key).lower()
+                if any(token in key_lower for token in ("emr_id", "emrid")):
+                    add_candidate(value, 3 + depth)
+                elif key_lower in {"external_user_profile_id", "patient_number", "patientnumber"}:
+                    add_candidate(value, 8 + depth)
+
+                if key not in {"integration_status", "integrationStatus", "patient_match_details", "patientMatchDetails", "raw_payload"}:
+                    if isinstance(value, (dict, list)):
+                        walk(value, depth + 1)
+
+        elif isinstance(node, list):
+            for item in node:
+                walk(item, depth + 1)
+
+    walk(record, 0)
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
+
+
 def normalize_patient_record(record: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize patient record from JSON to database format."""
-    emr_id = record.get('emrId') or record.get('emr_id') or record.get('emrID')
+    emr_id = extract_emr_id(record)
 
     normalized = {
         'emr_id': emr_id.strip() if isinstance(emr_id, str) else emr_id,
@@ -170,7 +303,14 @@ def normalize_patient_record(record: Dict[str, Any]) -> Dict[str, Any]:
         'mobile_phone': record.get('mobilePhone') or record.get('mobile_phone') or record.get('phone') or None,
         'sex_at_birth': record.get('sexAtBirth') or record.get('sex_at_birth') or record.get('gender') or None,
         'captured_at': normalize_timestamp(record.get('captured_at') or record.get('capturedAt')) or datetime.now(),
-        'reason_for_visit': record.get('reasonForVisit') or record.get('reason_for_visit') or record.get('reason') or None
+        'reason_for_visit': record.get('reasonForVisit') or record.get('reason_for_visit') or record.get('reason') or None,
+        'status': normalize_status_value(
+            record.get('status') or
+            record.get('patient_status') or
+            record.get('status_class') or
+            record.get('statusLabel') or
+            record.get('status_label')
+        )
     }
 
     # Clean up empty strings to None
@@ -412,6 +552,158 @@ def mark_pending_patient_status(
         conn.close()
 
 
+def update_pending_status_by_identifiers(
+    status: str,
+    *,
+    booking_id: Optional[str] = None,
+    booking_number: Optional[str] = None,
+    patient_number: Optional[str] = None,
+    emr_id: Optional[str] = None,
+) -> List[int]:
+    """
+    Update pending patients' status using identifiers when pending_id is unknown.
+
+    Returns list of pending_id values that were updated.
+    """
+    if not DB_AVAILABLE:
+        return []
+
+    status_normalized = normalize_status_value(status)
+    if not status_normalized:
+        return []
+
+    def _clean(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            cleaned = value.strip()
+        else:
+            cleaned = str(value).strip()
+        return cleaned or None
+
+    identifiers: List[Tuple[str, Optional[str]]] = [
+        ("booking_id", _clean(booking_id)),
+        ("booking_number", _clean(booking_number)),
+        ("patient_number", _clean(patient_number)),
+        ("emr_id", _clean(emr_id)),
+    ]
+
+    conditions = []
+    params: List[str] = []
+    for column, value in identifiers:
+        if value:
+            conditions.append(f"{column} = %s")
+            params.append(value)
+
+    if not conditions:
+        return []
+
+    conn = get_db_connection()
+    if not conn:
+        return []
+
+    try:
+        cursor = conn.cursor()
+        query = f"""
+            UPDATE pending_patients
+            SET status = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE {" OR ".join(conditions)}
+            RETURNING pending_id
+        """
+        cursor.execute(query, (status_normalized, *params))
+        rows = cursor.fetchall()
+        conn.commit()
+        cursor.close()
+
+        updated_ids = [row[0] for row in rows] if rows else []
+        if updated_ids:
+            print(f"   💾 Updated pending patient status to '{status_normalized}' for pending_id(s): {updated_ids}")
+        return updated_ids
+    except Exception as e:
+        conn.rollback()
+        print(f"   ❌ Error updating pending patient status by identifiers: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def update_patient_status_by_identifiers(
+    status: str,
+    *,
+    booking_id: Optional[str] = None,
+    booking_number: Optional[str] = None,
+    patient_number: Optional[str] = None,
+    emr_id: Optional[str] = None,
+) -> List[int]:
+    """
+    Update patients table status using identifiers.
+
+    Returns list of patient ids that were updated.
+    """
+    if not DB_AVAILABLE:
+        return []
+
+    status_normalized = normalize_status_value(status)
+    if not status_normalized:
+        return []
+
+    def _clean(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            cleaned = value.strip()
+        else:
+            cleaned = str(value).strip()
+        return cleaned or None
+
+    identifiers: List[Tuple[str, Optional[str]]] = [
+        ("booking_id", _clean(booking_id)),
+        ("booking_number", _clean(booking_number)),
+        ("patient_number", _clean(patient_number)),
+        ("emr_id", _clean(emr_id)),
+    ]
+
+    conditions = []
+    params: List[str] = []
+    for column, value in identifiers:
+        if value:
+            conditions.append(f"{column} = %s")
+            params.append(value)
+
+    if not conditions:
+        return []
+
+    conn = get_db_connection()
+    if not conn:
+        return []
+
+    try:
+        cursor = conn.cursor()
+        query = f"""
+            UPDATE patients
+            SET status = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE {" OR ".join(conditions)}
+            RETURNING id
+        """
+        cursor.execute(query, (status_normalized, *params))
+        rows = cursor.fetchall()
+        conn.commit()
+        cursor.close()
+
+        updated_ids = [row[0] for row in rows] if rows else []
+        if updated_ids:
+            print(f"   💾 Updated patients status to '{status_normalized}' for id(s): {updated_ids}")
+        return updated_ids
+    except Exception as e:
+        conn.rollback()
+        print(f"   ❌ Error updating patients status by identifiers: {e}")
+        return []
+    finally:
+        conn.close()
+
+
 def find_pending_patient_id(patient_data: Dict[str, Any]) -> Optional[int]:
     """Attempt to locate the pending patient row matching provided data."""
     if not DB_AVAILABLE:
@@ -524,6 +816,40 @@ def save_patient_to_db(patient_data: Dict[str, Any], on_conflict: str = 'update'
             return False
 
         cursor = conn.cursor()
+
+        if normalized['emr_id']:
+            lookup_fields: List[Tuple[str, Optional[str]]] = [
+                ("booking_id", normalized.get('booking_id')),
+                ("booking_number", normalized.get('booking_number')),
+                ("patient_number", normalized.get('patient_number')),
+            ]
+            for column, value in lookup_fields:
+                if not value:
+                    continue
+                cursor.execute(
+                    f"""
+                    SELECT id, emr_id
+                    FROM patients
+                    WHERE {column} = %s
+                    ORDER BY updated_at DESC NULLS LAST, captured_at DESC NULLS LAST
+                    LIMIT 1
+                    """,
+                    (value,)
+                )
+                existing = cursor.fetchone()
+                if existing:
+                    existing_id, existing_emr = existing
+                    if existing_emr != normalized['emr_id']:
+                        cursor.execute(
+                            """
+                            UPDATE patients
+                            SET emr_id = %s,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = %s
+                            """,
+                            (normalized['emr_id'], existing_id)
+                        )
+                    break
 
         insert_query = """
             INSERT INTO patients (
@@ -926,7 +1252,7 @@ async def setup_form_monitor(page, location_id, location_name):
             captured_at = patient_data.get('captured_at', '')
             
             # Wait for API response that contains EMR ID
-            max_wait_time = 120  # Maximum 2 minutes
+            max_wait_time = 180  # Maximum 3 minutes
             poll_interval = 3  # Check every 3 seconds
             elapsed_time = 0
             
@@ -983,6 +1309,159 @@ async def setup_form_monitor(page, location_id, location_name):
             import traceback
             traceback.print_exc()
     
+    async def update_status_for_booking(
+        status_value: Any,
+        *,
+        booking_id: Optional[str] = None,
+        booking_number: Optional[str] = None,
+        patient_number: Optional[str] = None,
+        emr_id: Optional[str] = None,
+        patient_first_name: str = "",
+        patient_last_name: str = "",
+        api_phone: Optional[str] = None,
+    ) -> bool:
+        """
+        Update pending/patient records when queue status changes are detected.
+
+        Returns True if at least one record was updated.
+        """
+        normalized_status = normalize_status_value(status_value)
+        if not normalized_status:
+            return False
+
+        def _clean(value: Any) -> Optional[str]:
+            if value is None:
+                return None
+            if isinstance(value, str):
+                cleaned = value.strip()
+            else:
+                cleaned = str(value).strip()
+            return cleaned or None
+
+        def _equals(a: Optional[str], b: Optional[str]) -> bool:
+            if a is None or b is None:
+                return False
+            return a.strip().lower() == b.strip().lower()
+
+        def _normalize_phone(value: Optional[str]) -> Optional[str]:
+            if not value:
+                return None
+            digits = "".join(ch for ch in value if ch.isdigit())
+            return digits or None
+
+        booking_id_clean = _clean(booking_id)
+        booking_number_clean = _clean(booking_number)
+        patient_number_clean = _clean(patient_number)
+        emr_id_clean = _clean(emr_id)
+        patient_first_clean = _clean(patient_first_name)
+        patient_last_clean = _clean(patient_last_name)
+        api_phone_clean = _normalize_phone(api_phone)
+
+        updated_pending_ids: Set[int] = set()
+        updated_patient_ids: Set[int] = set()
+
+        for pending in list(pending_patients):
+            match = False
+
+            pending_booking_id = _clean(pending.get('booking_id') or pending.get('bookingId'))
+            pending_booking_number = _clean(pending.get('booking_number') or pending.get('bookingNumber'))
+            pending_patient_number = _clean(pending.get('patient_number') or pending.get('patientNumber'))
+            pending_emr_id = _clean(pending.get('emr_id'))
+
+            if booking_id_clean and pending_booking_id and _equals(booking_id_clean, pending_booking_id):
+                match = True
+            elif booking_number_clean and pending_booking_number and _equals(booking_number_clean, pending_booking_number):
+                match = True
+            elif patient_number_clean and pending_patient_number and _equals(patient_number_clean, pending_patient_number):
+                match = True
+            elif emr_id_clean and pending_emr_id and _equals(emr_id_clean, pending_emr_id):
+                match = True
+            else:
+                pending_first = _clean(pending.get('legalFirstName') or pending.get('legal_first_name'))
+                pending_last = _clean(pending.get('legalLastName') or pending.get('legal_last_name'))
+                pending_phone = _normalize_phone(pending.get('mobilePhone') or pending.get('mobile_phone'))
+
+                name_match = (
+                    pending_first
+                    and pending_last
+                    and patient_first_clean
+                    and patient_last_clean
+                    and _equals(pending_first, patient_first_clean)
+                    and _equals(pending_last, patient_last_clean)
+                )
+                phone_match = (
+                    api_phone_clean
+                    and pending_phone
+                    and api_phone_clean == pending_phone
+                )
+
+                if name_match or (phone_match and (patient_first_clean or patient_last_clean)):
+                    match = True
+
+            if match:
+                pending['status'] = normalized_status
+                pending_id = pending.get('pending_id')
+                if pending_id:
+                    if mark_pending_patient_status(pending_id, normalized_status):
+                        updated_pending_ids.add(int(pending_id))
+                else:
+                    updated = update_pending_status_by_identifiers(
+                        normalized_status,
+                        booking_id=booking_id_clean or pending_booking_id,
+                        booking_number=booking_number_clean or pending_booking_number,
+                        patient_number=patient_number_clean or pending_patient_number,
+                        emr_id=emr_id_clean or pending_emr_id,
+                    )
+                    updated_pending_ids.update(updated)
+
+                updated_patient_ids.update(
+                    update_patient_status_by_identifiers(
+                        normalized_status,
+                        booking_id=booking_id_clean or pending_booking_id,
+                        booking_number=booking_number_clean or pending_booking_number,
+                        patient_number=patient_number_clean or pending_patient_number,
+                        emr_id=emr_id_clean or pending_emr_id,
+                    )
+                )
+
+        if not updated_pending_ids:
+            fallback_pending = update_pending_status_by_identifiers(
+                normalized_status,
+                booking_id=booking_id_clean,
+                booking_number=booking_number_clean,
+                patient_number=patient_number_clean,
+                emr_id=emr_id_clean,
+            )
+            updated_pending_ids.update(fallback_pending)
+
+        if not updated_patient_ids:
+            fallback_patient_ids = update_patient_status_by_identifiers(
+                normalized_status,
+                booking_id=booking_id_clean,
+                booking_number=booking_number_clean,
+                patient_number=patient_number_clean,
+                emr_id=emr_id_clean,
+            )
+            updated_patient_ids.update(fallback_patient_ids)
+
+        if updated_pending_ids or updated_patient_ids:
+            pending_msg = (
+                f"pending_id(s): {sorted(updated_pending_ids)}"
+                if updated_pending_ids else "pending_id(s): none"
+            )
+            patients_msg = (
+                f"patient_id(s): {sorted(updated_patient_ids)}"
+                if updated_patient_ids else "patient_id(s): none"
+            )
+            print(f"   ✅ Queue status updated to '{normalized_status}' ({pending_msg}; {patients_msg})")
+            return True
+
+        print(
+            f"   ⚠️  Queue status '{normalized_status}' detected but no matching pending/patient record was found "
+            f"(booking_id={booking_id_clean}, booking_number={booking_number_clean}, patient_number={patient_number_clean}, emr_id={emr_id_clean})"
+        )
+        return False
+
     async def update_patient_emr_id(patient_data):
         """Update the pending record with the EMR ID and promote it to patients table."""
         try:
@@ -1098,223 +1577,272 @@ async def setup_form_monitor(page, location_id, location_name):
                     # Try to get JSON response
                     response_body = await response.json()
                     
-                    # First, check for the specific booking API structure
-                    # EMR ID is in: data.integration_status[0].emr_id or data.patient_match_details.external_user_profile_id
-                    emr_id = None
-                    patient_match = None
-                    booking_data = None
-                    booking_id = ''
-                    booking_number = ''
-                    patient_number = ''
-                    all_patients = []
-                    
-                    # Check if this is a booking API response
-                    if isinstance(response_body, dict) and 'data' in response_body:
-                        booking_data = response_body.get('data', {})
-                        
-                        # Method 1: Check integration_status array for emr_id
-                        integration_status = booking_data.get('integration_status', [])
-                        if isinstance(integration_status, list) and len(integration_status) > 0:
+                    async def process_single_booking_record(record: Dict[str, Any]) -> bool:
+                        """Process a single booking/queue record and update EMR/status as needed."""
+                        emr_id_local: Optional[str] = None
+                        patient_match_local: Optional[Dict[str, Any]] = None
+                        booking_id_local = ""
+                        booking_number_local = ""
+                        patient_number_local = ""
+                        api_phone_value = ""
+                        all_patients_local: List[Dict[str, Any]] = []
+                        status_update_success = False
+
+                        booking_status_value = (
+                            record.get('status') or
+                            record.get('queue_status') or
+                            record.get('booking_status') or
+                            record.get('patient_status')
+                        )
+
+                        status_first_name = (
+                            record.get('first_name') or
+                            record.get('firstName') or
+                            record.get('legalFirstName') or
+                            record.get('firstname') or
+                            ''
+                        )
+                        status_last_name = (
+                            record.get('last_name') or
+                            record.get('lastName') or
+                            record.get('legalLastName') or
+                            record.get('lastname') or
+                            ''
+                        )
+
+                        possible_booking_id = record.get('id') or record.get('booking_id')
+                        if possible_booking_id:
+                            booking_id_local = str(possible_booking_id).strip()
+                        if record.get('booking_number'):
+                            booking_number_local = str(record.get('booking_number')).strip()
+                        if record.get('patient_number'):
+                            patient_number_local = str(record.get('patient_number')).strip()
+
+                        api_phone_value = str(
+                            record.get('phone') or
+                            record.get('mobile_phone') or
+                            record.get('phone_number') or
+                            ''
+                        ).strip()
+
+                        if booking_status_value:
+                            status_update_success = await update_status_for_booking(
+                                booking_status_value,
+                                booking_id=booking_id_local or None,
+                                booking_number=booking_number_local or None,
+                                patient_number=patient_number_local or None,
+                                emr_id=None,
+                                patient_first_name=status_first_name,
+                                patient_last_name=status_last_name,
+                                api_phone=api_phone_value,
+                            )
+
+                        integration_status = record.get('integration_status', [])
+                        if isinstance(integration_status, list) and integration_status:
                             for integration in integration_status:
-                                if isinstance(integration, dict):
-                                    integration_emr_id = integration.get('emr_id')
-                                    if integration_emr_id and not emr_id:
-                                        emr_id = str(integration_emr_id).strip()
-                                        patient_match = booking_data
-                                        print(f"   📍 Found EMR ID in integration_status: {emr_id}")
-                                    # Extract booking/patient numbers from requests
-                                    requests = integration.get('requests', [])
-                                    if isinstance(requests, list):
-                                        for request in requests:
-                                            if not isinstance(request, dict):
-                                                continue
-                                            if not booking_number:
-                                                booking_value = request.get('booking_number') or request.get('bookingNumber')
-                                                if booking_value:
-                                                    booking_number = str(booking_value).strip()
-                                            if not patient_number:
-                                                patient_value = request.get('patient_number') or request.get('patientNumber')
-                                                if patient_value:
-                                                    patient_number = str(patient_value).strip()
-                                    if emr_id and booking_number and patient_number:
-                                        break
-                        
-                        # Method 2: Check patient_match_details for external_user_profile_id (which is the EMR ID)
-                        if not emr_id:
-                            patient_match_details = booking_data.get('patient_match_details', {})
+                                if not isinstance(integration, dict):
+                                    continue
+                                integration_emr_id = integration.get('emr_id')
+                                if integration_emr_id and not emr_id_local:
+                                    emr_id_local = str(integration_emr_id).strip()
+                                    patient_match_local = record
+                                    print(f"   📍 Found EMR ID in integration_status: {emr_id_local}")
+                                requests = integration.get('requests', [])
+                                if isinstance(requests, list):
+                                    for request in requests:
+                                        if not isinstance(request, dict):
+                                            continue
+                                        if not booking_number_local:
+                                            booking_value = request.get('booking_number') or request.get('bookingNumber')
+                                            if booking_value:
+                                                booking_number_local = str(booking_value).strip()
+                                        if not patient_number_local:
+                                            patient_value = request.get('patient_number') or request.get('patientNumber')
+                                            if patient_value:
+                                                patient_number_local = str(patient_value).strip()
+                                if emr_id_local and booking_number_local and patient_number_local:
+                                    break
+
+                        if not emr_id_local:
+                            patient_match_details = record.get('patient_match_details') or record.get('patientMatchDetails')
                             if isinstance(patient_match_details, dict):
                                 external_user_profile_id = patient_match_details.get('external_user_profile_id')
                                 if external_user_profile_id:
-                                    emr_id = str(external_user_profile_id).strip()
-                                    patient_match = booking_data
-                                    print(f"   📍 Found EMR ID in patient_match_details: {emr_id}")
-                                # Sometimes patient number may live here as well
-                                if not patient_number:
-                                    pm_patient_number = patient_match_details.get('patient_number')
+                                    emr_id_local = str(external_user_profile_id).strip()
+                                    patient_match_local = record
+                                    print(f"   📍 Found EMR ID in patient_match_details: {emr_id_local}")
+                                if not patient_number_local:
+                                    pm_patient_number = patient_match_details.get('patient_number') or patient_match_details.get('patientNumber')
                                     if pm_patient_number:
-                                        patient_number = str(pm_patient_number).strip()
-                    
-                    # If not found in booking structure, recursively search
-                    if not emr_id:
-                        all_patients = []
-                        
-                        def find_emr_id(data, path=""):
-                            nonlocal emr_id, patient_match, all_patients
-                            if isinstance(data, dict):
-                                # Check for EMR ID fields (various possible field names)
-                                for key, value in data.items():
-                                    key_lower = str(key).lower()
-                                    if ("emr" in key_lower or "emr_id" in key_lower or "emrid" in key_lower) and isinstance(value, (str, int)):
-                                        if value and str(value).strip():
-                                            emr_id = str(value).strip()
-                                            patient_match = data
-                                            return
-                                    
-                                    # Collect patient-like objects
-                                    if isinstance(value, dict):
-                                        # Check if this looks like a patient object
-                                        if any(k in str(value.keys()).lower() for k in ['first', 'last', 'name', 'patient']):
-                                            all_patients.append(value)
-                                        find_emr_id(value, f"{path}.{key}")
-                                    elif isinstance(value, list):
-                                        find_emr_id(value, path)
-                            elif isinstance(data, list):
-                                for item in data:
-                                    find_emr_id(item, path)
-                        
-                        find_emr_id(response_body)
-                    
-                    # If we found EMR ID, try to match with pending patients
-                    if emr_id:
-                        print(f"\n🌐 API response contains EMR ID: {emr_id}")
-                        print(f"   URL: {url}")
-                        
-                        # Try to extract patient info from the matched data
-                        patient_first_name = ''
-                        patient_last_name = ''
-                        
-                        if patient_match:
-                            # Extract patient name from booking data structure
+                                        patient_number_local = str(pm_patient_number).strip()
+
+                        if not emr_id_local:
+                            def find_emr_in_record(data: Any):
+                                nonlocal emr_id_local, patient_match_local, all_patients_local
+                                if isinstance(data, dict):
+                                    for key, value in data.items():
+                                        key_lower = str(key).lower()
+                                        if ("emr" in key_lower or "emr_id" in key_lower or "emrid" in key_lower) and isinstance(value, (str, int)):
+                                            candidate = str(value).strip()
+                                            if candidate:
+                                                emr_id_local = candidate
+                                                patient_match_local = data
+                                                return
+                                        if isinstance(value, dict):
+                                            if any(k in str(value.keys()).lower() for k in ['first', 'last', 'name', 'patient']):
+                                                all_patients_local.append(value)
+                                            find_emr_in_record(value)
+                                        elif isinstance(value, list):
+                                            find_emr_in_record(value)
+                                elif isinstance(data, list):
+                                    for item in data:
+                                        find_emr_in_record(item)
+
+                            find_emr_in_record(record)
+
+                        if emr_id_local:
+                            print(f"\n🌐 API response contains EMR ID: {emr_id_local}")
+                            print(f"   URL: {url}")
+
                             patient_first_name = (
-                                patient_match.get('first_name') or
-                                patient_match.get('firstName') or 
-                                patient_match.get('legalFirstName') or 
-                                patient_match.get('firstname') or
+                                patient_match_local.get('first_name') or
+                                patient_match_local.get('firstName') or
+                                patient_match_local.get('legalFirstName') or
+                                patient_match_local.get('firstname') or
                                 ''
-                            )
+                            ) if patient_match_local else ''
                             patient_last_name = (
-                                patient_match.get('last_name') or
-                                patient_match.get('lastName') or 
-                                patient_match.get('legalLastName') or 
-                                patient_match.get('lastname') or
+                                patient_match_local.get('last_name') or
+                                patient_match_local.get('lastName') or
+                                patient_match_local.get('legalLastName') or
+                                patient_match_local.get('lastname') or
                                 ''
-                            )
-                            
-                            # Also try to get booking ID for matching
-                            if not booking_id:
-                                booking_id = patient_match.get('id') or ''
-                            if not booking_number and patient_match.get('booking_number'):
-                                booking_number = str(patient_match.get('booking_number')).strip()
-                            if not patient_number and patient_match.get('patient_number'):
-                                patient_number = str(patient_match.get('patient_number')).strip()
-                        
-                        # Also check all_patients if we didn't get names from patient_match
-                        if not patient_first_name and all_patients:
-                            for p in all_patients:
-                                if emr_id in str(p.values()):
-                                    patient_first_name = (
-                                        p.get('firstName') or 
-                                        p.get('legalFirstName') or 
-                                        p.get('first_name') or ''
+                            ) if patient_match_local else ''
+
+                            if patient_match_local:
+                                if not booking_id_local:
+                                    local_booking_id = patient_match_local.get('id') or patient_match_local.get('booking_id')
+                                    if local_booking_id:
+                                        booking_id_local = str(local_booking_id).strip()
+                                if not booking_number_local and patient_match_local.get('booking_number'):
+                                    booking_number_local = str(patient_match_local.get('booking_number')).strip()
+                                if not patient_number_local and patient_match_local.get('patient_number'):
+                                    patient_number_local = str(patient_match_local.get('patient_number')).strip()
+
+                            if not patient_first_name and all_patients_local:
+                                for candidate in all_patients_local:
+                                    if emr_id_local in str(candidate.values()):
+                                        patient_first_name = (
+                                            candidate.get('firstName') or
+                                            candidate.get('legalFirstName') or
+                                            candidate.get('first_name') or
+                                            ''
+                                        )
+                                        patient_last_name = (
+                                            candidate.get('lastName') or
+                                            candidate.get('legalLastName') or
+                                            candidate.get('last_name') or
+                                            ''
+                                        )
+                                        if patient_first_name or patient_last_name:
+                                            break
+
+                            if patient_first_name or patient_last_name:
+                                print(f"   Patient: {patient_first_name} {patient_last_name}")
+
+                            matched = False
+                            for pending in list(pending_patients):
+                                if pending.get('emr_id'):
+                                    continue
+
+                                pending_first = pending.get('legalFirstName', '').strip()
+                                pending_last = pending.get('legalLastName', '').strip()
+
+                                name_match = False
+                                if patient_first_name and patient_last_name:
+                                    name_match = (
+                                        pending_first.lower() == patient_first_name.lower().strip() and
+                                        pending_last.lower() == patient_last_name.lower().strip()
                                     )
-                                    patient_last_name = (
-                                        p.get('lastName') or 
-                                        p.get('legalLastName') or 
-                                        p.get('last_name') or ''
-                                    )
-                                    if patient_first_name or patient_last_name:
-                                        break
-                        
-                        if patient_first_name or patient_last_name:
-                            print(f"   Patient: {patient_first_name} {patient_last_name}")
-                        
-                        # Find matching pending patient
-                        matched = False
-                        for pending in list(pending_patients):  # Use list() to avoid modification during iteration
-                            if pending.get('emr_id'):
-                                continue  # Skip if already has EMR ID
-                            
-                            pending_first = pending.get('legalFirstName', '').strip()
-                            pending_last = pending.get('legalLastName', '').strip()
-                            
-                            # Match by name (case insensitive)
-                            name_match = False
-                            if patient_first_name and patient_last_name:
-                                name_match = (
-                                    pending_first.lower() == patient_first_name.lower().strip() and 
-                                    pending_last.lower() == patient_last_name.lower().strip()
-                                )
-                            elif patient_first_name:
-                                name_match = pending_first.lower() == patient_first_name.lower().strip()
-                            elif patient_last_name:
-                                name_match = pending_last.lower() == patient_last_name.lower().strip()
-                            
-                            # Also check if phone numbers match (additional verification)
-                            phone_match = False
-                            if booking_data:
-                                api_phone = booking_data.get('phone', '').strip()
-                                pending_phone = pending.get('mobilePhone', '').strip()
-                                if api_phone and pending_phone:
-                                    # Normalize phone numbers (remove +, spaces, dashes)
-                                    api_phone_norm = api_phone.replace('+', '').replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
-                                    pending_phone_norm = pending_phone.replace('+', '').replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
-                                    if api_phone_norm and pending_phone_norm and api_phone_norm == pending_phone_norm:
-                                        phone_match = True
-                            
-                            # Match if name matches OR (phone matches and we have at least partial name match)
-                            final_match = name_match or (phone_match and (patient_first_name or patient_last_name))
-                            
-                            # If no match but we have only one pending patient without EMR ID, use it
-                            if not final_match and len([p for p in pending_patients if not p.get('emr_id')]) == 1:
-                                final_match = True
-                            
-                            if final_match:
-                                print(f"   ✅ Matched with pending patient!")
-                                if name_match:
-                                    print(f"      Match by name: {pending_first} {pending_last}")
-                                if phone_match:
-                                    print(f"      Match by phone: {pending_phone}")
-                                pending['emr_id'] = emr_id
-                                if booking_id:
-                                    pending['booking_id'] = booking_id
-                                if booking_number:
-                                    pending['booking_number'] = booking_number
-                                if patient_number:
-                                    pending['patient_number'] = patient_number
-                                await update_patient_emr_id(pending)
-                                print(f"   💾 Updated patient data with EMR ID: {emr_id}")
-                                # Remove from pending list
-                                pending_patients.remove(pending)
-                                matched = True
-                                break
-                        
-                        if not matched and pending_patients:
-                            print(f"   ⚠️  EMR ID found but no matching patient. Pending patients: {len(pending_patients)}")
-                            # Try to update the most recent pending patient without EMR ID
-                            for pending in reversed(pending_patients):
-                                if not pending.get('emr_id'):
-                                    print(f"   📝 Assigning EMR ID to most recent pending patient")
-                                    pending['emr_id'] = emr_id
-                                    if booking_id:
-                                        pending['booking_id'] = booking_id
-                                    if booking_number:
-                                        pending['booking_number'] = booking_number
-                                    if patient_number:
-                                        pending['patient_number'] = patient_number
+                                elif patient_first_name:
+                                    name_match = pending_first.lower() == patient_first_name.lower().strip()
+                                elif patient_last_name:
+                                    name_match = pending_last.lower() == patient_last_name.lower().strip()
+
+                                phone_match = False
+                                if api_phone_value:
+                                    pending_phone = pending.get('mobilePhone', '').strip()
+                                    if pending_phone:
+                                        api_phone_norm = api_phone_value.replace('+', '').replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+                                        pending_phone_norm = pending_phone.replace('+', '').replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+                                        if api_phone_norm and pending_phone_norm and api_phone_norm == pending_phone_norm:
+                                            phone_match = True
+
+                                final_match = name_match or (phone_match and (patient_first_name or patient_last_name))
+
+                                if not final_match:
+                                    unmatched_pending = [p for p in pending_patients if not p.get('emr_id')]
+                                    if len(unmatched_pending) == 1 and pending is unmatched_pending[0]:
+                                        final_match = True
+
+                                if final_match:
+                                    print(f"   ✅ Matched with pending patient!")
+                                    if name_match:
+                                        print(f"      Match by name: {pending_first} {pending_last}")
+                                    if phone_match:
+                                        print(f"      Match by phone: {pending.get('mobilePhone', '').strip()}")
+                                    pending['emr_id'] = emr_id_local
+                                    if booking_id_local:
+                                        pending['booking_id'] = booking_id_local
+                                    if booking_number_local:
+                                        pending['booking_number'] = booking_number_local
+                                    if patient_number_local:
+                                        pending['patient_number'] = patient_number_local
                                     await update_patient_emr_id(pending)
-                                    print(f"   💾 Updated patient data with EMR ID: {emr_id}")
+                                    print(f"   💾 Updated patient data with EMR ID: {emr_id_local}")
                                     pending_patients.remove(pending)
+                                    matched = True
                                     break
+
+                            if not matched:
+                                print(f"   ⚠️  EMR ID found but no matching patient. Will continue monitoring (pending patients: {len(pending_patients)})")
+
+                        if booking_status_value and not status_update_success:
+                            await update_status_for_booking(
+                                booking_status_value,
+                                booking_id=booking_id_local or None,
+                                booking_number=booking_number_local or None,
+                                patient_number=patient_number_local or None,
+                                emr_id=emr_id_local,
+                                patient_first_name=status_first_name,
+                                patient_last_name=status_last_name,
+                                api_phone=api_phone_value,
+                            )
+
+                        return bool(emr_id_local or status_update_success)
+
+                    handled_any = False
+                    if isinstance(response_body, dict) and 'data' in response_body:
+                        booking_payload = response_body.get('data', {})
+                        records = None
+                        if isinstance(booking_payload, dict) and isinstance(booking_payload.get('results'), list):
+                            records = booking_payload.get('results')
+                        elif isinstance(booking_payload, list):
+                            records = booking_payload
+
+                        if records and isinstance(records, list):
+                            for record in records:
+                                if isinstance(record, dict) and await process_single_booking_record(record):
+                                    handled_any = True
+                        elif isinstance(booking_payload, dict) and await process_single_booking_record(booking_payload):
+                            handled_any = True
+
+                    if not handled_any and isinstance(response_body, dict):
+                        if await process_single_booking_record(response_body):
+                            handled_any = True
+
+                    if handled_any:
+                        return
                 
                 except Exception as e:
                     # Not JSON or can't parse, skip silently
@@ -1829,7 +2357,7 @@ async def main():
     if headless:
         print("   (Running in headless mode)")
     else:
-    print("   (The browser will open in non-headless mode)")
+        print("   (The browser will open in non-headless mode)")
     print("   (Click 'Add Patient' and submit the form to capture data)")
     print("   (Press Ctrl+C to stop)\n")
     
