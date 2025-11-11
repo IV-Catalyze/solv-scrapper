@@ -1,53 +1,74 @@
-# Intellivisit Integration Guide
+# Intellivisit Patient Queue API
 
-Custom guide for the Intellivisit engineering team to consume the patient queue API exposed by Solv Health.
+## Integration Guide - Solv Health x Intellivisit
+
+Practical guide for the Intellivisit engineering team to connect with and consume the Solv Health Patient Queue API hosted on Aptible. The API mirrors the Solv dashboard dataset so Intellivisit can retrieve and synchronize patient data in near real time.
 
 ---
 
 ## Base URLs
 
-| Environment | Base URL | Notes |
-|-------------|----------|-------|
-| Staging | `https://{staging-host}/` | Replace `{staging-host}` with the hostname provided by Solv. |
-| Production | `https://{production-host}/` | Confirm the hostname and TLS requirements with Solv before go-live. |
+| Environment        | Base URL                                   | Description                                     |
+|--------------------|---------------------------------------------|-------------------------------------------------|
+| Staging / Production | `https://app-97926.on-aptible.com/`       | Aptible-hosted deployment for all integrations. |
+| Interactive docs   | `https://app-97926.on-aptible.com/docs`    | Swagger UI for live exploration and testing.    |
 
-> During local development the API runs on `http://localhost:8000`, but Intellivisit integrations should target the staging or production hosts above.
-
-## Authentication
-
-The current API does **not** enforce authentication. If credentials or API keys are added later, Solv will provide separate onboarding instructions. Intellivisit should, however, originate requests from an allow-listed IP range (coordinate with Solv DevOps if firewall rules are needed).
-
-## Shared Conventions
-
-- **Content type**: `application/json` for all JSON endpoints.
-- **Date/time fields**: ISO 8601 strings (UTC). Some responses also include human-friendly renderings such as `captured_display`.
-- **Case sensitivity**: Status filters are case-insensitive; parameter names are camelCase (`locationId`).
-- **Pagination**: No cursor-based pagination yet. Use the `limit` query parameter to control payload size.
-- **Rate limits**: Not enforced today; please keep request bursts reasonable (≤ 5 req/sec baseline).
+During local development you may still run the API with `uvicorn api:app --reload` to serve `http://localhost:8000`, but Intellivisit integrations must target the Aptible environment listed above.
 
 ---
 
-## Endpoints
+## Authentication
 
-### `GET /patients`
+- No authentication is currently required.
+- Requests should originate from Intellivisit's allow-listed IP range; coordinate with Solv DevOps if firewall updates are needed.
+- If API keys or other credentials are introduced later, Solv will deliver updated onboarding materials.
 
-Retrieve the active queue for a single clinic location. This mirrors the dataset rendered in the dashboard UI.
+---
 
-- **Query parameters**
-  - `locationId` *(required, string)* – Unique identifier for the clinic location.
-  - `statuses` *(optional, repeatable)* – One or more patient statuses. Valid values include `confirmed`, `checked_in`, `completed`, etc. Omit to default to `["checked_in", "confirmed"]`.
-  - `limit` *(optional, integer ≥ 1)* – Maximum number of records to return after sorting by `captured_at` (desc) then `updated_at`.
-- **Response**: `200 OK` with an array of patient objects (see [Patient payload](#patient-payload)).
+## Conventions
 
-Example request:
+- **Content type**: `application/json`
+- **Date and time fields**: ISO 8601 (UTC)
+- **Status filters**: Case-insensitive strings
+- **Parameter naming**: Camel case query parameters (for example `locationId`)
+- **Pagination**: Not cursor-based; use the `limit` query parameter
+- **Rate limit**: Soft limit of five requests per second
+
+---
+
+## Endpoints Overview
+
+| Method | Path                  | Description                                              |
+|--------|-----------------------|----------------------------------------------------------|
+| GET    | `/`                   | Render the patient dashboard HTML (visual inspection)    |
+| GET    | `/patients`           | Retrieve the active patient queue for a location         |
+| GET    | `/patient/{emr_id}`   | Retrieve the most recent record for a specific EMR ID    |
+
+Full interactive documentation: `https://app-97926.on-aptible.com/docs`
+
+---
+
+## 1. GET /patients
+
+Retrieve the active patient queue for a specific clinic location.
+
+### Query parameters
+
+| Name        | Type     | Required | Description                                                                 |
+|-------------|----------|----------|-----------------------------------------------------------------------------|
+| `locationId`| string   | Yes      | Solv location identifier (for example `AXjwbE`).                            |
+| `statuses`  | string[] | No       | One or more patient statuses (for example `confirmed`, `checked_in`). Defaults to `["checked_in", "confirmed"]`. |
+| `limit`     | integer  | No       | Maximum number of records to return (sorted by `captured_at` descending, then `updated_at`). |
+
+### Example request
 
 ```
 curl -s \
-  "https://{staging-host}/patients?locationId=AXjwbE&statuses=confirmed&statuses=checked_in&limit=25" \
+  "https://app-97926.on-aptible.com/patients?locationId=AXjwbE&statuses=confirmed&statuses=checked_in&limit=25" \
   | jq
 ```
 
-Sample response (abridged):
+### Example response
 
 ```
 [
@@ -61,96 +82,150 @@ Sample response (abridged):
     "reasonForVisit": "Telehealth follow-up",
     "appointment_date": "2024-11-06",
     "appointment_date_at_clinic_tz": "2024-11-06T08:22:03-06:00",
-    "calendar_date": "2024-11-06"
-    // ...
+    "calendar_date": "2024-11-06",
+    "legalFirstName": "John",
+    "legalLastName": "Doe",
+    "mobilePhone": "+15551234567"
   }
 ]
 ```
 
-**Error responses**
+### Error responses
 
-| HTTP code | Reason | How to resolve |
-|-----------|--------|----------------|
-| `400 Bad Request` | `locationId` missing or all provided statuses invalid | Supply a valid `locationId` and at least one allowed status. |
-| `500 Internal Server Error` | Database connectivity or unexpected error | Retry and contact Solv if the issue persists. |
+| HTTP code             | Message                                      | Notes                                                       |
+|-----------------------|----------------------------------------------|-------------------------------------------------------------|
+| `400 Bad Request`     | Missing or invalid `locationId` or statuses  | Ensure a valid `locationId` and at least one valid status.  |
+| `500 Internal Server Error` | Unexpected server or database error    | Retry with exponential backoff; contact Solv if persistent. |
 
-### `GET /patient/{emr_id}`
+---
 
-Fetch the most recent record for a specific EMR identifier.
+## 2. GET /patient/{emr_id}
 
-- **Path parameters**
-  - `emr_id` *(string)* – EMR ID to search for.
-- **Response**: `200 OK` with a single patient object (same schema as `/patients`).
+Retrieve the latest record for a specific EMR (Electronic Medical Record) ID.
+
+### Path parameter
+
+| Name     | Type   | Required | Description                         |
+|----------|--------|----------|-------------------------------------|
+| `emr_id` | string | Yes      | EMR ID assigned to the patient.     |
+
+### Example request
+
+```
+curl -s "https://app-97926.on-aptible.com/patient/EMR12345" | jq
+```
+
+### Example response
+
+```
+{
+  "emr_id": "EMR12345",
+  "location_id": "AXjwbE",
+  "status": "checked_in",
+  "status_label": "Checked In",
+  "legalFirstName": "Jane",
+  "legalLastName": "Smith",
+  "dob": "1989-02-17",
+  "mobilePhone": "+15557654321",
+  "reasonForVisit": "Annual checkup",
+  "captured_at": "2024-11-06T14:22:03Z",
+  "captured_display": "Nov 6, 2024 2:22 PM"
+}
+```
+
+### Error responses
+
+| HTTP code             | Reason                                   |
+|-----------------------|------------------------------------------|
+| `404 Not Found`       | No record found for the supplied EMR ID. |
+| `500 Internal Server Error` | Database or internal error.       |
+
+---
+
+## 3. GET /
+
+Render the internal Solv dashboard HTML view. This is primarily for quality assurance or visual verification.
 
 Example:
 
 ```
-curl -s "https://{staging-host}/patient/EMR12345" | jq
+open "https://app-97926.on-aptible.com/?locationId=AXjwbE&statuses=confirmed&limit=25"
 ```
 
-Possible errors:
-
-| HTTP code | Reason |
-|-----------|--------|
-| `404 Not Found` | No record found for the supplied EMR ID |
-| `500 Internal Server Error` | Database or server failure |
-
-### `GET /`
-
-Renders the HTML dashboard used internally by Solv. This is *not* required for programmatic integrations, but the same query parameters apply as `/patients`. Useful for visual verification during testing.
-
-```
-https://{staging-host}/?locationId=AXjwbE&statuses=confirmed&limit=25
-```
+The response is an HTML table view of the patient queue.
 
 ---
 
-## Patient Payload
+## 4. Interactive API Documentation
 
-Every patient object follows the schema implemented in `api.py`. Key fields:
+- Swagger UI: `https://app-97926.on-aptible.com/docs`
+- Alternate read-only reference: `https://app-97926.on-aptible.com/redoc`
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `emr_id` | string | EMR identifier (unique per patient). |
-| `booking_id` | string | Internal booking identifier. |
-| `booking_number` | string | Human-readable booking number. |
-| `patient_number` | string | Clinic-specific patient number. |
-| `location_id` / `location_name` | string | Location metadata. |
-| `legalFirstName` / `legalLastName` | string | Patient identity. |
-| `dob` | string (ISO date) | Birthdate. |
-| `mobilePhone` | string | Primary phone number. |
-| `sexAtBirth` | string | Recorded gender marker. |
-| `captured_at` | string (ISO datetime) | When the record was captured. |
-| `captured_display` | string | Human-readable capture time. |
-| `reasonForVisit` | string | Visit reason notes. |
-| `created_at`, `updated_at` | string (ISO datetime) | Timestamps from the source system. |
-| `status` | string | Normalized queue status. |
-| `status_label` | string | Title-cased label derived from `status`. |
-| `status_class` | string | Lowercase variant for styling. |
-| `appointment_date` | string (ISO date) | Scheduled appointment date, if provided. |
-| `appointment_date_at_clinic_tz` | string (ISO datetime) | Appointment time localized to clinic timezone. |
-| `calendar_date` | string (ISO date) | Calendar date associated with the visit. |
-| `source` | string | Indicates `confirmed` or `pending` origin. |
+Within Swagger UI you can:
 
-> Additional fields may appear as the upstream data model evolves. Intellivisit should handle unknown keys gracefully.
+- View endpoint definitions and schema examples.
+- Execute live requests with custom parameters.
+- Inspect HTTP responses and headers.
+- Export generated `curl` commands for automation.
+
+---
+
+## Patient Payload Schema
+
+| Field                               | Type              | Description                                           |
+|-------------------------------------|-------------------|-------------------------------------------------------|
+| `emr_id`                            | string            | Unique EMR identifier.                                |
+| `booking_id`                        | string            | Internal booking reference.                           |
+| `patient_number`                    | string            | Clinic-specific patient number.                       |
+| `location_id`                       | string            | Clinic location identifier.                           |
+| `location_name`                     | string            | Clinic name, if available.                            |
+| `legalFirstName`, `legalLastName`   | string            | Patient name fields.                                  |
+| `dob`                               | string (ISO date) | Date of birth.                                        |
+| `mobilePhone`                       | string            | Contact number.                                       |
+| `sexAtBirth`                        | string            | Gender marker on file.                                |
+| `reasonForVisit`                    | string            | Visit description.                                    |
+| `status`                            | string            | Queue status (for example `confirmed`, `checked_in`).  |
+| `status_label`                      | string            | Human-readable version of status.                     |
+| `status_class`                      | string            | Lowercase version for UI styling.                     |
+| `captured_at`                       | string (ISO datetime) | When the record was captured.                      |
+| `captured_display`                  | string            | Formatted display timestamp.                          |
+| `appointment_date`                  | string (ISO date) | Scheduled appointment date.                           |
+| `appointment_date_at_clinic_tz`     | string            | Localized appointment timestamp.                      |
+| `calendar_date`                     | string (ISO date) | Date associated with the visit.                       |
+| `created_at`, `updated_at`          | string            | Timestamps from the source system.                    |
+
+Additional fields may appear as the upstream data model evolves. Integrations should ignore unrecognized keys.
 
 ---
 
 ## Operational Guidelines
 
-- **Retry policy**: Use exponential backoff (e.g., 1s, 2s, 4s) for transient `500` errors.
-- **Monitoring**: Log the `status`, `location_id`, and `emr_id` for downstream troubleshooting.
-- **Data freshness**: Responses are live views of the operational database; no caching layer is currently in front of the API.
-- **Change management**: Solv will announce schema or behavior changes via the shared Slack channel at least two weeks in advance.
+- **Retry policy**: Use exponential backoff (for example 1s, 2s, 4s) on transient `500` errors.
+- **Monitoring**: Capture `status`, `location_id`, and `emr_id` in your logs for troubleshooting.
+- **Data freshness**: Responses represent live operational data; there is no caching layer in front of the API.
+- **Change management**: Solv announces schema or behavior changes via the shared Slack channel at least two weeks before deployment.
 
-## Support
+---
 
-For questions or incident reports, contact:
+## Troubleshooting
 
-- **Primary contact**: Solv Health Integration Team – `integrations@solvhealth.com`
-- **Slack**: `#intellivisit-solv-integration` (shared)
-- **Hours**: 8am–6pm CT, Monday–Friday
+| Issue                          | Possible cause                         | Resolution                                                    |
+|--------------------------------|-----------------------------------------|---------------------------------------------------------------|
+| Empty response                 | Invalid or missing `locationId`.        | Verify the `locationId` parameter and supplied statuses.      |
+| `500 Internal Server Error`    | Database connection issue.              | Retry with backoff; escalate to Solv Integration Team.        |
+| Dashboard HTML empty           | No patients matching supplied status.   | Retry with broader statuses such as `confirmed` or `checked_in`. |
 
-Please include request samples, timestamps, and x-request-id headers (if available) when reporting issues.
+---
+
+## Support Contacts
+
+| Type            | Contact                         |
+|-----------------|---------------------------------|
+| Primary email   | integrations@solvhealth.com     |
+| Slack channel   | #intellivisit-solv-integration  |
+| Support hours   | 08:00-18:00 CT, Monday-Friday   |
+
+When submitting an incident include the full request URL, timestamp (UTC), response body or error message, and any `x-request-id` header values if available.
+
 
 
