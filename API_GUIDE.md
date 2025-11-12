@@ -19,6 +19,19 @@ Practical guide for running, exploring, and integrating with the FastAPI service
     DB_PASSWORD=your_password
     ```
   - Seed the database with test data. Run `python check_db_records.py` to confirm records exist.
+- **Configure authentication (Production)**
+  - Set `JWT_SECRET_KEY` in your environment (or `.env` file) for production:
+    ```env
+    JWT_SECRET_KEY=your-secret-key-here-minimum-32-characters
+    ```
+  - Optionally set `API_KEY` for API key authentication:
+    ```env
+    API_KEY=your-static-api-key-here
+    ```
+  - Optionally customize token expiration (default: 24 hours):
+    ```env
+    ACCESS_TOKEN_EXPIRE_MINUTES=1440
+    ```
 
 ## Running the service
 
@@ -37,15 +50,48 @@ Key pieces live in `api.py`:
 
 Understanding these helpers clarifies the behavior you see in each endpoint response.
 
+## Authentication
+
+**All API endpoints (except `/` and `/auth/token`) require authentication.** The API supports two methods:
+
+### 1. JWT Bearer Token (Recommended)
+
+Generate a token using the `/auth/token` endpoint:
+
+```bash
+curl -X POST "http://localhost:8000/auth/token" \
+  -H "Content-Type: application/json" \
+  -d '{"client_id": "my-client", "expires_hours": 24}'
+```
+
+Use the token in requests:
+
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  "http://localhost:8000/patients?locationId=AXjwbE"
+```
+
+### 2. API Key
+
+If `API_KEY` is set in your environment, you can use it directly:
+
+```bash
+curl -H "X-API-Key: your-api-key" \
+  "http://localhost:8000/patients?locationId=AXjwbE"
+```
+
+See the [Authentication section](#authentication) below for more details.
+
 ## Endpoint reference
 
-All endpoints are visible (and testable) in Swagger UI: `http://localhost:8000/docs`. Use “Try it out” to make real requests once the server is running.
+All endpoints are visible (and testable) in Swagger UI: `http://localhost:8000/docs`. Use "Try it out" to make real requests once the server is running.
 
-| Method | Path | Summary |
-|--------|------|---------|
-| GET | `/` | Render the patient dashboard HTML view |
-| GET | `/patients` | Return queue data as JSON for a specific location |
-| GET | `/patient/{emr_id}` | Return the latest patient record for an EMR ID |
+| Method | Path | Summary | Auth Required |
+|--------|------|---------|---------------|
+| POST | `/auth/token` | Generate JWT access token | No |
+| GET | `/` | Render the patient dashboard HTML view | No |
+| GET | `/patients` | Return queue data as JSON for a specific location | Yes |
+| GET | `/patient/{emr_id}` | Return the latest patient record for an EMR ID | Yes |
 
 ### `GET /`
 
@@ -122,9 +168,16 @@ open dashboard.html  # macOS helper to preview
 
 Together, these helpers ensure each record may expose scheduling metadata (`status`, `appointment_date`, `appointment_date_at_clinic_tz`, `calendar_date`) and presentation helpers (`status_class`, `status_label`, `captured_display`) in addition to the base identity fields.
 
-Sample call:
+Sample call (with authentication):
 ```bash
-curl "http://localhost:8000/patients?locationId=AXjwbE&statuses=confirmed&limit=10" | jq
+# First, get a token
+TOKEN=$(curl -s -X POST "http://localhost:8000/auth/token" \
+  -H "Content-Type: application/json" \
+  -d '{"client_id": "test-client"}' | jq -r '.access_token')
+
+# Then use it
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8000/patients?locationId=AXjwbE&statuses=confirmed&limit=10" | jq
 ```
 
 ### `GET /patient/{emr_id}`
@@ -139,15 +192,23 @@ curl "http://localhost:8000/patients?locationId=AXjwbE&statuses=confirmed&limit=
   - `200 OK`: JSON payload with normalized field names.
   - `404 Not Found`: when no record exists for the supplied EMR ID.
 
-Example:
+Example (with authentication):
 ```bash
-curl http://localhost:8000/patient/EMR12345 | jq
+# With Bearer token
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  http://localhost:8000/patient/EMR12345 | jq
+
+# Or with API key
+curl -H "X-API-Key: your-api-key" \
+  http://localhost:8000/patient/EMR12345 | jq
 ```
 
 ## Working with the interactive docs
 
 - Navigate to `http://localhost:8000/docs` (Swagger UI).
-- Authorize (if auth is added later; none today).
+- **Authorize**: Click the "Authorize" button (lock icon) at the top right:
+  - For Bearer token: Enter `Bearer YOUR_TOKEN` or just `YOUR_TOKEN`
+  - For API key: Enter your API key in the `X-API-Key` field
 - Expand an endpoint, click **Try it out**, fill query params, and **Execute**.
 - Review the auto-generated curl command and server response.
 - Alternate view: `http://localhost:8000/redoc` (read-only but cleaner layout).
@@ -193,6 +254,7 @@ python test_api.py
 
 - `200 OK`: Successful request.
 - `400 Bad Request`: Missing `locationId` or invalid `statuses` on `/patients`.
+- `401 Unauthorized`: Missing or invalid authentication token/API key.
 - `404 Not Found`: Unknown EMR ID on `/patient/{emr_id}`.
 - `500 Internal Server Error`: Database or unexpected server error (see FastAPI logs).
 
