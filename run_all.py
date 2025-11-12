@@ -174,9 +174,9 @@ def start_database():
                 for service_name in ['postgresql@15', 'postgresql@14', 'postgresql@13', 'postgresql']:
                     result = subprocess.run(
                         ['brew', 'services', 'start', service_name],
-                        capture_output=True,
-                        text=True,
-                        stderr=subprocess.DEVNULL
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                        text=True
                     )
                     if result.returncode == 0:
                         print_db(f"Started {service_name}")
@@ -222,19 +222,36 @@ def start_database():
     return False
 
 
-def wait_for_database(host: str = 'localhost', port: int = 5432, timeout: int = 30):
-    """Wait for database to be ready."""
-    print_db(f"Waiting for database to be ready on {host}:{port}...")
+def wait_for_database(host: str = 'localhost', port: int = 5432, timeout: int = 30, try_alternate_ports: bool = True):
+    """Wait for database to be ready. If configured port fails, tries common alternate ports."""
+    ports_to_try = [port]
+    
+    # If configured port fails and we should try alternates, add common PostgreSQL ports
+    if try_alternate_ports:
+        common_ports = [5432, 5433, 5434]
+        for common_port in common_ports:
+            if common_port not in ports_to_try:
+                ports_to_try.append(common_port)
+    
+    print_db(f"Waiting for database to be ready on {host} (trying ports: {', '.join(map(str, ports_to_try))})...")
     start_time = time.time()
     
+    # Try all ports in round-robin fashion until one succeeds or timeout
     while time.time() - start_time < timeout:
-        if is_database_running(host, port):
-            print_db("Database is ready!")
-            time.sleep(1)  # Give it a moment to fully initialize
-            return True
-        time.sleep(0.5)
+        for attempt_port in ports_to_try:
+            if is_database_running(host, attempt_port):
+                print_db(f"Database is ready on {host}:{attempt_port}!")
+                time.sleep(1)  # Give it a moment to fully initialize
+                # Update environment if we found a different port
+                if attempt_port != port:
+                    print_warning(f"Database found on port {attempt_port} instead of configured port {port}")
+                    print_warning(f"Consider setting DB_PORT={attempt_port} in your .env file")
+                    os.environ['DB_PORT'] = str(attempt_port)
+                return True
+            # Small delay between port checks
+            time.sleep(0.2)
     
-    print_error(f"Database did not become ready within {timeout} seconds")
+    print_error(f"Database did not become ready within {timeout} seconds on any of the tried ports: {ports_to_try}")
     return False
 
 
