@@ -451,6 +451,17 @@ def main():
     # Ensure environment variables are passed to subprocess
     monitor_env = os.environ.copy()
     
+    # Explicitly pass API_URL if it's set (for production)
+    api_url_env = os.getenv('API_URL')
+    if api_url_env:
+        monitor_env['API_URL'] = api_url_env
+        print_monitor(f"📡 API_URL configured: {api_url_env} (will send to production)")
+    else:
+        # Only set API_PORT if API_URL is not set (for local development)
+        # If API_URL is set, it takes precedence and API_PORT will be ignored
+        monitor_env['API_PORT'] = str(api_port)
+        print_monitor(f"📡 Using localhost API on port {api_port}")
+    
     monitor_process = subprocess.Popen(
         monitor_cmd,
         stdout=subprocess.PIPE,

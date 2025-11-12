@@ -30,7 +30,9 @@ except ImportError:
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    # Load .env but don't override existing environment variables
+    # This allows run_all.py to explicitly set API_URL which takes precedence
+    load_dotenv(override=False)
 except ImportError:
     pass  # dotenv is optional
 
@@ -1270,43 +1272,84 @@ async def send_patient_to_api(patient_data: Dict[str, Any]) -> bool:
     
     # Check for duplicates before sending
     if check_if_patient_recently_sent(emr_id):
+        # Still show which API would be used even for duplicates
+        api_url_env = os.getenv('API_URL')
+        if api_url_env and api_url_env.strip():
+            target_api = api_url_env.strip().rstrip('/') + '/patients/create'
+        else:
+            api_host = os.getenv('API_HOST', 'localhost')
+            api_port = os.getenv('API_PORT', '8000')
+            target_api = f"http://{api_host}:{api_port}/patients/create"
         print(f"   ⏭️  Skipping duplicate: Patient with EMR ID {emr_id} was recently sent to API")
+        print(f"   📡 Would send to: {target_api}")
         return True  # Return True since it's already in the system
     
+    # Check if httpx is available
+    if not HTTPX_AVAILABLE:
+        print(f"   ⚠️  httpx not available. Cannot send to API.")
+        return False
+    
     # Get API URL from environment variables
-    api_host = os.getenv('API_HOST', 'localhost')
-    api_port = os.getenv('API_PORT', '8000')
+    # API_URL takes absolute precedence - if set, NEVER fall back to localhost
+    # Note: Environment variables passed from run_all.py take precedence over .env file
+    api_url_env = os.getenv('API_URL')
     
-    # Try to detect API port from run_all.py output or check common ports
-    if api_port == '8000':
-        # Check if API is running on alternative ports
-        import socket
-        for port in [8000, 8001, 8002, 8003, 8004]:
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(0.1)
-                result = sock.connect_ex((api_host, port))
-                sock.close()
-                if result == 0:
-                    # Port is open, try to verify it's our API by checking root endpoint
-                    try:
-                        import httpx
-                        # Use root endpoint / which doesn't require parameters
-                        response = httpx.get(f"http://{api_host}:{port}/", timeout=1.0)
-                        if response.status_code in [200, 400, 401, 403, 404, 500]:  # Any HTTP response means API is there
-                            api_port = str(port)
-                            print(f"   🔍 Detected API server on port {port}")
-                            break
-                    except:
-                        # If HTTP check fails, just use the port if it's open
-                        # (might be our API but not responding to HTTP yet)
-                        api_port = str(port)
-                        print(f"   🔍 Port {port} is open, assuming API server")
-                        break
-            except:
-                pass
-    
-    api_url = f"http://{api_host}:{api_port}/patients/create"
+    if api_url_env and api_url_env.strip():
+        # Use production API URL - do NOT fall back to localhost
+        api_url = api_url_env.strip().rstrip('/') + '/patients/create'
+        print(f"   📡 Sending to production API: {api_url}")
+        print(f"   ✅ Production mode: Will NOT fall back to localhost")
+    else:
+        # Only use localhost if API_URL is explicitly not set
+        print(f"   ⚠️  API_URL not set - using localhost development mode")
+        api_host = os.getenv('API_HOST', 'localhost')
+        api_port = os.getenv('API_PORT', '8000')
+        
+        # Only auto-detect if API_PORT is not explicitly set (i.e., using default '8000')
+        # If API_PORT is explicitly set by run_all.py or user, use it directly
+        api_port_explicitly_set = 'API_PORT' in os.environ
+        
+        if not api_port_explicitly_set:
+            # Try to detect API port from run_all.py output or check common ports
+            # Check ports in reverse order to prefer newer instances (higher ports)
+            import socket
+            detected_port = None
+            for port in [8004, 8003, 8002, 8001, 8000]:
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(0.1)
+                    result = sock.connect_ex((api_host, port))
+                    sock.close()
+                    if result == 0:
+                        # Port is open, try to verify it's our API by checking /docs endpoint
+                        try:
+                            # Check /docs endpoint which is specific to our FastAPI server
+                            response = httpx.get(f"http://{api_host}:{port}/docs", timeout=1.0)
+                            if response.status_code == 200:
+                                detected_port = port
+                                print(f"   🔍 Detected API server on port {port} (verified via /docs)")
+                                break
+                        except:
+                            # Fallback: check root endpoint
+                            try:
+                                response = httpx.get(f"http://{api_host}:{port}/", timeout=1.0)
+                                if response.status_code in [200, 400, 401, 403, 404, 500]:
+                                    detected_port = port
+                                    print(f"   🔍 Detected API server on port {port}")
+                                    break
+                            except:
+                                pass
+                except:
+                    pass
+            
+            if detected_port:
+                api_port = str(detected_port)
+        else:
+            # API_PORT was explicitly set, use it directly
+            print(f"   🔍 Using API server on port {api_port} (from API_PORT env var)")
+        
+        api_url = f"http://{api_host}:{api_port}/patients/create"
+        print(f"   📡 Sending to localhost API: {api_url}")
     
     # Get API token/key if authentication is enabled
     api_token = os.getenv('API_TOKEN')
@@ -1530,8 +1573,9 @@ async def setup_form_monitor(page, location_id, location_name):
             while elapsed_time < max_wait_time:
                 try:
                     # Check API responses for EMR ID by looking at the queue data
+                    # Pass arguments as a list to avoid argument count issues
                     emr_id = await page.evaluate("""
-                        (firstName, lastName) => {
+                        ([firstName, lastName]) => {
                             // Look for patient data in the DOM that might contain EMR ID
                             // Check if there's any data attribute or text containing EMR ID
                             const allElements = document.querySelectorAll('[data-testid*="patient"], [data-testid*="booking"]');
@@ -1554,7 +1598,7 @@ async def setup_form_monitor(page, location_id, location_name):
                             
                             return null;
                         }
-                    """, patient_first_name, patient_last_name)
+                    """, [patient_first_name or '', patient_last_name or ''])
                     
                     if emr_id:
                         print(f"   ✅ EMR ID found in DOM: {emr_id}")
@@ -2289,8 +2333,9 @@ async def setup_form_monitor(page, location_id, location_name):
                         continue
                     
                     # Look for patient in DOM and check for EMR ID
+                    # Pass arguments as a list to avoid argument count issues
                     emr_id = await page.evaluate("""
-                        (firstName, lastName) => {
+                        ([firstName, lastName]) => {
                             // Find patient name elements
                             const nameElements = document.querySelectorAll('[data-testid^="booking-patient-name-"]');
                             
@@ -2310,7 +2355,7 @@ async def setup_form_monitor(page, location_id, location_name):
                             }
                             return null;
                         }
-                    """, pending_first, pending_last)
+                    """, [pending_first or '', pending_last or ''])
                     
                     if emr_id:
                         print(f"\n🔍 Found EMR ID in DOM: {emr_id}")
@@ -2732,6 +2777,16 @@ async def main():
     """
     Main function to run the patient form monitor.
     """
+    # Check API_URL configuration at startup
+    api_url_env = os.getenv('API_URL')
+    if api_url_env and api_url_env.strip():
+        print(f"✅ API_URL configured: {api_url_env}")
+        print(f"   📡 Patient data will be sent to: {api_url_env.rstrip('/')}/patients/create")
+    else:
+        print("⚠️  API_URL not set - will use localhost for API requests")
+        print("   💡 To send to production, set API_URL in .env file:")
+        print("      API_URL=https://app-97926.on-aptible.com")
+    
     # Get URL from environment variable - use URL as-is without appending location_ids
     url = os.getenv('SOLVHEALTH_QUEUE_URL')
     
