@@ -603,6 +603,13 @@ async def root(
     Parameters mirror the `/patients` JSON endpoint and rely on `prepare_dashboard_patients()` to construct
     the records displayed in the template.
     """
+    # Normalize locationId: convert empty strings to None
+    # FastAPI may receive empty string from form submission, normalize it to None
+    normalized_location_id = locationId.strip() if locationId else None
+    # Ensure empty strings after stripping are treated as None
+    if not normalized_location_id:
+        normalized_location_id = None
+    
     if statuses is None:
         normalized_statuses = DEFAULT_STATUSES.copy()
     else:
@@ -623,7 +630,7 @@ async def root(
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
         locations = fetch_locations(cursor)
-        patients = prepare_dashboard_patients(cursor, locationId, normalized_statuses, limit)
+        patients = prepare_dashboard_patients(cursor, normalized_location_id, normalized_statuses, limit)
 
         status_summary: Dict[str, int] = {}
         for patient in patients:
@@ -635,7 +642,7 @@ async def root(
             {
                 "request": request,
                 "patients": patients,
-                "location_id": locationId,
+                "location_id": normalized_location_id,
                 "selected_statuses": normalized_statuses,
                 "limit": limit,
                 "locations": locations,

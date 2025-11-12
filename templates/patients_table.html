@@ -371,7 +371,7 @@
                 <ul class="dropdown-menu" aria-labelledby="locationDropdown">
                     <li>
                         <a
-                            class="dropdown-item {% if not location_id %}active{% endif %}"
+                            class="dropdown-item"
                             href="#"
                             data-location-option
                             data-value=""
@@ -383,7 +383,7 @@
                     {% for loc in locations %}
                         <li>
                             <a
-                                class="dropdown-item {% if loc.location_id == location_id %}active{% endif %}"
+                                class="dropdown-item"
                                 href="#"
                                 data-location-option
                                 data-value="{{ loc.location_id }}"
@@ -523,6 +523,36 @@
             dropdownMenu && dropdownMenu.classList.remove("show");
         };
 
+        // Ensure only one item is active at a time
+        const setActiveItem = (activeItem) => {
+            items.forEach((node) => node.classList.remove("active"));
+            if (activeItem) {
+                activeItem.classList.add("active");
+            }
+        };
+
+        // Initialize active state based on current locationId value
+        const initializeActiveState = () => {
+            const currentValue = (hiddenInput.value || "").toString().trim();
+            let activeItem = null;
+            
+            items.forEach((item) => {
+                const itemValue = (item.dataset.value || "").toString().trim();
+                // Remove any existing active class first
+                item.classList.remove("active");
+                // Check if this item matches the current value
+                if (itemValue === currentValue) {
+                    activeItem = item;
+                }
+            });
+            
+            // Set the active item (only one)
+            setActiveItem(activeItem);
+        };
+
+        // Initialize on page load
+        initializeActiveState();
+
         dropdownButton.addEventListener("click", (event) => {
             event.preventDefault();
             const expanded = dropdownButton.getAttribute("aria-expanded") === "true";
@@ -537,9 +567,14 @@
                 const label = item.dataset.label || item.textContent.trim();
                 hiddenInput.value = value;
                 updateButtonLabel(label);
-                items.forEach((node) => node.classList.remove("active"));
-                item.classList.add("active");
+                // Ensure only this item is active
+                setActiveItem(item);
                 closeMenu();
+                // Auto-submit the form when location is selected
+                const form = hiddenInput.closest("form");
+                if (form) {
+                    form.submit();
+                }
             });
         });
 
