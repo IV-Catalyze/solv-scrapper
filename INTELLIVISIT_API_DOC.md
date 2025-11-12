@@ -19,9 +19,67 @@ During local development you may still run the API with `uvicorn api:app --reloa
 
 ## Authentication
 
-- No authentication is currently required.
-- Requests should originate from Intellivisit's allow-listed IP range; coordinate with Solv DevOps if firewall updates are needed.
-- If API keys or other credentials are introduced later, Solv will deliver updated onboarding materials.
+**All API endpoints require authentication.** The API supports two authentication methods:
+
+### 1. JWT Bearer Token (Recommended)
+
+JWT tokens provide secure, time-limited access with automatic expiration.
+
+**Step 1: Generate an access token**
+
+```bash
+curl -X POST "https://app-97926.on-aptible.com/auth/token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_id": "intellivisit-production",
+    "expires_hours": 24
+  }'
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "expires_at": "2024-11-07T14:22:03.000Z",
+  "expires_in": 86400,
+  "client_id": "intellivisit-production"
+}
+```
+
+**Step 2: Use the token in API requests**
+
+Include the token in the `Authorization` header:
+
+```bash
+curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  "https://app-97926.on-aptible.com/patients?locationId=AXjwbE"
+```
+
+### 2. API Key (Alternative)
+
+For simpler integrations, you can use a static API key provided by Solv.
+
+```bash
+curl -H "X-API-Key: your-api-key-here" \
+  "https://app-97926.on-aptible.com/patients?locationId=AXjwbE"
+```
+
+**Note:** API keys are provided by Solv during onboarding. Contact `integrations@solvhealth.com` to obtain your API key.
+
+### Token Management
+
+- **Token expiration**: Default tokens expire after 24 hours. You can request custom expiration times (1 hour to 1 year).
+- **Token refresh**: Generate a new token before expiration using the `/auth/token` endpoint.
+- **Security**: Store tokens securely and never commit them to version control. Use environment variables or secret management systems.
+- **Best practice**: Implement token refresh logic in your integration to automatically renew tokens before expiration.
+
+### Error Responses
+
+| HTTP Code | Error | Resolution |
+|-----------|-------|------------|
+| `401 Unauthorized` | Missing or invalid token/API key | Verify your Authorization header or X-API-Key header |
+| `401 Unauthorized` | Token expired | Generate a new token using `/auth/token` |
 
 ---
 
@@ -38,11 +96,12 @@ During local development you may still run the API with `uvicorn api:app --reloa
 
 ## Endpoints Overview
 
-| Method | Path                  | Description                                              |
-|--------|-----------------------|----------------------------------------------------------|
-| GET    | `/`                   | Render the patient dashboard HTML (visual inspection)    |
-| GET    | `/patients`           | Retrieve the active patient queue for a location         |
-| GET    | `/patient/{emr_id}`   | Retrieve the most recent record for a specific EMR ID    |
+| Method | Path                  | Description                                              | Auth Required |
+|--------|-----------------------|----------------------------------------------------------|---------------|
+| POST   | `/auth/token`         | Generate JWT access token                                | No            |
+| GET    | `/`                   | Render the patient dashboard HTML (visual inspection)    | No            |
+| GET    | `/patients`           | Retrieve the active patient queue for a location         | Yes           |
+| GET    | `/patient/{emr_id}`   | Retrieve the most recent record for a specific EMR ID    | Yes           |
 
 Full interactive documentation: `https://app-97926.on-aptible.com/docs`
 
@@ -62,8 +121,18 @@ Retrieve the active patient queue for a specific clinic location.
 
 ### Example request
 
+**With Bearer token:**
 ```
 curl -s \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+  "https://app-97926.on-aptible.com/patients?locationId=AXjwbE&statuses=confirmed&statuses=checked_in&limit=25" \
+  | jq
+```
+
+**With API key:**
+```
+curl -s \
+  -H "X-API-Key: YOUR_API_KEY_HERE" \
   "https://app-97926.on-aptible.com/patients?locationId=AXjwbE&statuses=confirmed&statuses=checked_in&limit=25" \
   | jq
 ```
@@ -94,6 +163,7 @@ curl -s \
 
 | HTTP code             | Message                                      | Notes                                                       |
 |-----------------------|----------------------------------------------|-------------------------------------------------------------|
+| `401 Unauthorized`    | Authentication required                      | Provide a valid Bearer token or API key in headers.        |
 | `400 Bad Request`     | Missing or invalid `locationId` or statuses  | Ensure a valid `locationId` and at least one valid status.  |
 | `500 Internal Server Error` | Unexpected server or database error    | Retry with exponential backoff; contact Solv if persistent. |
 
@@ -111,8 +181,20 @@ Retrieve the latest record for a specific EMR (Electronic Medical Record) ID.
 
 ### Example request
 
+**With Bearer token:**
 ```
-curl -s "https://app-97926.on-aptible.com/patient/EMR12345" | jq
+curl -s \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+  "https://app-97926.on-aptible.com/patient/EMR12345" \
+  | jq
+```
+
+**With API key:**
+```
+curl -s \
+  -H "X-API-Key: YOUR_API_KEY_HERE" \
+  "https://app-97926.on-aptible.com/patient/EMR12345" \
+  | jq
 ```
 
 ### Example response
@@ -137,6 +219,7 @@ curl -s "https://app-97926.on-aptible.com/patient/EMR12345" | jq
 
 | HTTP code             | Reason                                   |
 |-----------------------|------------------------------------------|
+| `401 Unauthorized`    | Authentication required                  |
 | `404 Not Found`       | No record found for the supplied EMR ID. |
 | `500 Internal Server Error` | Database or internal error.       |
 

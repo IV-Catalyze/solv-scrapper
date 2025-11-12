@@ -49,6 +49,14 @@ except ImportError:
 
 from pathlib import Path
 
+# Import patient saving functions
+try:
+    from save_to_db import normalize_patient_record, insert_patients
+except ImportError:
+    print("Warning: save_to_db module not found. Patient save endpoint will not work.")
+    normalize_patient_record = None
+    insert_patients = None
+
 app = FastAPI(
     title="Patient Data API",
     description=(
@@ -481,6 +489,34 @@ class TokenRequest(BaseModel):
     )
 
 
+# Patient data submission models
+class PatientCreateRequest(BaseModel):
+    """Request model for creating a single patient record."""
+    emr_id: Optional[str] = Field(None, description="EMR identifier for the patient.")
+    booking_id: Optional[str] = Field(None, description="Internal booking identifier.")
+    booking_number: Optional[str] = Field(None, description="Human-readable booking number.")
+    patient_number: Optional[str] = Field(None, description="Clinic-specific patient number.")
+    location_id: Optional[str] = Field(None, description="Unique identifier for the clinic location.")
+    location_name: Optional[str] = Field(None, description="Display name of the clinic location.")
+    legalFirstName: Optional[str] = Field(None, description="Patient legal first name.")
+    legalLastName: Optional[str] = Field(None, description="Patient legal last name.")
+    dob: Optional[str] = Field(None, description="Date of birth.")
+    mobilePhone: Optional[str] = Field(None, description="Primary phone number on file.")
+    sexAtBirth: Optional[str] = Field(None, description="Sex at birth or recorded gender marker.")
+    reasonForVisit: Optional[str] = Field(None, description="Reason provided for the visit.")
+    status: Optional[str] = Field(None, description="Current queue status for the patient.")
+    captured_at: Optional[str] = Field(None, description="Timestamp indicating when the record was captured.")
+    
+    class Config:
+        extra = "allow"
+
+
+class PatientBatchRequest(BaseModel):
+    """Request model for creating multiple patient records."""
+    patients: List[PatientCreateRequest] = Field(..., description="List of patient records to create.")
+
+
+
 @app.post(
     "/auth/token",
     tags=["Authentication"],
@@ -711,6 +747,113 @@ async def get_patient_by_emr_id(
             cursor.close()
         if conn:
             conn.close()
+
+
+
+@app.post(
+    "/patients/create",
+    tags=["Patients"],
+    summary="Create patient record(s)",
+    response_model=Dict[str, Any],
+    responses={
+        201: {"description": "Patient record(s) created successfully."},
+        400: {"description": "Invalid request data."},
+        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        500: {"description": "Database or server error while saving the record(s)."},
+    },
+)
+async def create_patient(
+    patient_data: PatientCreateRequest,
+    current_client: TokenData = get_auth_dependency()
+) -> Dict[str, Any]:
+    """
+    Create a single patient record from the provided data.
+    
+    This endpoint accepts patient data in JSON format and saves it to the database.
+    The data will be normalized and validated before insertion.
+    
+    Requires authentication via Bearer token or API key.
+    """
+    if not normalize_patient_record or not insert_patients:
+        raise HTTPException(
+            status_code=503,
+            detail="Patient save functionality unavailable"
+        )
+    
+    conn = None
+    try:
+        # Convert Pydantic model to dict
+        patient_dict = patient_data.model_dump(exclude_none=True)
+        
+        # Normalize the patient record
+        normalized = normalize_patient_record(patient_dict)
+        
+        # Check if emr_id is required
+        if not normalized.get('emr_id'):
+            raise HTTPException(
+                status_code=400,
+                detail="emr_id is required. Please provide an EMR identifier for the patient."
+            )
+        
+        # Ensure location_id is provided
+        if not normalized.get('location_id'):
+            raise HTTPException(
+                status_code=400,
+                detail="location_id is required. Please provide a location identifier."
+            )
+        
+        conn = get_db_connection()
+        inserted_count = insert_patients(conn, [normalized], on_conflict='update')
+        
+        if inserted_count == 0:
+            # Record might already exist, try to fetch it
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute(
+                "SELECT * FROM patients WHERE emr_id = %s LIMIT 1",
+                (normalized['emr_id'],)
+            )
+            existing = cursor.fetchone()
+            cursor.close()
+            
+            if existing:
+                return {
+                    "message": "Patient record already exists and was updated",
+                    "emr_id": normalized['emr_id'],
+                    "status": "updated"
+                }
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to create patient record"
+                )
+        
+        return {
+            "message": "Patient record created successfully",
+            "emr_id": normalized['emr_id'],
+            "status": "created",
+            "inserted_count": inserted_count
+        }
+        
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
+
 
 
 if __name__ == "__main__":

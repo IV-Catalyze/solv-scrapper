@@ -27,6 +27,13 @@ This project captures patient form data in real-time when the "Add Patient" form
 
 ## Installation
 
+### Platform-Specific Setup
+
+- **Windows VM**: See [WINDOWS_SETUP.md](WINDOWS_SETUP.md) for complete Windows installation instructions
+- **macOS/Linux**: Follow the instructions below
+
+### General Installation
+
 1. **Install Python dependencies:**
 
 ```bash

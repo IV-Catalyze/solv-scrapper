@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from typing import Dict, Any, Optional, List, Set, Tuple
+import threading
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
@@ -32,6 +33,14 @@ try:
     load_dotenv()
 except ImportError:
     pass  # dotenv is optional
+
+# Import HTTP client for API calls
+try:
+    import httpx
+    HTTPX_AVAILABLE = True
+except ImportError:
+    HTTPX_AVAILABLE = False
+    print("⚠️  httpx not installed. API saving will be disabled. Install with: pip install httpx")
 
 
 def str_to_bool(value: Optional[str]) -> bool:
@@ -1176,6 +1185,207 @@ async def capture_form_data(page):
         return form_data
 
 
+# Track recently sent EMR IDs to prevent duplicates (in-memory cache)
+_recently_sent_emr_ids: Set[str] = set()
+_recently_sent_lock = threading.Lock()
+
+def check_if_patient_recently_sent(emr_id: str, minutes_threshold: int = 5) -> bool:
+    """
+    Check if a patient with this EMR ID was recently sent to the API.
+    Checks both in-memory cache and database.
+    
+    Args:
+        emr_id: EMR ID to check
+        minutes_threshold: How many minutes back to check (default 5)
+        
+    Returns:
+        True if recently sent, False otherwise
+    """
+    if not emr_id:
+        return False
+    
+    # Check in-memory cache first (fast)
+    with _recently_sent_lock:
+        if emr_id in _recently_sent_emr_ids:
+            return True
+    
+    # Check database for recently created records
+    if not DB_AVAILABLE:
+        return False
+    
+    conn = get_db_connection()
+    if not conn:
+        return False
+    
+    try:
+        cursor = conn.cursor()
+        # Check if patient was created/updated in the last N minutes
+        # Use PostgreSQL interval syntax
+        cursor.execute(f"""
+            SELECT id, created_at, updated_at
+            FROM patients
+            WHERE emr_id = %s
+            AND (created_at > NOW() - INTERVAL '{minutes_threshold} minutes' 
+                 OR updated_at > NOW() - INTERVAL '{minutes_threshold} minutes')
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (emr_id,))
+        
+        result = cursor.fetchone()
+        cursor.close()
+        
+        if result:
+            # Add to in-memory cache
+            with _recently_sent_lock:
+                _recently_sent_emr_ids.add(emr_id)
+            return True
+        
+        return False
+    except Exception as e:
+        # If check fails, don't block sending (fail open)
+        print(f"   ⚠️  Error checking for duplicate: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+async def send_patient_to_api(patient_data: Dict[str, Any]) -> bool:
+    """
+    Send patient data to the API endpoint when EMR ID is available.
+    Prevents duplicate sends by checking if patient was recently sent.
+    
+    Args:
+        patient_data: Dictionary with patient data (must have emr_id)
+        
+    Returns:
+        True if sent successfully, False otherwise
+    """
+    if not HTTPX_AVAILABLE:
+        return False
+    
+    # Only send if EMR ID is present
+    emr_id = patient_data.get('emr_id')
+    if not emr_id:
+        return False
+    
+    # Check for duplicates before sending
+    if check_if_patient_recently_sent(emr_id):
+        print(f"   ⏭️  Skipping duplicate: Patient with EMR ID {emr_id} was recently sent to API")
+        return True  # Return True since it's already in the system
+    
+    # Get API URL from environment variables
+    api_host = os.getenv('API_HOST', 'localhost')
+    api_port = os.getenv('API_PORT', '8000')
+    
+    # Try to detect API port from run_all.py output or check common ports
+    if api_port == '8000':
+        # Check if API is running on alternative ports
+        import socket
+        for port in [8000, 8001, 8002, 8003, 8004]:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(0.1)
+                result = sock.connect_ex((api_host, port))
+                sock.close()
+                if result == 0:
+                    # Port is open, try to verify it's our API by checking root endpoint
+                    try:
+                        import httpx
+                        # Use root endpoint / which doesn't require parameters
+                        response = httpx.get(f"http://{api_host}:{port}/", timeout=1.0)
+                        if response.status_code in [200, 400, 401, 403, 404, 500]:  # Any HTTP response means API is there
+                            api_port = str(port)
+                            print(f"   🔍 Detected API server on port {port}")
+                            break
+                    except:
+                        # If HTTP check fails, just use the port if it's open
+                        # (might be our API but not responding to HTTP yet)
+                        api_port = str(port)
+                        print(f"   🔍 Port {port} is open, assuming API server")
+                        break
+            except:
+                pass
+    
+    api_url = f"http://{api_host}:{api_port}/patients/create"
+    
+    # Get API token/key if authentication is enabled
+    api_token = os.getenv('API_TOKEN')
+    api_key = os.getenv('API_KEY')
+    
+    # Prepare headers
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    
+    # Add authentication if available
+    if api_token:
+        headers['Authorization'] = f'Bearer {api_token}'
+    elif api_key:
+        headers['X-API-Key'] = api_key
+    
+    # Prepare patient data for API (convert to API format)
+    api_payload = {
+        'emr_id': patient_data.get('emr_id') or '',
+        'booking_id': patient_data.get('booking_id') or '',
+        'booking_number': patient_data.get('booking_number') or '',
+        'patient_number': patient_data.get('patient_number') or '',
+        'location_id': patient_data.get('location_id') or '',
+        'location_name': patient_data.get('location_name') or '',
+        'legalFirstName': patient_data.get('legalFirstName') or patient_data.get('legal_first_name') or '',
+        'legalLastName': patient_data.get('legalLastName') or patient_data.get('legal_last_name') or '',
+        'dob': patient_data.get('dob') or '',
+        'mobilePhone': patient_data.get('mobilePhone') or patient_data.get('mobile_phone') or '',
+        'sexAtBirth': patient_data.get('sexAtBirth') or patient_data.get('sex_at_birth') or '',
+        'reasonForVisit': patient_data.get('reasonForVisit') or patient_data.get('reason_for_visit') or '',
+        'status': patient_data.get('status') or 'checked_in',
+        'captured_at': patient_data.get('captured_at') or datetime.now().isoformat()
+    }
+    
+    # Remove empty strings and convert to None for optional fields
+    api_payload = {k: v if v else None for k, v in api_payload.items()}
+    
+    print(f"   📤 API Request Details:")
+    print(f"      URL: {api_url}")
+    print(f"      Method: POST")
+    print(f"      Payload: {json.dumps(api_payload, indent=2, default=str)}")
+    print(f"      Headers: {json.dumps(headers, indent=2)}")
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            print(f"   🔄 Sending HTTP request...")
+            response = await client.post(api_url, json=api_payload, headers=headers)
+            print(f"   📥 Response received: {response.status_code}")
+            
+            if response.status_code in [200, 201]:
+                result = response.json()
+                emr_id_sent = api_payload.get('emr_id')
+                print(f"   ✅ Patient data sent to API successfully (EMR ID: {emr_id_sent})")
+                # Mark as recently sent to prevent duplicates
+                if emr_id_sent:
+                    with _recently_sent_lock:
+                        _recently_sent_emr_ids.add(emr_id_sent)
+                return True
+            else:
+                error_detail = response.text
+                try:
+                    error_json = response.json()
+                    error_detail = error_json.get('detail', error_detail)
+                except:
+                    pass
+                print(f"   ⚠️  API returned error {response.status_code}: {error_detail}")
+                return False
+                
+    except httpx.TimeoutException:
+        print(f"   ⚠️  API request timed out after 30 seconds")
+        return False
+    except httpx.RequestError as e:
+        print(f"   ⚠️  API request error: {e}")
+        return False
+    except Exception as e:
+        print(f"   ⚠️  Error sending to API: {e}")
+        return False
+
+
 async def save_patient_data(data) -> Optional[int]:
     """Persist patient data to the pending_patients staging table."""
     try:
@@ -1194,7 +1404,21 @@ async def save_patient_data(data) -> Optional[int]:
         print(f"✅ Pending patient saved (pending_id={pending_id})")
 
         if data.get('emr_id'):
-            print("   📎 EMR ID already available, saving directly to patients table")
+            print("   📎 EMR ID already available, sending to API and saving to patients table")
+            
+            # Send to API first (when EMR ID is present)
+            use_api = str_to_bool(os.getenv('USE_API', 'true'))
+            if use_api and HTTPX_AVAILABLE:
+                print("   📡 Sending patient data to API...")
+                api_success = await send_patient_to_api(data)
+                if api_success:
+                    print("   ✅ Patient data successfully sent to API")
+                else:
+                    print("   ⚠️  Failed to send to API, will still save to database")
+            elif use_api and not HTTPX_AVAILABLE:
+                print("   ⚠️  API saving requested but httpx not available. Install with: pip install httpx")
+            
+            # Also save to database
             saved = save_patient_to_db(data, on_conflict='update')
             if saved:
                 mark_pending_patient_status(pending_id, 'completed')
@@ -1231,7 +1455,9 @@ async def setup_form_monitor(page, location_id, location_name):
         """
         Callback function called from JavaScript when form is submitted.
         """
-        print(f"\n🎯 Patient form submitted detected!")
+        print(f"\n{'='*60}")
+        print(f"🎯 PATIENT FORM SUBMITTED!")
+        print(f"{'='*60}")
         print(f"   Raw form data received: {form_data}")
         
         # Re-extract location_id from current URL in case user changed location
@@ -1267,6 +1493,10 @@ async def setup_form_monitor(page, location_id, location_name):
         
         # Add to pending patients list for EMR ID monitoring
         pending_patients.append(complete_data)
+        print(f"   📋 Added to pending patients list (total: {len(pending_patients)})")
+        print(f"   ⏳ Now monitoring API responses for EMR ID assignment...")
+        print(f"   💡 EMR ID typically appears 60-120 seconds after form submission")
+        print(f"{'='*60}\n")
         
         # Start background task to wait for EMR ID (as fallback)
         asyncio.create_task(wait_for_emr_id(complete_data))
@@ -1519,6 +1749,31 @@ async def setup_form_monitor(page, location_id, location_name):
                 print(f"   ⚠️  Failed to update pending patient (pending_id={pending_id}) with EMR ID")
                 return
 
+            # Send to API when EMR ID is found (THIS IS THE CRITICAL PART)
+            use_api = str_to_bool(os.getenv('USE_API', 'true'))
+            print(f"\n{'='*60}")
+            print(f"🚀 CRITICAL: EMR ID FOUND - PREPARING TO SEND TO API")
+            print(f"{'='*60}")
+            print(f"   EMR ID: {patient_data.get('emr_id')}")
+            print(f"   Patient: {patient_data.get('legalFirstName')} {patient_data.get('legalLastName')}")
+            print(f"   USE_API: {use_api}")
+            print(f"   HTTPX_AVAILABLE: {HTTPX_AVAILABLE}")
+            print(f"   Patient data keys: {list(patient_data.keys())}")
+            
+            if use_api and HTTPX_AVAILABLE:
+                print(f"   📡 Sending patient data to API...")
+                api_success = await send_patient_to_api(patient_data)
+                if api_success:
+                    print(f"   ✅ Patient data successfully sent to API (EMR ID: {patient_data.get('emr_id')})")
+                else:
+                    print(f"   ⚠️  Failed to send to API, will still save to database")
+            elif use_api and not HTTPX_AVAILABLE:
+                print(f"   ⚠️  API saving requested but httpx not available. Install with: pip install httpx")
+            else:
+                print(f"   ⚠️  API sending disabled (USE_API={use_api})")
+            print(f"{'='*60}\n")
+            
+            # Also save to database
             saved = save_patient_to_db(patient_data, on_conflict='update')
             if saved:
                 mark_pending_patient_status(pending_id, 'completed')
@@ -1596,8 +1851,10 @@ async def setup_form_monitor(page, location_id, location_name):
             # Look for API responses that might contain patient/booking data with EMR ID
             # Check a wider range of URLs, especially booking endpoints
             url_lower = url.lower()
+            is_solvhealth_api = "api-manage.solvhealth.com" in url_lower
             is_relevant = (
                 status == 200 and (
+                    is_solvhealth_api or
                     "patient" in url_lower or 
                     "booking" in url_lower or 
                     "bookings" in url_lower or
@@ -1615,6 +1872,26 @@ async def setup_form_monitor(page, location_id, location_name):
                 try:
                     # Try to get JSON response
                     response_body = await response.json()
+                    
+                    # Log intercepted responses for debugging
+                    if is_solvhealth_api and "/bookings" in url_lower:
+                        print(f"\n🔍 Intercepted Solvhealth API response:")
+                        print(f"   URL: {url}")
+                        print(f"   Status: {status}")
+                        print(f"   📋 Response body structure: {type(response_body)}")
+                        if isinstance(response_body, dict):
+                            print(f"   📋 Response keys: {list(response_body.keys())}")
+                            if 'data' in response_body:
+                                data = response_body.get('data', {})
+                                if isinstance(data, dict):
+                                    print(f"   📋 Data keys: {list(data.keys())}")
+                                    if 'integration_status' in data:
+                                        print(f"   📋 Found integration_status in data")
+                                    if isinstance(data.get('integration_status'), list) and data.get('integration_status'):
+                                        integration = data.get('integration_status')[0]
+                                        if isinstance(integration, dict):
+                                            emr_id = integration.get('emr_id')
+                                            print(f"   📋 integration_status[0].emr_id = {emr_id} (type: {type(emr_id)})")
                     
                     async def process_single_booking_record(record: Dict[str, Any]) -> bool:
                         """Process a single booking/queue record and update EMR/status as needed."""
@@ -1682,10 +1959,18 @@ async def setup_form_monitor(page, location_id, location_name):
                                 if not isinstance(integration, dict):
                                     continue
                                 integration_emr_id = integration.get('emr_id')
-                                if integration_emr_id and not emr_id_local:
+                                # Only use EMR ID if it's not null/empty (check for actual value)
+                                # JSON null becomes Python None, so check for both None and empty strings
+                                if (integration_emr_id is not None and 
+                                    str(integration_emr_id).strip() and 
+                                    str(integration_emr_id).strip().lower() not in ('null', 'none', '') and 
+                                    not emr_id_local):
                                     emr_id_local = str(integration_emr_id).strip()
                                     patient_match_local = record
                                     print(f"   📍 Found EMR ID in integration_status: {emr_id_local}")
+                                    print(f"   📋 Integration status: {integration.get('status')}")
+                                    print(f"   📋 Booking ID: {record.get('id')}")
+                                    print(f"   📋 Patient: {record.get('first_name')} {record.get('last_name')}")
                                 requests = integration.get('requests', [])
                                 if isinstance(requests, list):
                                     for request in requests:
@@ -1830,6 +2115,8 @@ async def setup_form_monitor(page, location_id, location_name):
                                         print(f"      Match by name: {pending_first} {pending_last}")
                                     if phone_match:
                                         print(f"      Match by phone: {pending.get('mobilePhone', '').strip()}")
+                                    
+                                    # Update pending record with EMR ID and all booking data
                                     pending['emr_id'] = emr_id_local
                                     if booking_id_local:
                                         pending['booking_id'] = booking_id_local
@@ -1837,14 +2124,93 @@ async def setup_form_monitor(page, location_id, location_name):
                                         pending['booking_number'] = booking_number_local
                                     if patient_number_local:
                                         pending['patient_number'] = patient_number_local
+                                    
+                                    # Extract and merge all patient data from booking record
+                                    if patient_match_local:
+                                        # Map booking fields to patient data format
+                                        if not pending.get('legalFirstName') and patient_match_local.get('first_name'):
+                                            pending['legalFirstName'] = patient_match_local.get('first_name')
+                                        if not pending.get('legalLastName') and patient_match_local.get('last_name'):
+                                            pending['legalLastName'] = patient_match_local.get('last_name')
+                                        if not pending.get('dob') and patient_match_local.get('birth_date'):
+                                            pending['dob'] = patient_match_local.get('birth_date')
+                                        if not pending.get('mobilePhone') and patient_match_local.get('phone'):
+                                            pending['mobilePhone'] = patient_match_local.get('phone')
+                                        if not pending.get('sexAtBirth') and patient_match_local.get('birth_sex'):
+                                            pending['sexAtBirth'] = patient_match_local.get('birth_sex')
+                                        if not pending.get('reasonForVisit') and patient_match_local.get('reason'):
+                                            pending['reasonForVisit'] = patient_match_local.get('reason')
+                                        if not pending.get('location_id') and patient_match_local.get('location_id'):
+                                            pending['location_id'] = patient_match_local.get('location_id')
+                                        if not pending.get('location_name') and patient_match_local.get('location_name'):
+                                            pending['location_name'] = patient_match_local.get('location_name')
+                                        if not pending.get('status') and patient_match_local.get('status'):
+                                            pending['status'] = patient_match_local.get('status')
+                                    
+                                    # Send to API and update database
+                                    print(f"\n   🔄 Calling update_patient_emr_id() with patient data...")
+                                    print(f"      EMR ID: {pending.get('emr_id')}")
+                                    print(f"      Patient: {pending.get('legalFirstName')} {pending.get('legalLastName')}")
                                     await update_patient_emr_id(pending)
                                     print(f"   💾 Updated patient data with EMR ID: {emr_id_local}")
                                     pending_patients.remove(pending)
                                     matched = True
                                     break
 
+                            # ALWAYS send to API when EMR ID is found, even if no pending patient match
+                            # (This handles cases where EMR ID appears but form wasn't submitted through our monitor)
+                            if not matched and emr_id_local and patient_match_local:
+                                # Extract complete patient data from booking record
+                                patient_data_for_api = {
+                                    'emr_id': emr_id_local,
+                                    'booking_id': booking_id_local or patient_match_local.get('id') or patient_match_local.get('booking_id') or None,
+                                    'booking_number': booking_number_local or patient_match_local.get('booking_number') or None,
+                                    'patient_number': patient_number_local or patient_match_local.get('patient_number') or None,
+                                    'location_id': patient_match_local.get('location_id') or None,
+                                    'location_name': patient_match_local.get('location_name') or None,
+                                    'legalFirstName': patient_match_local.get('first_name') or patient_match_local.get('firstName') or patient_match_local.get('legalFirstName') or patient_first_name or None,
+                                    'legalLastName': patient_match_local.get('last_name') or patient_match_local.get('lastName') or patient_match_local.get('legalLastName') or patient_last_name or None,
+                                    'dob': patient_match_local.get('birth_date') or patient_match_local.get('dateOfBirth') or patient_match_local.get('dob') or None,
+                                    'mobilePhone': patient_match_local.get('phone') or patient_match_local.get('mobile_phone') or patient_match_local.get('mobilePhone') or api_phone_value or None,
+                                    'sexAtBirth': patient_match_local.get('birth_sex') or patient_match_local.get('sexAtBirth') or patient_match_local.get('sex_at_birth') or None,
+                                    'reasonForVisit': patient_match_local.get('reason') or patient_match_local.get('reasonForVisit') or patient_match_local.get('reason_for_visit') or None,
+                                    'status': patient_match_local.get('status') or booking_status_value or 'checked_in',
+                                    'captured_at': datetime.now().isoformat()
+                                }
+                                
+                                # Remove None values
+                                patient_data_for_api = {k: v for k, v in patient_data_for_api.items() if v is not None}
+                                
+                                print(f"\n   🚀 EMR ID found! Sending patient data to API immediately...")
+                                print(f"      EMR ID: {emr_id_local}")
+                                print(f"      Patient: {patient_data_for_api.get('legalFirstName')} {patient_data_for_api.get('legalLastName')}")
+                                
+                                # Send to API directly
+                                use_api = str_to_bool(os.getenv('USE_API', 'true'))
+                                if use_api and HTTPX_AVAILABLE:
+                                    api_success = await send_patient_to_api(patient_data_for_api)
+                                    if api_success:
+                                        print(f"   ✅ Patient data successfully sent to API (EMR ID: {emr_id_local})")
+                                    else:
+                                        print(f"   ⚠️  Failed to send to API")
+                                elif use_api and not HTTPX_AVAILABLE:
+                                    print(f"   ⚠️  API saving requested but httpx not available")
+                                
+                                # Also save to database
+                                try:
+                                    saved = save_patient_to_db(patient_data_for_api, on_conflict='update')
+                                    if saved:
+                                        print(f"   ✅ Patient data also saved to database")
+                                    else:
+                                        print(f"   ⚠️  Failed to save to database")
+                                except Exception as e:
+                                    print(f"   ⚠️  Error saving to database: {e}")
+                            
                             if not matched:
-                                print(f"   ⚠️  EMR ID found but no matching patient. Will continue monitoring (pending patients: {len(pending_patients)})")
+                                print(f"   📋 No matching pending patient found (pending patients: {len(pending_patients)})")
+                                if len(pending_patients) > 0:
+                                    pending_names = [f"{p.get('legalFirstName', '')} {p.get('legalLastName', '')}" for p in pending_patients]
+                                    print(f"   💡 Pending patients: {pending_names}")
 
                         if booking_status_value and not status_update_success:
                             await update_status_for_booking(
@@ -1873,11 +2239,16 @@ async def setup_form_monitor(page, location_id, location_name):
                             for record in records:
                                 if isinstance(record, dict) and await process_single_booking_record(record):
                                     handled_any = True
-                        elif isinstance(booking_payload, dict) and await process_single_booking_record(booking_payload):
-                            handled_any = True
+                        elif isinstance(booking_payload, dict):
+                            # Handle single booking record in data.data (like Solvhealth API response)
+                            # Check if it's a booking record (has id, location_id, etc.)
+                            if booking_payload.get('id') or booking_payload.get('location_id'):
+                                if await process_single_booking_record(booking_payload):
+                                    handled_any = True
 
                     if not handled_any and isinstance(response_body, dict):
-                        if await process_single_booking_record(response_body):
+                        # Also try processing the root dict directly if it looks like a booking record
+                        if (response_body.get('id') or response_body.get('location_id')) and await process_single_booking_record(response_body):
                             handled_any = True
 
                     if handled_any:

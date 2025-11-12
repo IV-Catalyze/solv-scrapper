@@ -108,47 +108,10 @@ def is_database_running(host: str = 'localhost', port: int = 5432):
         return False
 
 
-def get_db_config_from_env():
-    """Extract database configuration from environment variables.
-    
-    Returns tuple (host, port) from either DATABASE_URL or individual env vars.
-    """
-    database_url = os.getenv('DATABASE_URL')
-    
-    if database_url:
-        # Parse DATABASE_URL
-        try:
-            from urllib.parse import urlparse
-            # Handle postgres:// and postgresql:// URLs
-            if database_url.startswith('postgres://'):
-                database_url = database_url.replace('postgres://', 'postgresql://', 1)
-            
-            parsed = urlparse(database_url)
-            return parsed.hostname, parsed.port or 5432
-        except Exception:
-            # If parsing fails, fall back to individual vars
-            pass
-    
-    # Fall back to individual environment variables
-    db_host = os.getenv('DB_HOST', 'localhost')
-    db_port = int(os.getenv('DB_PORT', '5432'))
-    return db_host, db_port
-
-
 def start_database():
     """Start PostgreSQL database if not running."""
-    db_host, db_port = get_db_config_from_env()
-    
-    # Skip local database startup if using a remote database (not localhost)
-    if db_host not in ('localhost', '127.0.0.1', '::1'):
-        print_db(f"Using remote database: {db_host}:{db_port}")
-        print_db("Skipping local database startup (remote database detected)")
-        # For remote databases, we don't verify connectivity here because:
-        # 1. Socket checks may fail due to firewalls even if DB is accessible
-        # 2. The actual connection will be tested when the app tries to use it
-        # 3. psycopg2 will handle connection errors gracefully
-        print_db("✅ Remote database configured. Connection will be verified on first use.")
-        return True
+    db_host = os.getenv('DB_HOST', 'localhost')
+    db_port = int(os.getenv('DB_PORT', '5432'))
     
     disable_autostart = os.getenv('RUN_ALL_AUTOSTART_DB', '1').strip().lower() in {'0', 'false', 'no', 'off'}
     if disable_autostart:
@@ -489,8 +452,7 @@ def main():
     print("=" * 70)
     print_info("All services are running!")
     print()
-    db_host, db_port = get_db_config_from_env()
-    print_db(f"🗄️  Database: {db_host}:{db_port}")
+    print_db(f"🗄️  Database: {os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}")
     print_info(f"📡 API Server: http://localhost:{api_port}")
     print_info(f"📡 API Docs: http://localhost:{api_port}/docs")
     print_info(f"🔍 Monitor: Watching for patient form submissions")
