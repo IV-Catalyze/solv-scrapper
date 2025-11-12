@@ -29,26 +29,69 @@ except ImportError:
 
 
 def get_db_connection():
-    """Get PostgreSQL database connection from environment variables."""
-    db_config = {
-        'host': os.getenv('DB_HOST', 'localhost'),
-        'port': os.getenv('DB_PORT', '5432'),
-        'database': os.getenv('DB_NAME', 'solvhealth_patients'),
-        'user': os.getenv('DB_USER', 'postgres'),
-        'password': os.getenv('DB_PASSWORD', '')
-    }
+    """Get PostgreSQL database connection from environment variables.
+    
+    Supports two methods:
+    1. DATABASE_URL (recommended for cloud deployments like Aptible)
+       Format: postgresql://user:password@host:port/database
+    2. Individual environment variables (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD)
+    """
+    # Check if DATABASE_URL is set (preferred for cloud deployments)
+    database_url = os.getenv('DATABASE_URL')
+    
+    if database_url:
+        # Parse the connection URL
+        try:
+            from urllib.parse import urlparse
+            # Handle postgres:// and postgresql:// URLs
+            if database_url.startswith('postgres://'):
+                database_url = database_url.replace('postgres://', 'postgresql://', 1)
+            
+            parsed = urlparse(database_url)
+            
+            db_config = {
+                'host': parsed.hostname,
+                'port': parsed.port or 5432,
+                'database': parsed.path.lstrip('/'),
+                'user': parsed.username,
+                'password': parsed.password or ''
+            }
+            # Enable SSL for remote databases (Aptible requires SSL)
+            # But disable SSL when connecting through localhost tunnel
+            if parsed.hostname and parsed.hostname not in ('localhost', '127.0.0.1', '::1'):
+                db_config['sslmode'] = 'require'
+        except Exception as e:
+            print(f"Error parsing DATABASE_URL: {e}")
+            print("DATABASE_URL format should be: postgresql://user:password@host:port/database")
+            sys.exit(1)
+    else:
+        # Fall back to individual environment variables
+        db_host = os.getenv('DB_HOST', 'localhost')
+        db_config = {
+            'host': db_host,
+            'port': os.getenv('DB_PORT', '5432'),
+            'database': os.getenv('DB_NAME', 'solvhealth_patients'),
+            'user': os.getenv('DB_USER', 'postgres'),
+            'password': os.getenv('DB_PASSWORD', '')
+        }
+        # Enable SSL for remote databases (Aptible requires SSL)
+        # But disable SSL when connecting through localhost tunnel
+        if db_host and db_host not in ('localhost', '127.0.0.1', '::1'):
+            db_config['sslmode'] = 'require'
     
     try:
         conn = psycopg2.connect(**db_config)
         return conn
     except psycopg2.Error as e:
         print(f"Error connecting to database: {e}")
-        print("\nPlease set the following environment variables:")
-        print("  DB_HOST=localhost")
-        print("  DB_PORT=5432")
-        print("  DB_NAME=solvhealth_patients")
-        print("  DB_USER=postgres")
-        print("  DB_PASSWORD=your_password")
+        print("\nPlease set one of the following:")
+        print("  Option 1: DATABASE_URL=postgresql://user:password@host:port/database")
+        print("  Option 2: Individual environment variables:")
+        print("    DB_HOST=localhost")
+        print("    DB_PORT=5432")
+        print("    DB_NAME=solvhealth_patients")
+        print("    DB_USER=postgres")
+        print("    DB_PASSWORD=your_password")
         print("\nOr create a .env file with these variables.")
         sys.exit(1)
 

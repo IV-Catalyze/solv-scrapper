@@ -19,6 +19,13 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+# Load environment variables from .env file if it exists
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv is optional
+
 # Color codes for terminal output
 class Colors:
     API = '\033[94m'      # Blue
@@ -64,9 +71,13 @@ def check_requirements():
     """Check if required environment variables and files exist."""
     errors = []
     
-    # Check for SOLVHEALTH_QUEUE_URL
+    # Set default SOLVHEALTH_QUEUE_URL if not provided
     if not os.getenv('SOLVHEALTH_QUEUE_URL'):
-        errors.append("SOLVHEALTH_QUEUE_URL environment variable is not set")
+        default_url = 'https://manage.solvhealth.com/queue?location_ids=AXjwbE'
+        os.environ['SOLVHEALTH_QUEUE_URL'] = default_url
+        print_warning(f"SOLVHEALTH_QUEUE_URL not set, using default: {default_url}")
+        print_warning("You can override this by setting SOLVHEALTH_QUEUE_URL environment variable")
+        print()
     
     # Check if required files exist
     if not Path('api.py').exists():
@@ -79,11 +90,6 @@ def check_requirements():
         print_error("Missing requirements:")
         for error in errors:
             print_error(f"  - {error}")
-        print()
-        print_info("Please set SOLVHEALTH_QUEUE_URL, e.g.:")
-        print_info("  export SOLVHEALTH_QUEUE_URL='https://manage.solvhealth.com/queue'")
-        print_info("  or")
-        print_info("  export SOLVHEALTH_QUEUE_URL='https://manage.solvhealth.com/queue?location_ids=AXjwbE'")
         return False
     
     return True
@@ -102,10 +108,47 @@ def is_database_running(host: str = 'localhost', port: int = 5432):
         return False
 
 
-def start_database():
-    """Start PostgreSQL database if not running."""
+def get_db_config_from_env():
+    """Extract database configuration from environment variables.
+    
+    Returns tuple (host, port) from either DATABASE_URL or individual env vars.
+    """
+    database_url = os.getenv('DATABASE_URL')
+    
+    if database_url:
+        # Parse DATABASE_URL
+        try:
+            from urllib.parse import urlparse
+            # Handle postgres:// and postgresql:// URLs
+            if database_url.startswith('postgres://'):
+                database_url = database_url.replace('postgres://', 'postgresql://', 1)
+            
+            parsed = urlparse(database_url)
+            return parsed.hostname, parsed.port or 5432
+        except Exception:
+            # If parsing fails, fall back to individual vars
+            pass
+    
+    # Fall back to individual environment variables
     db_host = os.getenv('DB_HOST', 'localhost')
     db_port = int(os.getenv('DB_PORT', '5432'))
+    return db_host, db_port
+
+
+def start_database():
+    """Start PostgreSQL database if not running."""
+    db_host, db_port = get_db_config_from_env()
+    
+    # Skip local database startup if using a remote database (not localhost)
+    if db_host not in ('localhost', '127.0.0.1', '::1'):
+        print_db(f"Using remote database: {db_host}:{db_port}")
+        print_db("Skipping local database startup (remote database detected)")
+        # For remote databases, we don't verify connectivity here because:
+        # 1. Socket checks may fail due to firewalls even if DB is accessible
+        # 2. The actual connection will be tested when the app tries to use it
+        # 3. psycopg2 will handle connection errors gracefully
+        print_db("✅ Remote database configured. Connection will be verified on first use.")
+        return True
     
     disable_autostart = os.getenv('RUN_ALL_AUTOSTART_DB', '1').strip().lower() in {'0', 'false', 'no', 'off'}
     if disable_autostart:
@@ -359,13 +402,17 @@ def main():
             '--log-level', 'info'
         ]
 
+        # Ensure environment variables are passed to subprocess
+        api_env = os.environ.copy()
+
         process = subprocess.Popen(
             api_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-            universal_newlines=True
+            universal_newlines=True,
+            env=api_env
         )
 
         time.sleep(0.6)
@@ -421,13 +468,17 @@ def main():
     print_monitor("Starting patient form monitor...")
     monitor_cmd = [sys.executable, 'monitor_patient_form.py']
     
+    # Ensure environment variables are passed to subprocess
+    monitor_env = os.environ.copy()
+    
     monitor_process = subprocess.Popen(
         monitor_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
-        universal_newlines=True
+        universal_newlines=True,
+        env=monitor_env
     )
     
     # Stream monitor output
@@ -438,7 +489,8 @@ def main():
     print("=" * 70)
     print_info("All services are running!")
     print()
-    print_db(f"🗄️  Database: {os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}")
+    db_host, db_port = get_db_config_from_env()
+    print_db(f"🗄️  Database: {db_host}:{db_port}")
     print_info(f"📡 API Server: http://localhost:{api_port}")
     print_info(f"📡 API Docs: http://localhost:{api_port}/docs")
     print_info(f"🔍 Monitor: Watching for patient form submissions")

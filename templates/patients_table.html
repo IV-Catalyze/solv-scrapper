@@ -249,6 +249,50 @@
             font-size: 0.85rem;
         }
 
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.35rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: capitalize;
+            letter-spacing: 0.02em;
+            /* Default colors for unknown statuses */
+            background: rgba(148, 163, 184, 0.15);
+            color: var(--muted);
+        }
+
+        .status-badge.checked_in {
+            background: rgba(34, 197, 94, 0.15);
+            color: #16a34a;
+        }
+
+        .status-badge.confirmed {
+            background: rgba(59, 130, 246, 0.15);
+            color: #2563eb;
+        }
+
+        .status-badge.pending {
+            background: rgba(251, 191, 36, 0.15);
+            color: #d97706;
+        }
+
+        .status-badge.completed {
+            background: rgba(107, 114, 128, 0.15);
+            color: #4b5563;
+        }
+
+        .status-badge.ready {
+            background: rgba(147, 51, 234, 0.15);
+            color: #9333ea;
+        }
+
+        .status-badge.unknown {
+            background: rgba(148, 163, 184, 0.15);
+            color: var(--muted);
+        }
+
         .empty-state {
             padding: 3.5rem 2rem;
             text-align: center;
@@ -374,6 +418,7 @@
                     <th>Patient</th>
                     <th>Visit Details</th>
                     <th>Location</th>
+                    <th>Status</th>
                     <th>Captured</th>
                     <th>Contact</th>
                 </tr>
@@ -415,6 +460,17 @@
                                 {{ patient.location_name }}
                             {% else %}
                                 <span class="muted">{{ patient.location_id or "—" }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if patient.status_label or patient.status %}
+                                {% set status_raw = (patient.status_class or patient.status or 'unknown') | lower %}
+                                {% set status_value = status_raw | replace(' ', '_') | replace('-', '_') %}
+                                <span class="status-badge {{ status_value }}">
+                                    {{ patient.status_label or patient.status or 'Unknown' }}
+                                </span>
+                            {% else %}
+                                <span class="status-badge unknown">Unknown</span>
                             {% endif %}
                         </td>
                         <td>

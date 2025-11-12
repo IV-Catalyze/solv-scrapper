@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 try:
-    from fastapi import FastAPI, HTTPException, Query, Request
+    from fastapi import FastAPI, HTTPException, Query, Request, Depends
     from fastapi.responses import HTMLResponse, JSONResponse
     from fastapi.templating import Jinja2Templates
     from pydantic import BaseModel, Field
@@ -18,6 +18,28 @@ try:
 except ImportError:
     print("Error: Required packages not installed. Please run: pip install -r requirements.txt")
     sys.exit(1)
+
+# Import authentication module
+try:
+    from auth import get_current_client, create_token_for_client, TokenData
+    AUTH_ENABLED = True
+except ImportError:
+    print("Warning: auth.py not found. Authentication will be disabled.")
+    get_current_client = None
+    create_token_for_client = None
+    TokenData = None
+    AUTH_ENABLED = False
+
+# Create a dependency that works whether auth is enabled or not
+def get_auth_dependency():
+    """Return the authentication dependency if auth is enabled, otherwise return a no-op."""
+    if AUTH_ENABLED and get_current_client:
+        return Depends(get_current_client)
+    else:
+        # Return a dependency that always passes (no auth required)
+        async def no_auth():
+            return None
+        return Depends(no_auth)
 
 try:
     from dotenv import load_dotenv
@@ -32,10 +54,12 @@ app = FastAPI(
     description=(
         "Endpoints for retrieving patient queue data rendered in the dashboard UI or consumed as JSON. "
         "Filters and response fields mirror the helpers defined in `api.py`, such as "
-        "`prepare_dashboard_patients`, `build_patient_payload`, and `decorate_patient_payload`."
+        "`prepare_dashboard_patients`, `build_patient_payload`, and `decorate_patient_payload`. "
+        "All API endpoints require authentication via JWT Bearer token or API key."
     ),
     version="1.0.0",
     openapi_tags=[
+        {"name": "Authentication", "description": "Token generation and authentication endpoints."},
         {"name": "Dashboard", "description": "Server-rendered views for the patient queue."},
         {"name": "Patients", "description": "JSON APIs for querying patient records and queue data."},
     ],
@@ -295,16 +319,56 @@ def fetch_pending_payloads(
 
 
 def get_db_connection():
-    """Get PostgreSQL database connection from environment variables."""
-    import getpass
-    default_user = os.getenv('USER', os.getenv('USERNAME', getpass.getuser()))
-    db_config = {
-        'host': os.getenv('DB_HOST', 'localhost'),
-        'port': os.getenv('DB_PORT', '5432'),
-        'database': os.getenv('DB_NAME', 'solvhealth_patients'),
-        'user': os.getenv('DB_USER', default_user),
-        'password': os.getenv('DB_PASSWORD', '')
-    }
+    """Get PostgreSQL database connection from environment variables.
+    
+    Supports two methods:
+    1. DATABASE_URL (recommended for cloud deployments like Aptible)
+       Format: postgresql://user:password@host:port/database
+    2. Individual environment variables (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD)
+    """
+    # Check if DATABASE_URL is set (preferred for cloud deployments)
+    database_url = os.getenv('DATABASE_URL')
+    
+    if database_url:
+        # Parse the connection URL
+        try:
+            from urllib.parse import urlparse
+            # Handle postgres:// and postgresql:// URLs
+            if database_url.startswith('postgres://'):
+                database_url = database_url.replace('postgres://', 'postgresql://', 1)
+            
+            parsed = urlparse(database_url)
+            
+            db_config = {
+                'host': parsed.hostname,
+                'port': parsed.port or 5432,
+                'database': parsed.path.lstrip('/'),
+                'user': parsed.username,
+                'password': parsed.password or ''
+            }
+            # Enable SSL for remote databases (Aptible requires SSL)
+            if parsed.hostname and parsed.hostname not in ('localhost', '127.0.0.1', '::1'):
+                db_config['sslmode'] = 'require'
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error parsing DATABASE_URL: {str(e)}. Format should be: postgresql://user:password@host:port/database"
+            )
+    else:
+        # Fall back to individual environment variables
+        import getpass
+        default_user = os.getenv('USER', os.getenv('USERNAME', getpass.getuser()))
+        db_host = os.getenv('DB_HOST', 'localhost')
+        db_config = {
+            'host': db_host,
+            'port': os.getenv('DB_PORT', '5432'),
+            'database': os.getenv('DB_NAME', 'solvhealth_patients'),
+            'user': os.getenv('DB_USER', default_user),
+            'password': os.getenv('DB_PASSWORD', '')
+        }
+        # Enable SSL for remote databases (Aptible requires SSL)
+        if db_host and db_host not in ('localhost', '127.0.0.1', '::1'):
+            db_config['sslmode'] = 'require'
     
     try:
         conn = psycopg2.connect(**db_config)
@@ -403,6 +467,66 @@ def decorate_patient_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     payload["captured_display"] = captured_display
 
     return payload
+
+
+# Token generation request model
+class TokenRequest(BaseModel):
+    """Request model for token generation."""
+    client_id: str = Field(..., description="Identifier for the client/service requesting access")
+    expires_hours: Optional[int] = Field(
+        None,
+        ge=1,
+        le=8760,  # Max 1 year
+        description="Optional expiration time in hours (default: 24 hours)"
+    )
+
+
+@app.post(
+    "/auth/token",
+    tags=["Authentication"],
+    summary="Generate access token",
+    response_model=Dict[str, Any],
+    responses={
+        200: {"description": "Access token generated successfully."},
+        400: {"description": "Invalid request parameters."},
+    },
+)
+async def generate_token(request: TokenRequest):
+    """
+    Generate a JWT access token for API authentication.
+    
+    This endpoint allows clients to obtain an access token that can be used
+    to authenticate subsequent API requests. The token includes:
+    - Client identifier
+    - Expiration time
+    - Issued timestamp
+    
+    **Usage:**
+    1. Call this endpoint with your client_id to get a token
+    2. Include the token in subsequent requests using the Authorization header:
+       `Authorization: Bearer <token>`
+    3. Tokens expire after the specified time (default: 24 hours)
+    
+    **Alternative:** You can also use API key authentication by setting the
+    `X-API-Key` header instead of a Bearer token.
+    """
+    if not create_token_for_client:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service unavailable"
+        )
+    
+    try:
+        token_data = create_token_for_client(
+            client_id=request.client_id,
+            expires_hours=request.expires_hours
+        )
+        return token_data
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate token: {str(e)}"
+        )
 
 
 @app.get(
@@ -507,15 +631,21 @@ async def root(
     response_model=PatientPayload,
     responses={
         200: {"description": "Most recent patient record normalized by `build_patient_payload()`."},
+        401: {"description": "Authentication required. Provide a Bearer token or API key."},
         404: {"description": "No patient found for the supplied EMR ID."},
         500: {"description": "Database or server error while fetching the record."},
     },
 )
-async def get_patient_by_emr_id(emr_id: str) -> PatientPayload:
+async def get_patient_by_emr_id(
+    emr_id: str,
+    current_client: TokenData = get_auth_dependency()
+) -> PatientPayload:
     """
     Return the most recent patient record matching the supplied EMR ID.
 
     The query orders rows by `captured_at DESC` and uses `build_patient_payload()` to normalize the result.
+    
+    Requires authentication via Bearer token or API key.
     """
     conn = None
     cursor = None
@@ -534,6 +664,7 @@ async def get_patient_by_emr_id(emr_id: str) -> PatientPayload:
                 patient_number,
                 location_id,
                 location_name,
+                status,
                 legal_first_name,
                 legal_last_name,
                 dob,
@@ -599,6 +730,7 @@ if __name__ == "__main__":
     responses={
         200: {"description": "Ordered list of patient payloads from `prepare_dashboard_patients()`."},
         400: {"description": "Missing or invalid query parameters."},
+        401: {"description": "Authentication required. Provide a Bearer token or API key."},
         500: {"description": "Database or server error while assembling the queue."},
     },
 )
@@ -619,9 +751,14 @@ async def list_patients(
         default=None,
         alias="statuses",
         description="Filter patients by status. Provide multiple values by repeating the query parameter."
-    )
+    ),
+    current_client: TokenData = get_auth_dependency()
 ):
-    """Return the patient queue as JSON, mirroring the data rendered in the dashboard view."""
+    """
+    Return the patient queue as JSON, mirroring the data rendered in the dashboard view.
+    
+    Requires authentication via Bearer token or API key.
+    """
     if not locationId:
         raise HTTPException(status_code=400, detail="locationId query parameter is required")
 
