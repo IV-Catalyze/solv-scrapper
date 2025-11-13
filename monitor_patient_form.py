@@ -1543,24 +1543,32 @@ async def send_patient_to_api(patient_data: Dict[str, Any]) -> bool:
 
 
 async def save_patient_data(data) -> Optional[int]:
-    """Persist patient data to the pending_patients staging table."""
+    """Persist patient data to the pending_patients staging table (if database available) and send to API."""
     try:
         # Ensure captured_at is set so we can match the record later
         if not data.get('captured_at'):
             data['captured_at'] = datetime.now().isoformat()
 
-        print("   💾 Saving patient submission to pending_patients staging table")
+        # Check if database is enabled
+        use_database = str_to_bool(os.getenv('USE_DATABASE', 'true'))
+        pending_id = None
+        
+        if use_database and DB_AVAILABLE:
+            print("   💾 Saving patient submission to pending_patients staging table")
+            pending_id = persist_pending_patient(data)
+            if pending_id:
+                data['pending_id'] = pending_id
+                print(f"✅ Pending patient saved (pending_id={pending_id})")
+            else:
+                print("   ⚠️  Database save failed (database may be unavailable), continuing with API only")
+        elif not use_database:
+            print("   📡 Database disabled (USE_DATABASE=false), skipping database save")
+        elif not DB_AVAILABLE:
+            print("   ⚠️  Database not available (psycopg2 not installed), continuing with API only")
 
-        pending_id = persist_pending_patient(data)
-        if not pending_id:
-            print("   ❌ Failed to persist patient submission to database")
-            return None
-
-        data['pending_id'] = pending_id
-        print(f"✅ Pending patient saved (pending_id={pending_id})")
-
+        # Send to API if EMR ID is available
         if data.get('emr_id'):
-            print("   📎 EMR ID already available, sending to API and saving to patients table")
+            print("   📎 EMR ID already available, sending to API")
             
             # Send to API first (when EMR ID is present)
             use_api = str_to_bool(os.getenv('USE_API', 'true'))
@@ -1569,20 +1577,27 @@ async def save_patient_data(data) -> Optional[int]:
                 api_success = await send_patient_to_api(data)
                 if api_success:
                     print("   ✅ Patient data successfully sent to API")
+                    # Mark as completed in database if we have a pending_id
+                    if pending_id and use_database and DB_AVAILABLE:
+                        mark_pending_patient_status(pending_id, 'completed')
                 else:
-                    print("   ⚠️  Failed to send to API, will still save to database")
+                    print("   ⚠️  Failed to send to API")
+                    if pending_id and use_database and DB_AVAILABLE:
+                        mark_pending_patient_status(pending_id, 'error', 'Failed to send to API')
             elif use_api and not HTTPX_AVAILABLE:
                 print("   ⚠️  API saving requested but httpx not available. Install with: pip install httpx")
             
-            # Also save to database
-            saved = save_patient_to_db(data, on_conflict='update')
-            if saved:
-                mark_pending_patient_status(pending_id, 'completed')
-            else:
-                mark_pending_patient_status(pending_id, 'error', 'Failed to upsert into patients table')
+            # Also save to database (if enabled)
+            if use_database and DB_AVAILABLE:
+                saved = save_patient_to_db(data, on_conflict='update')
+                if saved and pending_id:
+                    mark_pending_patient_status(pending_id, 'completed')
+                elif pending_id:
+                    mark_pending_patient_status(pending_id, 'error', 'Failed to upsert into patients table')
         else:
-            mark_pending_patient_status(pending_id, 'pending')
-            print("   ⏳ Waiting for EMR ID before inserting into patients table")
+            if pending_id and use_database and DB_AVAILABLE:
+                mark_pending_patient_status(pending_id, 'pending')
+            print("   ⏳ Waiting for EMR ID before sending to API")
 
         return pending_id
 
@@ -1889,22 +1904,23 @@ async def setup_form_monitor(page, location_id, location_name):
         return False
 
     async def update_patient_emr_id(patient_data):
-        """Update the pending record with the EMR ID and promote it to patients table."""
+        """Update the pending record with the EMR ID and promote it to patients table (if database enabled)."""
         try:
-            if not patient_data.get('pending_id'):
+            # Check if database is enabled
+            use_database = str_to_bool(os.getenv('USE_DATABASE', 'true'))
+            pending_id = patient_data.get('pending_id')
+            
+            # Try to find pending_id from database if not in patient_data and database is enabled
+            if not pending_id and use_database and DB_AVAILABLE:
                 pending_id = find_pending_patient_id(patient_data)
                 if pending_id:
                     patient_data['pending_id'] = pending_id
-                else:
-                    print("   ⚠️  Pending record not found for EMR assignment")
-                    return
 
-            pending_id = patient_data['pending_id']
-
-            updated = update_pending_patient_record(patient_data, status='ready')
-            if not updated:
-                print(f"   ⚠️  Failed to update pending patient (pending_id={pending_id}) with EMR ID")
-                return
+            # Update pending record in database if enabled
+            if use_database and DB_AVAILABLE and pending_id:
+                updated = update_pending_patient_record(patient_data, status='ready')
+                if not updated:
+                    print(f"   ⚠️  Failed to update pending patient (pending_id={pending_id}) with EMR ID")
 
             # Send to API when EMR ID is found (THIS IS THE CRITICAL PART)
             use_api = str_to_bool(os.getenv('USE_API', 'true'))
@@ -1922,28 +1938,34 @@ async def setup_form_monitor(page, location_id, location_name):
                 api_success = await send_patient_to_api(patient_data)
                 if api_success:
                     print(f"   ✅ Patient data successfully sent to API (EMR ID: {patient_data.get('emr_id')})")
+                    # Mark as completed in database if we have a pending_id and database is enabled
+                    if pending_id and use_database and DB_AVAILABLE:
+                        mark_pending_patient_status(pending_id, 'completed')
                 else:
-                    print(f"   ⚠️  Failed to send to API, will still save to database")
+                    print(f"   ⚠️  Failed to send to API")
+                    if pending_id and use_database and DB_AVAILABLE:
+                        mark_pending_patient_status(pending_id, 'error', 'Failed to send to API')
             elif use_api and not HTTPX_AVAILABLE:
                 print(f"   ⚠️  API saving requested but httpx not available. Install with: pip install httpx")
             else:
                 print(f"   ⚠️  API sending disabled (USE_API={use_api})")
             print(f"{'='*60}\n")
             
-            # Also save to database
-            saved = save_patient_to_db(patient_data, on_conflict='update')
-            if saved:
-                mark_pending_patient_status(pending_id, 'completed')
-                print(f"   ✅ Pending patient promoted to patients table (pending_id={pending_id})")
-            else:
-                mark_pending_patient_status(pending_id, 'error', 'Failed to upsert into patients table after EMR assignment')
-                print(f"   ❌ Failed to insert pending patient into patients table (pending_id={pending_id})")
+            # Also save to database (if enabled)
+            if use_database and DB_AVAILABLE:
+                saved = save_patient_to_db(patient_data, on_conflict='update')
+                if saved and pending_id:
+                    mark_pending_patient_status(pending_id, 'completed')
+                    print(f"   ✅ Pending patient promoted to patients table (pending_id={pending_id})")
+                elif pending_id:
+                    mark_pending_patient_status(pending_id, 'error', 'Failed to upsert into patients table after EMR assignment')
+                    print(f"   ❌ Failed to insert pending patient into patients table (pending_id={pending_id})")
 
         except Exception as e:
             pending_id = patient_data.get('pending_id')
-            if pending_id:
+            if pending_id and use_database and DB_AVAILABLE:
                 mark_pending_patient_status(pending_id, 'error', str(e))
-            print(f"   ❌ Error updating EMR ID in database: {e}")
+            print(f"   ❌ Error processing patient data: {e}")
             import traceback
             traceback.print_exc()
     
@@ -2353,15 +2375,22 @@ async def setup_form_monitor(page, location_id, location_name):
                                 elif use_api and not HTTPX_AVAILABLE:
                                     print(f"   ⚠️  API saving requested but httpx not available")
                                 
-                                # Also save to database
-                                try:
-                                    saved = save_patient_to_db(patient_data_for_api, on_conflict='update')
-                                    if saved:
-                                        print(f"   ✅ Patient data also saved to database")
-                                    else:
-                                        print(f"   ⚠️  Failed to save to database")
-                                except Exception as e:
-                                    print(f"   ⚠️  Error saving to database: {e}")
+                                # Also save to database (if enabled)
+                                use_database = str_to_bool(os.getenv('USE_DATABASE', 'true'))
+                                if use_database and DB_AVAILABLE:
+                                    try:
+                                        saved = save_patient_to_db(patient_data_for_api, on_conflict='update')
+                                        if saved:
+                                            print(f"   ✅ Patient data also saved to database")
+                                        else:
+                                            print(f"   ⚠️  Failed to save to database")
+                                    except Exception as e:
+                                        print(f"   ⚠️  Error saving to database: {e}")
+                                else:
+                                    if not use_database:
+                                        print(f"   📡 Database disabled, skipping database save")
+                                    elif not DB_AVAILABLE:
+                                        print(f"   ⚠️  Database not available, skipping database save")
                             
                             if not matched:
                                 print(f"   📋 No matching pending patient found (pending patients: {len(pending_patients)})")
@@ -2890,17 +2919,29 @@ async def main():
     """
     Main function to run the patient form monitor.
     """
-    # Check API_URL configuration at startup (REQUIRED - no localhost fallback)
+    # Check configuration
     api_url_env = os.getenv('API_URL')
+    use_database = str_to_bool(os.getenv('USE_DATABASE', 'true'))
+    
+    # Check API_URL configuration (REQUIRED for API mode)
     if api_url_env and api_url_env.strip():
         print(f"✅ API_URL configured: {api_url_env}")
-        print(f"   📡 Patient data will be sent to production API: {api_url_env.rstrip('/')}/patients/create")
-        print(f"   ✅ Production mode: No localhost fallback")
+        print(f"   📡 Patient data will be sent to API: {api_url_env.rstrip('/')}/patients/create")
     else:
         print("❌ ERROR: API_URL environment variable is REQUIRED but not set")
         print("   💡 Set API_URL in your .env file to enable API sending:")
         print("      API_URL=https://app-97926.on-aptible.com")
         print("   ⚠️  Patient data will NOT be sent to API until API_URL is configured")
+    
+    # Check database configuration (optional)
+    if use_database:
+        if DB_AVAILABLE:
+            print(f"✅ Database enabled: Patient data will also be saved to database")
+        else:
+            print(f"⚠️  Database enabled but psycopg2 not available. Install with: pip install psycopg2-binary")
+            print(f"   Continuing in API-only mode")
+    else:
+        print(f"📡 Database disabled (USE_DATABASE=false): Running in API-only mode")
     
     # Get URL from environment variable - use URL as-is without appending location_ids
     url = os.getenv('SOLVHEALTH_QUEUE_URL')
