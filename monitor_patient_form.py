@@ -9,7 +9,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from typing import Dict, Any, Optional, List, Set, Tuple
@@ -1251,6 +1251,106 @@ def check_if_patient_recently_sent(emr_id: str, minutes_threshold: int = 5) -> b
         conn.close()
 
 
+# Token cache for API authentication
+_cached_token: Optional[str] = None
+_token_expires_at: Optional[datetime] = None
+_token_lock = threading.Lock()
+
+
+async def get_api_token(api_base_url: str, force_refresh: bool = False) -> Optional[str]:
+    """
+    Get an API token, using cache if available and not expired.
+    Automatically fetches a new token if needed.
+    
+    Args:
+        api_base_url: Base URL of the API (e.g., https://app-97926.on-aptible.com)
+        force_refresh: If True, force a new token even if cached one is valid
+        
+    Returns:
+        Bearer token string, or None if token generation failed
+    """
+    global _cached_token, _token_expires_at
+    
+    # Check if we have a valid cached token
+    if not force_refresh and _cached_token and _token_expires_at:
+        # Check if token is still valid (refresh 5 minutes before expiration)
+        time_until_expiry = (_token_expires_at - datetime.now()).total_seconds()
+        if time_until_expiry > 300:  # 5 minutes buffer
+            return _cached_token
+    
+    # Need to get a new token
+    if not HTTPX_AVAILABLE:
+        print(f"   ⚠️  httpx not available. Cannot get API token.")
+        return None
+    
+    # Get client_id from environment or use default
+    client_id = os.getenv('API_CLIENT_ID', 'patient-form-monitor')
+    expires_hours = int(os.getenv('API_TOKEN_EXPIRES_HOURS', '24'))
+    
+    token_url = api_base_url.rstrip('/') + '/auth/token'
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            print(f"   🔑 Requesting API token from: {token_url}")
+            response = await client.post(
+                token_url,
+                json={
+                    "client_id": client_id,
+                    "expires_hours": expires_hours
+                },
+                headers={'Content-Type': 'application/json'}
+            )
+            
+            if response.status_code == 200:
+                token_data = response.json()
+                access_token = token_data.get('access_token')
+                expires_at_str = token_data.get('expires_at')
+                
+                if access_token:
+                    # Parse expiration time
+                    if expires_at_str:
+                        try:
+                            # Handle ISO format with or without Z
+                            if expires_at_str.endswith('Z'):
+                                expires_at_str = expires_at_str[:-1] + '+00:00'
+                            _token_expires_at = datetime.fromisoformat(expires_at_str)
+                        except Exception:
+                            # Fallback: assume 24 hours from now
+                            _token_expires_at = datetime.now() + timedelta(hours=expires_hours)
+                    else:
+                        # Fallback: assume 24 hours from now
+                        _token_expires_at = datetime.now() + timedelta(hours=expires_hours)
+                    
+                    # Cache the token
+                    with _token_lock:
+                        _cached_token = access_token
+                    
+                    print(f"   ✅ API token obtained successfully (expires: {_token_expires_at})")
+                    return access_token
+                else:
+                    print(f"   ⚠️  Token response missing access_token")
+                    return None
+            else:
+                error_detail = response.text
+                try:
+                    error_json = response.json()
+                    error_detail = error_json.get('detail', error_detail)
+                except:
+                    pass
+                print(f"   ⚠️  Failed to get API token: {response.status_code} - {error_detail}")
+                return None
+                
+    except httpx.TimeoutException:
+        print(f"   ⚠️  Token request timed out")
+        return None
+    except httpx.RequestError as e:
+        print(f"   ⚠️  Token request error: {e}")
+        return None
+    except Exception as e:
+        print(f"   ⚠️  Error getting API token: {e}")
+        return None
+
+
 async def send_patient_to_api(patient_data: Dict[str, Any]) -> bool:
     """
     Send patient data to the API endpoint when EMR ID is available.
@@ -1276,12 +1376,11 @@ async def send_patient_to_api(patient_data: Dict[str, Any]) -> bool:
         api_url_env = os.getenv('API_URL')
         if api_url_env and api_url_env.strip():
             target_api = api_url_env.strip().rstrip('/') + '/patients/create'
+            print(f"   ⏭️  Skipping duplicate: Patient with EMR ID {emr_id} was recently sent to API")
+            print(f"   📡 Would send to production API: {target_api}")
         else:
-            api_host = os.getenv('API_HOST', 'localhost')
-            api_port = os.getenv('API_PORT', '8000')
-            target_api = f"http://{api_host}:{api_port}/patients/create"
-        print(f"   ⏭️  Skipping duplicate: Patient with EMR ID {emr_id} was recently sent to API")
-        print(f"   📡 Would send to: {target_api}")
+            print(f"   ⏭️  Skipping duplicate: Patient with EMR ID {emr_id} was recently sent to API")
+            print(f"   ⚠️  API_URL not set - cannot determine target API")
         return True  # Return True since it's already in the system
     
     # Check if httpx is available
@@ -1290,81 +1389,47 @@ async def send_patient_to_api(patient_data: Dict[str, Any]) -> bool:
         return False
     
     # Get API URL from environment variables
-    # API_URL takes absolute precedence - if set, NEVER fall back to localhost
+    # API_URL is REQUIRED - no fallback to localhost
     # Note: Environment variables passed from run_all.py take precedence over .env file
     api_url_env = os.getenv('API_URL')
     
-    if api_url_env and api_url_env.strip():
-        # Use production API URL - do NOT fall back to localhost
-        api_url = api_url_env.strip().rstrip('/') + '/patients/create'
-        print(f"   📡 Sending to production API: {api_url}")
-        print(f"   ✅ Production mode: Will NOT fall back to localhost")
-    else:
-        # Only use localhost if API_URL is explicitly not set
-        print(f"   ⚠️  API_URL not set - using localhost development mode")
-        api_host = os.getenv('API_HOST', 'localhost')
-        api_port = os.getenv('API_PORT', '8000')
-        
-        # Only auto-detect if API_PORT is not explicitly set (i.e., using default '8000')
-        # If API_PORT is explicitly set by run_all.py or user, use it directly
-        api_port_explicitly_set = 'API_PORT' in os.environ
-        
-        if not api_port_explicitly_set:
-            # Try to detect API port from run_all.py output or check common ports
-            # Check ports in reverse order to prefer newer instances (higher ports)
-            import socket
-            detected_port = None
-            for port in [8004, 8003, 8002, 8001, 8000]:
-                try:
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(0.1)
-                    result = sock.connect_ex((api_host, port))
-                    sock.close()
-                    if result == 0:
-                        # Port is open, try to verify it's our API by checking /docs endpoint
-                        try:
-                            # Check /docs endpoint which is specific to our FastAPI server
-                            response = httpx.get(f"http://{api_host}:{port}/docs", timeout=1.0)
-                            if response.status_code == 200:
-                                detected_port = port
-                                print(f"   🔍 Detected API server on port {port} (verified via /docs)")
-                                break
-                        except:
-                            # Fallback: check root endpoint
-                            try:
-                                response = httpx.get(f"http://{api_host}:{port}/", timeout=1.0)
-                                if response.status_code in [200, 400, 401, 403, 404, 500]:
-                                    detected_port = port
-                                    print(f"   🔍 Detected API server on port {port}")
-                                    break
-                            except:
-                                pass
-                except:
-                    pass
-            
-            if detected_port:
-                api_port = str(detected_port)
-        else:
-            # API_PORT was explicitly set, use it directly
-            print(f"   🔍 Using API server on port {api_port} (from API_PORT env var)")
-        
-        api_url = f"http://{api_host}:{api_port}/patients/create"
-        print(f"   📡 Sending to localhost API: {api_url}")
+    if not api_url_env or not api_url_env.strip():
+        print(f"   ❌ ERROR: API_URL environment variable is required but not set")
+        print(f"   💡 Set API_URL in your .env file or environment to enable API sending")
+        print(f"   💡 Example: API_URL=https://your-production-api.com")
+        return False
     
-    # Get API token/key if authentication is enabled
-    api_token = os.getenv('API_TOKEN')
+    # Use production API URL - no fallback to localhost
+    api_base_url = api_url_env.strip().rstrip('/')
+    api_url = api_base_url + '/patients/create'
+    print(f"   📡 Sending to production API: {api_url}")
+    print(f"   ✅ Production mode: No localhost fallback")
+    
+    # Get API token/key - prefer API_KEY, then API_TOKEN, then auto-fetch token
     api_key = os.getenv('API_KEY')
+    api_token = os.getenv('API_TOKEN')
     
     # Prepare headers
     headers = {
         'Content-Type': 'application/json'
     }
     
-    # Add authentication if available
-    if api_token:
-        headers['Authorization'] = f'Bearer {api_token}'
-    elif api_key:
+    # Add authentication - always ensure we have auth
+    if api_key:
         headers['X-API-Key'] = api_key
+        print(f"   🔐 Using API key authentication")
+    elif api_token:
+        headers['Authorization'] = f'Bearer {api_token}'
+        print(f"   🔐 Using provided API token")
+    else:
+        # Automatically get a token from the API
+        print(f"   🔑 No API_TOKEN or API_KEY set - automatically fetching token...")
+        auto_token = await get_api_token(api_base_url)
+        if auto_token:
+            headers['Authorization'] = f'Bearer {auto_token}'
+            print(f"   🔐 Using auto-fetched API token")
+        else:
+            print(f"   ⚠️  Failed to get API token - request may fail with 401")
     
     # Prepare patient data for API (convert to API format)
     api_payload = {
@@ -1398,6 +1463,54 @@ async def send_patient_to_api(patient_data: Dict[str, Any]) -> bool:
             print(f"   🔄 Sending HTTP request...")
             response = await client.post(api_url, json=api_payload, headers=headers)
             print(f"   📥 Response received: {response.status_code}")
+            
+            # Handle 401 Unauthorized - try refreshing token and retry once
+            if response.status_code == 401:
+                # If using API_KEY, we can't refresh (it's static), so just fail
+                if api_key:
+                    error_detail = response.text
+                    try:
+                        error_json = response.json()
+                        error_detail = error_json.get('detail', error_detail)
+                    except:
+                        pass
+                    print(f"   ⚠️  API returned 401: {error_detail}")
+                    print(f"   💡 API_KEY authentication failed - check that your API_KEY is valid")
+                    return False
+                
+                # For API_TOKEN or auto-fetched tokens, clear cache and try refreshing
+                print(f"   🔄 Got 401 - token expired or invalid, clearing cache and refreshing token...")
+                # Clear cached token since it's invalid
+                global _cached_token, _token_expires_at
+                with _token_lock:
+                    _cached_token = None
+                    _token_expires_at = None
+                
+                fresh_token = await get_api_token(api_base_url, force_refresh=True)
+                if fresh_token:
+                    headers['Authorization'] = f'Bearer {fresh_token}'
+                    print(f"   🔄 Retrying request with fresh token...")
+                    response = await client.post(api_url, json=api_payload, headers=headers)
+                    print(f"   📥 Retry response: {response.status_code}")
+                    # If still 401 after refresh, the API might have other issues
+                    if response.status_code == 401:
+                        error_detail = response.text
+                        try:
+                            error_json = response.json()
+                            error_detail = error_json.get('detail', error_detail)
+                        except:
+                            pass
+                        print(f"   ❌ API still returned 401 after token refresh: {error_detail}")
+                        return False
+                else:
+                    error_detail = response.text
+                    try:
+                        error_json = response.json()
+                        error_detail = error_json.get('detail', error_detail)
+                    except:
+                        pass
+                    print(f"   ❌ API returned 401 and token refresh failed: {error_detail}")
+                    return False
             
             if response.status_code in [200, 201]:
                 result = response.json()
@@ -2777,15 +2890,17 @@ async def main():
     """
     Main function to run the patient form monitor.
     """
-    # Check API_URL configuration at startup
+    # Check API_URL configuration at startup (REQUIRED - no localhost fallback)
     api_url_env = os.getenv('API_URL')
     if api_url_env and api_url_env.strip():
         print(f"✅ API_URL configured: {api_url_env}")
-        print(f"   📡 Patient data will be sent to: {api_url_env.rstrip('/')}/patients/create")
+        print(f"   📡 Patient data will be sent to production API: {api_url_env.rstrip('/')}/patients/create")
+        print(f"   ✅ Production mode: No localhost fallback")
     else:
-        print("⚠️  API_URL not set - will use localhost for API requests")
-        print("   💡 To send to production, set API_URL in .env file:")
+        print("❌ ERROR: API_URL environment variable is REQUIRED but not set")
+        print("   💡 Set API_URL in your .env file to enable API sending:")
         print("      API_URL=https://app-97926.on-aptible.com")
+        print("   ⚠️  Patient data will NOT be sent to API until API_URL is configured")
     
     # Get URL from environment variable - use URL as-is without appending location_ids
     url = os.getenv('SOLVHEALTH_QUEUE_URL')
