@@ -32,7 +32,14 @@ try:
     from dotenv import load_dotenv
     # Load .env but don't override existing environment variables
     # This allows run_all.py to explicitly set API_URL which takes precedence
-    load_dotenv(override=False)
+    # Try loading from current directory first, then parent
+    env_loaded = load_dotenv(override=False)
+    if not env_loaded:
+        # Try loading from explicit path
+        import pathlib
+        env_path = pathlib.Path(__file__).parent / '.env'
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path, override=False)
 except ImportError:
     pass  # dotenv is optional
 
