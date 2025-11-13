@@ -350,97 +350,115 @@ def main():
     print("=" * 70)
     print()
     
-    # Start database first (required for API)
+    # Check if database is needed
+    use_database = os.getenv('USE_DATABASE', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+    api_url_env = os.getenv('API_URL')
+    use_local_api = not api_url_env or api_url_env.strip() == '' or 'localhost' in api_url_env or '127.0.0.1' in api_url_env
+    
     print_info("Starting services...")
     print()
     
-    if not start_database():
-        print_error("Failed to start database. API server requires database connection.")
-        print_error("Please start PostgreSQL manually and try again.")
-        sys.exit(1)
+    # Start database only if needed (database enabled AND using local API server)
+    if use_database and use_local_api:
+        if not start_database():
+            print_error("Failed to start database. Local API server requires database connection.")
+            print_error("Please start PostgreSQL manually and try again.")
+            print_error("Or set USE_DATABASE=false and API_URL to an external endpoint for API-only mode.")
+            sys.exit(1)
+        print()
+    elif not use_database:
+        print_info("📡 Database disabled (USE_DATABASE=false) - Running in API-only mode")
+        print()
+    elif not use_local_api:
+        print_info("📡 Using external API endpoint - Database not required for monitor")
+        print()
     
-    print()
-    
-    # Start API server as subprocess
+    # Start API server as subprocess (only if using local API)
     api_process = None
     api_stream_thread = None
     api_port = None
-
-    max_port_attempts = 20
-    for attempt in range(max_port_attempts):
-        candidate_port = api_port_preference + attempt
-
-        if attempt > 0:
-            print_warning(f"Retrying API server on port {candidate_port}...")
-
-        print_api(f"Starting API server on {api_host}:{candidate_port}...")
-        api_cmd = [
-            sys.executable, '-m', 'uvicorn',
-            'api:app',
-            '--host', api_host,
-            '--port', str(candidate_port),
-            '--log-level', 'info'
-        ]
-
-        # Ensure environment variables are passed to subprocess
-        api_env = os.environ.copy()
-
-        process = subprocess.Popen(
-            api_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            universal_newlines=True,
-            env=api_env
-        )
-
-        time.sleep(0.6)
-
-        if process.poll() is not None:
-            output = process.stdout.read() if process.stdout else ''
-            output_lower = output.lower() if output else ''
-            if 'address already in use' in output_lower:
-                print_warning(
-                    f"Port {candidate_port} is already in use. Trying next available port."
-                )
-                if output:
-                    for line in output.strip().splitlines():
-                        print_api(line)
-                continue
-            else:
-                if output:
-                    for line in output.strip().splitlines():
-                        print_api(line)
-                print_error("API server exited during startup. Please check logs above.")
-                sys.exit(1)
-
-        # Success
-        api_process = process
-        api_port = candidate_port
-        break
-
-    if not api_process or api_port is None:
-        print_error(
-            f"Unable to start API server after {max_port_attempts} attempts."
-        )
-        print_error("Please free a port or set API_PORT to an available value.")
-        sys.exit(1)
-
-    # Stream API output
-    api_stream_thread = stream_output(api_process, print_api, "API")
-    print_api(f"API server started (PID: {api_process.pid})")
-
-    # Wait for API to be ready (optional)
-    if wait_for_api_ready:
-        if not wait_for_api('localhost', api_port):
-            print_error("Failed to start API server")
-            if api_process:
-                api_process.terminate()
-            sys.exit(1)
+    
+    if not use_local_api:
+        print_info("📡 External API_URL configured - Skipping local API server")
+        print_info(f"   Monitor will send data to: {api_url_env}")
+        api_port = None  # No local API server
     else:
-        print_info("Waiting 3 seconds for API server to initialize...")
-        time.sleep(3)
+        # Start local API server
+        max_port_attempts = 20
+        for attempt in range(max_port_attempts):
+            candidate_port = api_port_preference + attempt
+
+            if attempt > 0:
+                print_warning(f"Retrying API server on port {candidate_port}...")
+
+            print_api(f"Starting API server on {api_host}:{candidate_port}...")
+            api_cmd = [
+                sys.executable, '-m', 'uvicorn',
+                'api:app',
+                '--host', api_host,
+                '--port', str(candidate_port),
+                '--log-level', 'info'
+            ]
+
+            # Ensure environment variables are passed to subprocess
+            api_env = os.environ.copy()
+
+            process = subprocess.Popen(
+                api_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                env=api_env
+            )
+
+            time.sleep(0.6)
+
+            if process.poll() is not None:
+                output = process.stdout.read() if process.stdout else ''
+                output_lower = output.lower() if output else ''
+                if 'address already in use' in output_lower:
+                    print_warning(
+                        f"Port {candidate_port} is already in use. Trying next available port."
+                    )
+                    if output:
+                        for line in output.strip().splitlines():
+                            print_api(line)
+                    continue
+                else:
+                    if output:
+                        for line in output.strip().splitlines():
+                            print_api(line)
+                    print_error("API server exited during startup. Please check logs above.")
+                    sys.exit(1)
+
+            # Success
+            api_process = process
+            api_port = candidate_port
+            break
+
+        if not api_process or api_port is None:
+            print_error(
+                f"Unable to start API server after {max_port_attempts} attempts."
+            )
+            print_error("Please free a port or set API_PORT to an available value.")
+            sys.exit(1)
+
+        # Stream API output
+        api_stream_thread = stream_output(api_process, print_api, "API")
+        print_api(f"API server started (PID: {api_process.pid})")
+
+        # Wait for API to be ready (optional)
+        if wait_for_api_ready:
+            if not wait_for_api('localhost', api_port):
+                print_error("Failed to start API server")
+                if api_process:
+                    api_process.terminate()
+                sys.exit(1)
+        else:
+            print_info("Waiting 3 seconds for API server to initialize...")
+            time.sleep(3)
     
     print()
     
@@ -459,8 +477,15 @@ def main():
     else:
         # Only set API_PORT if API_URL is not set (for local development)
         # If API_URL is set, it takes precedence and API_PORT will be ignored
-        monitor_env['API_PORT'] = str(api_port)
-        print_monitor(f"📡 Using localhost API on port {api_port}")
+        if api_port:
+            monitor_env['API_PORT'] = str(api_port)
+            print_monitor(f"📡 Using localhost API on port {api_port}")
+        else:
+            print_warning("⚠️  No API_URL or local API server - monitor may not be able to send data")
+    
+    # Pass USE_DATABASE to monitor
+    if 'USE_DATABASE' in os.environ:
+        monitor_env['USE_DATABASE'] = os.environ['USE_DATABASE']
     
     monitor_process = subprocess.Popen(
         monitor_cmd,
@@ -480,10 +505,16 @@ def main():
     print("=" * 70)
     print_info("All services are running!")
     print()
-    print_db(f"🗄️  Database: {os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}")
-    print_info(f"📡 API Server: http://localhost:{api_port}")
-    print_info(f"📡 API Docs: http://localhost:{api_port}/docs")
+    if use_database and use_local_api:
+        print_db(f"🗄️  Database: {os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}")
+    if use_local_api and api_port:
+        print_info(f"📡 API Server: http://localhost:{api_port}")
+        print_info(f"📡 API Docs: http://localhost:{api_port}/docs")
+    else:
+        print_info(f"📡 External API: {api_url_env}")
     print_info(f"🔍 Monitor: Watching for patient form submissions")
+    if not use_database:
+        print_info(f"💡 Mode: API-only (database disabled)")
     print()
     print_info("Press Ctrl+C to stop all services")
     print("=" * 70)
