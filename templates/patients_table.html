@@ -240,6 +240,37 @@
             font-weight: 700;
         }
 
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            padding-right: 2rem;
+        }
+
+        th.sortable:hover {
+            color: var(--accent);
+        }
+
+        th.sortable::after {
+            content: "↕";
+            position: absolute;
+            right: 0.5rem;
+            opacity: 0.4;
+            font-size: 0.9rem;
+        }
+
+        th.sortable.sort-asc::after {
+            content: "↑";
+            opacity: 1;
+            color: var(--accent);
+        }
+
+        th.sortable.sort-desc::after {
+            content: "↓";
+            opacity: 1;
+            color: var(--accent);
+        }
+
         tbody tr:hover {
             background: rgba(37, 99, 235, 0.05);
         }
@@ -419,13 +450,13 @@
                     <th>Visit Details</th>
                     <th>Location</th>
                     <th>Status</th>
-                    <th>Captured</th>
+                    <th class="sortable sort-desc" data-sort="captured">Captured</th>
                     <th>Contact</th>
                 </tr>
                 </thead>
                 <tbody>
                 {% for patient in patients %}
-                    <tr>
+                    <tr data-captured="{{ patient.captured_at or '' }}">
                         <td>
                             <strong>{{ patient.emr_id or "—" }}</strong>
                         </td>
@@ -584,6 +615,58 @@
                 return;
             }
             closeMenu();
+        });
+    })();
+
+    // Table sorting functionality
+    (function () {
+        const sortableHeader = document.querySelector("th.sortable[data-sort='captured']");
+        const tbody = document.querySelector("table tbody");
+        
+        if (!sortableHeader || !tbody) {
+            return;
+        }
+
+        let sortDirection = "desc"; // Start with descending (newest first)
+
+        const parseDate = (dateStr) => {
+            if (!dateStr || dateStr.trim() === "") {
+                return new Date(0); // Very old date for "Not captured"
+            }
+            const date = new Date(dateStr);
+            return isNaN(date.getTime()) ? new Date(0) : date;
+        };
+
+        const sortTable = () => {
+            const rows = Array.from(tbody.querySelectorAll("tr"));
+            
+            rows.sort((a, b) => {
+                const dateA = parseDate(a.dataset.captured);
+                const dateB = parseDate(b.dataset.captured);
+                
+                if (sortDirection === "asc") {
+                    return dateA - dateB;
+                } else {
+                    return dateB - dateA;
+                }
+            });
+
+            // Clear tbody and append sorted rows
+            tbody.innerHTML = "";
+            rows.forEach(row => tbody.appendChild(row));
+
+            // Update header class
+            sortableHeader.classList.remove("sort-asc", "sort-desc");
+            sortableHeader.classList.add(`sort-${sortDirection}`);
+        };
+
+        // Sort on page load
+        sortTable();
+
+        // Toggle sort direction on header click
+        sortableHeader.addEventListener("click", () => {
+            sortDirection = sortDirection === "asc" ? "desc" : "asc";
+            sortTable();
         });
     })();
 </script>
