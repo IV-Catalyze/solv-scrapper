@@ -1549,6 +1549,53 @@ async def send_patient_to_api(patient_data: Dict[str, Any]) -> bool:
         return False
 
 
+async def send_status_update_to_api(
+    emr_id: str,
+    status: str,
+    patient_data: Optional[Dict[str, Any]] = None
+) -> bool:
+    """
+    Send status update to API by matching EMR ID.
+    Works without database - uses provided patient_data or creates minimal update payload.
+    
+    Args:
+        emr_id: EMR ID to match
+        status: New status value
+        patient_data: Optional patient data dict (if provided, will use it; otherwise creates minimal payload)
+        
+    Returns:
+        True if sent successfully, False otherwise
+    """
+    if not HTTPX_AVAILABLE:
+        return False
+    
+    emr_id_clean = str(emr_id).strip() if emr_id else None
+    if not emr_id_clean:
+        return False
+    
+    normalized_status = normalize_status_value(status)
+    if not normalized_status:
+        return False
+    
+    # Use provided patient_data or create minimal patient data with EMR ID and status
+    if patient_data:
+        patient_to_update = patient_data.copy()
+        patient_to_update['status'] = normalized_status
+        # Ensure EMR ID is set
+        patient_to_update['emr_id'] = emr_id_clean
+    else:
+        # Create minimal patient data with just EMR ID and status
+        patient_to_update = {
+            'emr_id': emr_id_clean,
+            'status': normalized_status
+        }
+    
+    # Send to API using existing send_patient_to_api function
+    # The /patients/create endpoint handles updates via on_conflict='update'
+    print(f"   📡 Sending status update to API (EMR ID: {emr_id_clean}, Status: {normalized_status})")
+    return await send_patient_to_api(patient_to_update)
+
+
 async def save_patient_data(data) -> Optional[int]:
     """Persist patient data to the pending_patients staging table (if database available) and send to API."""
     try:
@@ -1556,10 +1603,12 @@ async def save_patient_data(data) -> Optional[int]:
         if not data.get('captured_at'):
             data['captured_at'] = datetime.now().isoformat()
 
-        # Check if database is enabled
+        # Check configuration
         use_database = str_to_bool(os.getenv('USE_DATABASE', 'true'))
+        use_api = str_to_bool(os.getenv('USE_API', 'true'))
         pending_id = None
         
+        # Save to database if enabled (but API takes priority)
         if use_database and DB_AVAILABLE:
             print("   💾 Saving patient submission to pending_patients staging table")
             pending_id = persist_pending_patient(data)
@@ -1569,22 +1618,20 @@ async def save_patient_data(data) -> Optional[int]:
             else:
                 print("   ⚠️  Database save failed (database may be unavailable), continuing with API only")
         elif not use_database:
-            print("   📡 Database disabled (USE_DATABASE=false), skipping database save")
+            print("   📡 Database disabled (USE_DATABASE=false), API-only mode")
         elif not DB_AVAILABLE:
             print("   ⚠️  Database not available (psycopg2 not installed), continuing with API only")
 
-        # Send to API if EMR ID is available
+        # PRIORITY: Send to API if EMR ID is available (API-first approach)
         if data.get('emr_id'):
-            print("   📎 EMR ID already available, sending to API")
+            print("   📎 EMR ID available, sending to API")
             
-            # Send to API first (when EMR ID is present)
-            use_api = str_to_bool(os.getenv('USE_API', 'true'))
             if use_api and HTTPX_AVAILABLE:
                 print("   📡 Sending patient data to API...")
                 api_success = await send_patient_to_api(data)
                 if api_success:
                     print("   ✅ Patient data successfully sent to API")
-                    # Mark as completed in database if we have a pending_id
+                    # Mark as completed in database if enabled
                     if pending_id and use_database and DB_AVAILABLE:
                         mark_pending_patient_status(pending_id, 'completed')
                 else:
@@ -1594,7 +1641,7 @@ async def save_patient_data(data) -> Optional[int]:
             elif use_api and not HTTPX_AVAILABLE:
                 print("   ⚠️  API saving requested but httpx not available. Install with: pip install httpx")
             
-            # Also save to database (if enabled)
+            # Also save to database (if enabled) - secondary to API
             if use_database and DB_AVAILABLE:
                 saved = save_patient_to_db(data, on_conflict='update')
                 if saved and pending_id:
@@ -1602,6 +1649,7 @@ async def save_patient_data(data) -> Optional[int]:
                 elif pending_id:
                     mark_pending_patient_status(pending_id, 'error', 'Failed to upsert into patients table')
         else:
+            # No EMR ID yet - mark as pending in database if enabled
             if pending_id and use_database and DB_AVAILABLE:
                 mark_pending_patient_status(pending_id, 'pending')
             print("   ⏳ Waiting for EMR ID before sending to API")
@@ -1849,49 +1897,93 @@ async def setup_form_monitor(page, location_id, location_name):
             if match:
                 pending['status'] = normalized_status
                 pending_id = pending.get('pending_id')
-                if pending_id:
-                    if mark_pending_patient_status(pending_id, normalized_status):
-                        updated_pending_ids.add(int(pending_id))
-                else:
-                    updated = update_pending_status_by_identifiers(
+                
+                # Check configuration
+                use_database = str_to_bool(os.getenv('USE_DATABASE', 'true'))
+                use_api = str_to_bool(os.getenv('USE_API', 'true'))
+                
+                # Get EMR ID for API update
+                update_emr_id = emr_id_clean or pending_emr_id
+                
+                # PRIORITY: Send to API first if EMR ID is available (API-only mode)
+                if use_api and HTTPX_AVAILABLE and update_emr_id:
+                    api_success = await send_status_update_to_api(
+                        update_emr_id,
                         normalized_status,
-                        booking_id=booking_id_clean or pending_booking_id,
-                        booking_number=booking_number_clean or pending_booking_number,
-                        patient_number=patient_number_clean or pending_patient_number,
-                        emr_id=emr_id_clean or pending_emr_id,
+                        patient_data=pending
                     )
-                    updated_pending_ids.update(updated)
+                    if api_success:
+                        print(f"   ✅ Status update sent to API for EMR ID: {update_emr_id}")
+                        # Mark as updated for return value
+                        if not use_database:
+                            # In API-only mode, consider API success as update success
+                            updated_pending_ids.add(0)  # Use 0 as placeholder since no DB IDs
+                
+                # Update database if enabled (secondary to API)
+                if use_database and DB_AVAILABLE:
+                    if pending_id:
+                        if mark_pending_patient_status(pending_id, normalized_status):
+                            updated_pending_ids.add(int(pending_id))
+                    else:
+                        updated = update_pending_status_by_identifiers(
+                            normalized_status,
+                            booking_id=booking_id_clean or pending_booking_id,
+                            booking_number=booking_number_clean or pending_booking_number,
+                            patient_number=patient_number_clean or pending_patient_number,
+                            emr_id=emr_id_clean or pending_emr_id,
+                        )
+                        updated_pending_ids.update(updated)
 
-                updated_patient_ids.update(
-                    update_patient_status_by_identifiers(
-                        normalized_status,
-                        booking_id=booking_id_clean or pending_booking_id,
-                        booking_number=booking_number_clean or pending_booking_number,
-                        patient_number=patient_number_clean or pending_patient_number,
-                        emr_id=emr_id_clean or pending_emr_id,
+                    updated_patient_ids.update(
+                        update_patient_status_by_identifiers(
+                            normalized_status,
+                            booking_id=booking_id_clean or pending_booking_id,
+                            booking_number=booking_number_clean or pending_booking_number,
+                            patient_number=patient_number_clean or pending_patient_number,
+                            emr_id=emr_id_clean or pending_emr_id,
+                        )
                     )
+
+        # Fallback: Try API update by EMR ID if database is disabled and EMR ID is available
+        use_database = str_to_bool(os.getenv('USE_DATABASE', 'true'))
+        use_api = str_to_bool(os.getenv('USE_API', 'true'))
+        
+        # In API-only mode, prioritize API updates
+        if not use_database and use_api and HTTPX_AVAILABLE and emr_id_clean:
+            # If no updates happened yet, try sending status update via API
+            if not updated_pending_ids and not updated_patient_ids:
+                api_success = await send_status_update_to_api(
+                    emr_id_clean,
+                    normalized_status
                 )
+                if api_success:
+                    print(f"   ✅ Status update sent to API via EMR ID: {emr_id_clean}")
+                    return True
+        
+        # Fallback: Try database updates if database is enabled (only if API didn't work)
+        if use_database and DB_AVAILABLE:
+            if not updated_pending_ids:
+                fallback_pending = update_pending_status_by_identifiers(
+                    normalized_status,
+                    booking_id=booking_id_clean,
+                    booking_number=booking_number_clean,
+                    patient_number=patient_number_clean,
+                    emr_id=emr_id_clean,
+                )
+                updated_pending_ids.update(fallback_pending)
 
-        if not updated_pending_ids:
-            fallback_pending = update_pending_status_by_identifiers(
-                normalized_status,
-                booking_id=booking_id_clean,
-                booking_number=booking_number_clean,
-                patient_number=patient_number_clean,
-                emr_id=emr_id_clean,
-            )
-            updated_pending_ids.update(fallback_pending)
+            if not updated_patient_ids:
+                fallback_patient_ids = update_patient_status_by_identifiers(
+                    normalized_status,
+                    booking_id=booking_id_clean,
+                    booking_number=booking_number_clean,
+                    patient_number=patient_number_clean,
+                    emr_id=emr_id_clean,
+                )
+                updated_patient_ids.update(fallback_patient_ids)
 
-        if not updated_patient_ids:
-            fallback_patient_ids = update_patient_status_by_identifiers(
-                normalized_status,
-                booking_id=booking_id_clean,
-                booking_number=booking_number_clean,
-                patient_number=patient_number_clean,
-                emr_id=emr_id_clean,
-            )
-            updated_patient_ids.update(fallback_patient_ids)
-
+        # Check if any updates were successful (database or API)
+        use_database = str_to_bool(os.getenv('USE_DATABASE', 'true'))
         if updated_pending_ids or updated_patient_ids:
             pending_msg = (
                 f"pending_id(s): {sorted(updated_pending_ids)}"
@@ -1901,7 +1993,8 @@ async def setup_form_monitor(page, location_id, location_name):
                 f"patient_id(s): {sorted(updated_patient_ids)}"
                 if updated_patient_ids else "patient_id(s): none"
             )
-            print(f"   ✅ Queue status updated to '{normalized_status}' ({pending_msg}; {patients_msg})")
+            db_msg = " (database)" if use_database else " (API-only)"
+            print(f"   ✅ Queue status updated to '{normalized_status}' ({pending_msg}; {patients_msg}){db_msg}")
             return True
 
         print(
@@ -1911,10 +2004,11 @@ async def setup_form_monitor(page, location_id, location_name):
         return False
 
     async def update_patient_emr_id(patient_data):
-        """Update the pending record with the EMR ID and promote it to patients table (if database enabled)."""
+        """Update the pending record with the EMR ID and send to API (database optional)."""
         try:
-            # Check if database is enabled
+            # Check configuration
             use_database = str_to_bool(os.getenv('USE_DATABASE', 'true'))
+            use_api = str_to_bool(os.getenv('USE_API', 'true'))
             pending_id = patient_data.get('pending_id')
             
             # Try to find pending_id from database if not in patient_data and database is enabled
@@ -1923,29 +2017,22 @@ async def setup_form_monitor(page, location_id, location_name):
                 if pending_id:
                     patient_data['pending_id'] = pending_id
 
-            # Update pending record in database if enabled
-            if use_database and DB_AVAILABLE and pending_id:
-                updated = update_pending_patient_record(patient_data, status='ready')
-                if not updated:
-                    print(f"   ⚠️  Failed to update pending patient (pending_id={pending_id}) with EMR ID")
-
-            # Send to API when EMR ID is found (THIS IS THE CRITICAL PART)
-            use_api = str_to_bool(os.getenv('USE_API', 'true'))
+            # PRIORITY: Send to API when EMR ID is found (API-only mode)
             print(f"\n{'='*60}")
-            print(f"🚀 CRITICAL: EMR ID FOUND - PREPARING TO SEND TO API")
+            print(f"🚀 EMR ID FOUND - SENDING TO API")
             print(f"{'='*60}")
             print(f"   EMR ID: {patient_data.get('emr_id')}")
             print(f"   Patient: {patient_data.get('legalFirstName')} {patient_data.get('legalLastName')}")
+            print(f"   Mode: {'API-only' if not use_database else 'API + Database'}")
             print(f"   USE_API: {use_api}")
             print(f"   HTTPX_AVAILABLE: {HTTPX_AVAILABLE}")
-            print(f"   Patient data keys: {list(patient_data.keys())}")
             
             if use_api and HTTPX_AVAILABLE:
                 print(f"   📡 Sending patient data to API...")
                 api_success = await send_patient_to_api(patient_data)
                 if api_success:
                     print(f"   ✅ Patient data successfully sent to API (EMR ID: {patient_data.get('emr_id')})")
-                    # Mark as completed in database if we have a pending_id and database is enabled
+                    # Mark as completed in database if enabled
                     if pending_id and use_database and DB_AVAILABLE:
                         mark_pending_patient_status(pending_id, 'completed')
                 else:
@@ -1957,6 +2044,12 @@ async def setup_form_monitor(page, location_id, location_name):
             else:
                 print(f"   ⚠️  API sending disabled (USE_API={use_api})")
             print(f"{'='*60}\n")
+            
+            # Update pending record in database if enabled (secondary to API)
+            if use_database and DB_AVAILABLE and pending_id:
+                updated = update_pending_patient_record(patient_data, status='ready')
+                if not updated:
+                    print(f"   ⚠️  Failed to update pending patient (pending_id={pending_id}) with EMR ID")
             
             # Also save to database (if enabled)
             if use_database and DB_AVAILABLE:
@@ -2405,8 +2498,10 @@ async def setup_form_monitor(page, location_id, location_name):
                                     pending_names = [f"{p.get('legalFirstName', '')} {p.get('legalLastName', '')}" for p in pending_patients]
                                     print(f"   💡 Pending patients: {pending_names}")
 
+                        # If status update wasn't successful and we have EMR ID, try updating via API
                         if booking_status_value and not status_update_success:
-                            await update_status_for_booking(
+                            # First try the normal update_status_for_booking (handles both DB and API)
+                            status_update_success = await update_status_for_booking(
                                 booking_status_value,
                                 booking_id=booking_id_local or None,
                                 booking_number=booking_number_local or None,
@@ -2416,6 +2511,19 @@ async def setup_form_monitor(page, location_id, location_name):
                                 patient_last_name=status_last_name,
                                 api_phone=api_phone_value,
                             )
+                            
+                            # If still not successful and we have EMR ID, try direct API update
+                            if not status_update_success and emr_id_local:
+                                use_database = str_to_bool(os.getenv('USE_DATABASE', 'true'))
+                                use_api = str_to_bool(os.getenv('USE_API', 'true'))
+                                if not use_database and use_api and HTTPX_AVAILABLE:
+                                    print(f"   🔄 Attempting direct API status update for EMR ID: {emr_id_local}")
+                                    api_success = await send_status_update_to_api(
+                                        emr_id_local,
+                                        booking_status_value
+                                    )
+                                    if api_success:
+                                        status_update_success = True
 
                         return bool(emr_id_local or status_update_success)
 
