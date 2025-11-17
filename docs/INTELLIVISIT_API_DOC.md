@@ -100,6 +100,7 @@ curl -H "X-API-Key: your-api-key-here" \
 | GET    | `/`                   | Render the patient dashboard HTML (visual inspection)    | No            |
 | GET    | `/patients`           | Retrieve the active patient queue for a location         | Yes           |
 | GET    | `/patient/{emr_id}`   | Retrieve the most recent record for a specific EMR ID    | Yes           |
+| POST   | `/encounter`          | Create or update an encounter record                     | Yes           |
 
 Full interactive documentation: `https://app-97926.on-aptible.com/docs`
 
@@ -223,7 +224,101 @@ curl -s \
 
 ---
 
-## 3. GET /
+## 3. POST /encounter
+
+Create or update an encounter record for a patient. If an encounter with the same `encounterId` already exists it will be updated in place (idempotent upsert).
+
+### Authentication
+
+Provide either:
+- `Authorization: Bearer <token>` header (recommended), or
+- `X-API-Key: <api-key>`
+
+### Request body schema
+
+| Field             | Type        | Required | Description |
+|-------------------|-------------|----------|-------------|
+| `id`              | string (UUID) | Yes | Unique identifier for the encounter. |
+| `clientId`        | string (UUID) | Yes | Customer/client identifier supplied by Solv. |
+| `patientId`       | string (UUID) | Yes | Identifier for the patient. |
+| `encounterId`     | string (UUID) | Yes | Encounter identifier; used for idempotent updates. |
+| `traumaType`      | string      | No  | Type of trauma (e.g. `BURN`, `FALL`). |
+| `chiefComplaints` | array       | Yes | At least one complaint object is required. |
+| `chiefComplaints[].id` | string (UUID) | Yes | Unique identifier for the complaint. |
+| `chiefComplaints[].description` | string | Yes | Human-readable description of the complaint. |
+| `chiefComplaints[].type` | string | Yes | Complaint type (e.g. `trauma`). |
+| `chiefComplaints[].part` | string | Yes | Body part affected. |
+| `chiefComplaints[].bodyParts` | array | No | Optional list of detailed body-part strings. |
+| `status`          | string      | No  | Encounter status (`COMPLETE`, `IN_PROGRESS`, etc.). |
+| `createdBy`       | string      | No  | Email or identifier of the user/system that created the encounter. |
+| `startedAt`       | string (ISO 8601) | No | When the encounter began. |
+
+### Example request
+
+```
+curl -X POST "https://app-97926.on-aptible.com/encounter" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+  -d '{
+    "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+    "patientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+    "encounterId": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+    "traumaType": "BURN",
+    "chiefComplaints": [
+      {
+        "id": "09b5349d-d7c2-4506-9705-b5cc12947b6b",
+        "description": "Chemical burn on left arm",
+        "type": "trauma",
+        "part": "arm",
+        "bodyParts": ["left arm", "forearm"]
+      }
+    ],
+    "status": "COMPLETE",
+    "createdBy": "nurse@example.com",
+    "startedAt": "2025-11-12T22:19:01.432Z"
+  }'
+```
+
+### Example response (201 Created)
+
+```
+{
+  "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+  "encounter_id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+  "client_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+  "patient_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+  "trauma_type": "BURN",
+  "chief_complaints": [
+    {
+      "id": "09b5349d-d7c2-4506-9705-b5cc12947b6b",
+      "description": "Chemical burn on left arm",
+      "type": "trauma",
+      "part": "arm",
+      "bodyParts": ["left arm", "forearm"]
+    }
+  ],
+  "status": "COMPLETE",
+  "created_by": "nurse@example.com",
+  "started_at": "2025-11-12T22:19:01.432Z",
+  "created_at": "2025-11-12T22:19:05.123Z",
+  "updated_at": "2025-11-12T22:19:05.123Z"
+}
+```
+
+### Error responses
+
+| HTTP code | Message | Notes |
+|-----------|---------|-------|
+| `400 Bad Request` | Missing required fields (`patientId`, `clientId`, `encounterId`, `chiefComplaints`) or empty complaint list | Ensure all required fields are present and at least one complaint is provided. |
+| `401 Unauthorized` | Authentication required | Provide a valid Bearer token or API key. |
+| `404 Not Found` | Patient or related record not found (rare) | Confirm identifiers exist in your tenant. |
+| `409 Conflict` | Duplicate `encounterId` with conflicting identifiers | Ensure `encounterId` uniquely identifies the encounter for the same patient/client combination. |
+| `500 Internal Server Error` | Database or server error | Retry with backoff; contact Solv if persistent. |
+
+---
+
+## 4. GET /
 
 Render the internal Solv dashboard HTML view. This is primarily for quality assurance or visual verification.
 
