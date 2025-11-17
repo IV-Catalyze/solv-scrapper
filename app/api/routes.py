@@ -117,6 +117,31 @@ def parse_datetime(value: Any) -> datetime:
 DEFAULT_STATUSES = ["checked_in", "confirmed"]
 
 
+def resolve_location_id(location_id: Optional[str], *, required: bool = True) -> Optional[str]:
+    """
+    Normalize `locationId` from the query string with support for a default
+    value defined via the DEFAULT_LOCATION_ID environment variable.
+    """
+    normalized = location_id.strip() if location_id else None
+    if normalized:
+        return normalized
+
+    env_location_id = os.getenv("DEFAULT_LOCATION_ID", "").strip()
+    if env_location_id:
+        return env_location_id
+
+    if required:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "locationId query parameter is required. "
+                "Provide ?locationId=<ID> or configure DEFAULT_LOCATION_ID."
+            ),
+        )
+
+    return None
+
+
 def use_remote_api_for_reads() -> bool:
     """
     Determine whether to read queue data from the remote production API
@@ -413,11 +438,40 @@ def fetch_pending_payloads(
         if selected_set and status not in selected_set:
             continue
         payload["status"] = status
+        payload["source"] = "pending"
         payloads.append(decorate_patient_payload(payload))
         if limit is not None and len(payloads) >= limit:
             break
 
     return payloads
+
+
+def get_local_patients(
+    cursor,
+    location_id: Optional[str],
+    statuses: List[str],
+    limit: Optional[int],
+) -> List[Dict[str, Any]]:
+    """
+    Gather patient payloads from the local database (confirmed + pending) to
+    mirror the remote API shape.
+    """
+    confirmed = prepare_dashboard_patients(cursor, location_id, statuses, None)
+    pending = fetch_pending_payloads(cursor, location_id, statuses, None)
+
+    combined = confirmed + pending
+
+    def sort_key(item: Dict[str, Any]):
+        captured = parse_datetime(item.get("captured_at"))
+        updated = parse_datetime(item.get("updated_at"))
+        return (captured, updated)
+
+    combined.sort(key=sort_key, reverse=True)
+
+    if limit is not None:
+        combined = combined[:limit]
+
+    return combined
 
 
 def get_db_connection():
@@ -872,10 +926,12 @@ async def generate_token(request: TokenRequest):
 )
 async def root(
     request: Request,
-    locationId: str = Query(
-        ...,
+    locationId: Optional[str] = Query(
+        default=None,
         alias="locationId",
-        description="Location identifier to filter patients by. Required."
+        description=(
+            "Location identifier to filter patients by. Required unless DEFAULT_LOCATION_ID env var is set."
+        ),
     ),
     statuses: Optional[List[str]] = Query(
         default=None,
@@ -892,14 +948,12 @@ async def root(
     """
     Render the patient queue dashboard as HTML.
 
-    Fetches patient data from the remote production API.
+    Uses the remote production API when location filtering is available;
+    otherwise falls back to the local database.
     """
     # Normalize locationId: convert empty strings to None
     # FastAPI may receive empty string from form submission, normalize it to None
-    normalized_location_id = locationId.strip() if locationId else None
-    # Ensure empty strings after stripping are treated as None
-    if not normalized_location_id:
-        raise HTTPException(status_code=400, detail="locationId query parameter is required")
+    normalized_location_id = resolve_location_id(locationId, required=False)
     
     if statuses is None:
         normalized_statuses = DEFAULT_STATUSES.copy()
@@ -914,16 +968,27 @@ async def root(
             normalized_statuses = DEFAULT_STATUSES.copy()
 
     try:
-        # Fetch patients directly from production API
-        patients = await fetch_remote_patients(normalized_location_id, normalized_statuses, limit)
-        
-        # Location dropdown is limited to the current location in remote mode
-        locations = [
-            {
-                "location_id": normalized_location_id,
-                "location_name": None,
-            }
-        ]
+        use_remote_reads = use_remote_api_for_reads()
+        if use_remote_reads and normalized_location_id:
+            # Fetch patients directly from production API
+            patients = await fetch_remote_patients(normalized_location_id, normalized_statuses, limit)
+
+            # Location dropdown is limited to the current location in remote mode
+            locations = [
+                {
+                    "location_id": normalized_location_id,
+                    "location_name": None,
+                }
+            ]
+        else:
+            conn = get_db_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            try:
+                patients = get_local_patients(cursor, normalized_location_id, normalized_statuses, limit)
+                locations = fetch_locations(cursor)
+            finally:
+                cursor.close()
+                conn.close()
 
         status_summary: Dict[str, int] = {}
         for patient in patients:
@@ -1434,10 +1499,12 @@ if __name__ == "__main__":
 )
 async def list_patients(
     request: Request,
-    locationId: str = Query(
-        ...,
+    locationId: Optional[str] = Query(
+        default=None,
         alias="locationId",
-        description="Location identifier to filter patients by. Required."
+        description=(
+            "Location identifier to filter patients by. Required unless DEFAULT_LOCATION_ID env var is set."
+        ),
     ),
     limit: Optional[int] = Query(
         default=None,
@@ -1455,7 +1522,8 @@ async def list_patients(
     """
     Return the patient queue as JSON, mirroring the data rendered in the dashboard view.
     
-    Fetches patient data from the remote production API.
+    Reads from the remote production API when a location filter is provided;
+    otherwise falls back to the local database.
     Requires authentication via Bearer token or API key.
     """
     if statuses is None:
@@ -1471,9 +1539,22 @@ async def list_patients(
             raise HTTPException(status_code=400, detail="At least one valid status must be provided")
 
     try:
-        # Fetch patients directly from production API
-        patients_raw = await fetch_remote_patients(locationId, normalized_statuses, limit)
-        return [PatientPayload(**patient) for patient in patients_raw]
+        normalized_location_id = resolve_location_id(locationId, required=False)
+        use_remote_reads = use_remote_api_for_reads()
+
+        if use_remote_reads and normalized_location_id:
+            # Fetch patients directly from production API
+            patients_raw = await fetch_remote_patients(normalized_location_id, normalized_statuses, limit)
+            return [PatientPayload(**patient) for patient in patients_raw]
+
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            patients_raw = get_local_patients(cursor, normalized_location_id, normalized_statuses, limit)
+            return [PatientPayload(**patient) for patient in patients_raw]
+        finally:
+            cursor.close()
+            conn.close()
 
     except HTTPException:
         raise
