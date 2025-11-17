@@ -54,12 +54,16 @@ if not exist ".env" (
     exit /b 1
 )
 
-REM Run the monitor
+REM Display .env file location for debugging
+echo .env file found at: %CD%\.env
+echo.
+
+REM Run the monitor using the launcher script
 echo ============================================
 echo Starting Patient Monitor...
 echo ============================================
 echo.
-python3 -m app.core.monitor
+python3 launch_monitor.py
 
 REM Keep window open if there's an error
 if errorlevel 1 (
