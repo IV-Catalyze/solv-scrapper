@@ -55,14 +55,21 @@ try:
     from dotenv import load_dotenv
     # Load .env but don't override existing environment variables
     # This allows run_all.py to explicitly set API_URL which takes precedence
-    # Try loading from current directory first, then parent
+    # Try loading from current directory first, then project root
     env_loaded = load_dotenv(override=False)
     if not env_loaded:
-        # Try loading from explicit path
+        # Try loading from project root (two levels up from app/core/monitor.py)
         import pathlib
-        env_path = pathlib.Path(__file__).parent / '.env'
+        # Get project root: app/core/monitor.py -> app/core -> app -> project root
+        project_root = pathlib.Path(__file__).parent.parent.parent
+        env_path = project_root / '.env'
         if env_path.exists():
             load_dotenv(dotenv_path=env_path, override=False)
+        else:
+            # Also try parent directory (in case running from app/ directory)
+            parent_env_path = pathlib.Path(__file__).parent.parent / '.env'
+            if parent_env_path.exists():
+                load_dotenv(dotenv_path=parent_env_path, override=False)
 except ImportError:
     pass  # dotenv is optional
 
