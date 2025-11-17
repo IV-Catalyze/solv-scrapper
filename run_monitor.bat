@@ -58,6 +58,25 @@ REM Display .env file location for debugging
 echo .env file found at: %CD%\.env
 echo.
 
+REM Check if python-dotenv is installed
+echo Checking for python-dotenv...
+python3 -c "import dotenv" 2>nul
+if errorlevel 1 (
+    echo python-dotenv not found. Installing...
+    python3 -m pip install python-dotenv
+    if errorlevel 1 (
+        echo WARNING: Failed to install python-dotenv
+        echo The launcher will attempt to read .env file manually.
+        echo.
+    ) else (
+        echo ✅ python-dotenv installed successfully
+        echo.
+    )
+) else (
+    echo ✅ python-dotenv is installed
+    echo.
+)
+
 REM Run the monitor using the launcher script
 echo ============================================
 echo Starting Patient Monitor...

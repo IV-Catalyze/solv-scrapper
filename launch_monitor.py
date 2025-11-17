@@ -8,13 +8,15 @@ import os
 import sys
 from pathlib import Path
 
+# Get the directory where this script is located (project root)
+# Define these before try block so they're available in error messages
+script_dir = Path(__file__).parent.absolute()
+env_path = script_dir / '.env'
+
 # Try to load .env file
+dotenv_available = True
 try:
     from dotenv import load_dotenv
-    
-    # Get the directory where this script is located (project root)
-    script_dir = Path(__file__).parent.absolute()
-    env_path = script_dir / '.env'
     
     print(f"Looking for .env file at: {env_path}")
     
@@ -36,8 +38,33 @@ try:
         sys.exit(1)
         
 except ImportError:
+    dotenv_available = False
     print("⚠️  python-dotenv not installed. Install with: pip install python-dotenv")
-    print("   Continuing without .env file loading...")
+    print("   Attempting to read .env file manually...")
+    
+    # Manual .env file reading as fallback
+    if env_path.exists():
+        print(f"✅ Found .env file at: {env_path}")
+        try:
+            with open(env_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip().strip('"').strip("'")
+                        os.environ[key] = value
+            print("✅ Successfully loaded .env file (manual method)")
+        except Exception as e:
+            print(f"❌ Error reading .env file: {e}")
+    else:
+        print(f"❌ .env file not found at: {env_path}")
+        print(f"   Current working directory: {os.getcwd()}")
+        print(f"   Script directory: {script_dir}")
+        print("\nPlease create a .env file in the project root with:")
+        print("  API_URL=https://app-97926.on-aptible.com")
+        print("  SOLVHEALTH_QUEUE_URL=https://manage.solvhealth.com/queue")
+        sys.exit(1)
 
 # Verify critical environment variables are set
 api_url = os.getenv('API_URL')
