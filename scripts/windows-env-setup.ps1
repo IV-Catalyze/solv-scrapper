@@ -18,18 +18,14 @@ if (Test-Path .env) {
 
 Write-Host "Creating .env file..." -ForegroundColor Green
 
-# Get API URL
-$apiUrl = Read-Host "Enter your API endpoint URL (e.g., https://app-97926.on-aptible.com)"
-if ([string]::IsNullOrWhiteSpace($apiUrl)) {
-    Write-Host "❌ API URL is required" -ForegroundColor Red
-    exit 1
-}
+# Set default values
+$apiUrl = "https://app-97926.on-aptible.com"
+$queueUrl = "https://manage.solvhealth.com/queue?location_ids=AXjwbE"
 
-# Get Queue URL
-$queueUrl = Read-Host "Enter Solvhealth queue URL (press Enter for default)"
-if ([string]::IsNullOrWhiteSpace($queueUrl)) {
-    $queueUrl = "https://manage.solvhealth.com/queue?location_ids=AXjwbE"
-}
+Write-Host "Using default values:" -ForegroundColor Green
+Write-Host "  API_URL: $apiUrl" -ForegroundColor White
+Write-Host "  SOLVHEALTH_QUEUE_URL: $queueUrl" -ForegroundColor White
+Write-Host ""
 
 # Create .env file
 $envContent = @"
@@ -60,16 +56,12 @@ Write-Host "Installing required packages..." -ForegroundColor Cyan
 python3 -m pip install httpx playwright --quiet
 
 Write-Host ""
-Write-Host "Installing Playwright browsers..." -ForegroundColor Cyan
-python3 -m playwright install chromium
-
-Write-Host ""
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host "Setup Complete!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "You can now run:" -ForegroundColor Yellow
-Write-Host "  python3 monitor_patient_form.py" -ForegroundColor White
+Write-Host "  python3 -m app.core.monitor" -ForegroundColor White
 Write-Host "or" -ForegroundColor Yellow
 Write-Host "  python3 run_all.py" -ForegroundColor White
 Write-Host ""

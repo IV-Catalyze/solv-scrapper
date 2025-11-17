@@ -80,11 +80,11 @@ def check_requirements():
         print()
     
     # Check if required files exist
-    if not Path('api.py').exists():
-        errors.append("api.py not found")
+    if not Path('app/api/routes.py').exists():
+        errors.append("app/api/routes.py not found")
     
-    if not Path('monitor_patient_form.py').exists():
-        errors.append("monitor_patient_form.py not found")
+    if not Path('app/core/monitor.py').exists():
+        errors.append("app/core/monitor.py not found")
     
     if errors:
         print_error("Missing requirements:")
@@ -350,27 +350,70 @@ def main():
     print("=" * 70)
     print()
     
-    # Check if database is needed
-    use_database = os.getenv('USE_DATABASE', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
-    api_url_env = os.getenv('API_URL')
-    use_local_api = not api_url_env or api_url_env.strip() == '' or 'localhost' in api_url_env or '127.0.0.1' in api_url_env
+    # Load and check configuration BEFORE any database operations
+    # Force reload environment variables to ensure .env is read
+    env_file_exists = Path('.env').exists()
+    try:
+        if env_file_exists:
+            result = load_dotenv(override=True)
+            if result:
+                print_info(f"✅ Loaded environment variables from .env file")
+            else:
+                print_warning(f"⚠️  .env file exists but no variables were loaded")
+        else:
+            print_warning(f"⚠️  .env file not found - using environment defaults")
+    except Exception as e:
+        print_warning(f"⚠️  Could not reload .env file: {e}")
+    
+    # Read environment variables with explicit fallbacks
+    # IMPORTANT: On Windows, make sure to strip whitespace and handle case sensitivity
+    use_database_env = os.getenv('USE_DATABASE', 'true').strip().lower()
+    use_database = use_database_env in {'1', 'true', 'yes', 'on'}
+    api_url_env = os.getenv('API_URL', '').strip()
+    
+    # Determine if we need local API (only if no external API_URL set or it's localhost)
+    use_local_api = not api_url_env or api_url_env == '' or 'localhost' in api_url_env.lower() or '127.0.0.1' in api_url_env
     
     print_info("Starting services...")
+    print_info(f"Configuration check:")
+    print_info(f"  .env file exists: {env_file_exists}")
+    print_info(f"  USE_DATABASE={repr(use_database_env)} -> {use_database}")
+    print_info(f"  API_URL={repr(api_url_env) or 'Not set (will use local API)'}")
+    print_info(f"  Use local API: {use_local_api}")
     print()
     
-    # Start database only if needed (database enabled AND using local API server)
-    if use_database and use_local_api:
+    # CRITICAL: Skip ALL database operations if USE_DATABASE=false
+    # Check this FIRST and set flags to prevent any database startup
+    skip_database = not use_database
+    
+    if skip_database:
+        print_info("📡 Database disabled (USE_DATABASE=false) - Running in API-only mode")
+        print_info("   ✅ Skipping all database startup and checks")
+        print_info("   ✅ Monitor will send data directly to external API")
+        print()
+        # Explicitly prevent any database operations
+        use_database = False
+        use_local_api = False
+    elif not use_local_api:
+        print_info("📡 Using external API endpoint - Database not required for monitor")
+        print()
+    
+    # Start database ONLY if explicitly needed (database enabled AND using local API server)
+    # This check should now NEVER pass when USE_DATABASE=false due to skip_database flag
+    if not skip_database and use_database and use_local_api:
+        print_info("⚠️  Attempting to start database (database mode)...")
         if not start_database():
             print_error("Failed to start database. Local API server requires database connection.")
             print_error("Please start PostgreSQL manually and try again.")
             print_error("Or set USE_DATABASE=false and API_URL to an external endpoint for API-only mode.")
             sys.exit(1)
         print()
-    elif not use_database:
-        print_info("📡 Database disabled (USE_DATABASE=false) - Running in API-only mode")
-        print()
-    elif not use_local_api:
-        print_info("📡 Using external API endpoint - Database not required for monitor")
+    else:
+        # Explicitly skip database startup - this is the safe path
+        if skip_database:
+            print_info("✅ Database startup skipped (API-only mode)")
+        elif not use_local_api:
+            print_info("✅ Database startup skipped (using external API)")
         print()
     
     # Start API server as subprocess (only if using local API)
@@ -394,7 +437,7 @@ def main():
             print_api(f"Starting API server on {api_host}:{candidate_port}...")
             api_cmd = [
                 sys.executable, '-m', 'uvicorn',
-                'api:app',
+                'app.api.routes:app',
                 '--host', api_host,
                 '--port', str(candidate_port),
                 '--log-level', 'info'
@@ -464,7 +507,7 @@ def main():
     
     # Start monitor as subprocess
     print_monitor("Starting patient form monitor...")
-    monitor_cmd = [sys.executable, 'monitor_patient_form.py']
+    monitor_cmd = [sys.executable, '-m', 'app.core.monitor']
     
     # Ensure environment variables are passed to subprocess
     monitor_env = os.environ.copy()

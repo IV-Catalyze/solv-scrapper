@@ -10,7 +10,7 @@ set USE_API=true
 set PLAYWRIGHT_HEADLESS=false
 
 REM Run the monitor
-python3 monitor_patient_form.py
+python3 -m app.core.monitor
 
 pause
 

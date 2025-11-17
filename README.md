@@ -27,10 +27,26 @@ This project captures patient form data in real-time when the "Add Patient" form
 
 ## Installation
 
+### Quick Start
+
+**For a complete step-by-step setup guide, see [SETUP_GUIDE.md](SETUP_GUIDE.md)**
+
+This guide covers:
+- Installing PostgreSQL
+- Setting up Python environment
+- Configuring database
+- Running the application
+- Troubleshooting common issues
+
 ### Platform-Specific Setup
 
-- **Windows VM**: See [WINDOWS_SETUP.md](WINDOWS_SETUP.md) for complete Windows installation instructions
-- **macOS/Linux**: Follow the instructions below
+- **New Machine Setup**: See [SETUP_GUIDE.md](SETUP_GUIDE.md) for complete step-by-step instructions
+- **Windows VM**: See [WINDOWS_SETUP.md](WINDOWS_SETUP.md) for Windows-specific installation instructions
+- **macOS/Linux**: Follow the instructions below or use the automated setup script:
+  ```bash
+  chmod +x setup.sh
+  ./setup.sh
+  ```
 
 ### General Installation
 
@@ -61,7 +77,7 @@ DB_PASSWORD=your_password
 Then run the database schema:
 
 ```bash
-psql -U postgres -d solvhealth_patients -f db_schema.sql
+psql -U postgres -d solvhealth_patients -f app/database/schema.sql
 ```
 
 ## Usage
@@ -85,7 +101,7 @@ This will:
 Run the form monitor (opens browser window):
 
 ```bash
-python monitor_patient_form.py
+python -m app.core.monitor
 ```
 
 The script will:
@@ -126,10 +142,10 @@ The script will:
 
 ```bash
 export SOLVHEALTH_QUEUE_URL="https://manage.solvhealth.com/queue?location_ids=AXjwbE"
-python3 monitor_patient_form.py
+python3 -m app.core.monitor
 ```
 
-The script will extract the `location_ids` parameter from the URL. See `locations.py` for all available locations.
+The script will extract the `location_ids` parameter from the URL. See `app/utils/locations.py` for all available locations.
 
 ## Troubleshooting
 
@@ -147,14 +163,40 @@ The script will extract the `location_ids` parameter from the URL. See `location
 5. Tail logs with `aptible logs --app <APP_NAME> --process web` or `--process worker` to verify the services are healthy.
 6. See `APTIBLE_DEPLOYMENT.md` for a full end-to-end runbook, including pre-deploy smoke tests and troubleshooting tips.
 
+## Project Structure
+
+```
+solv-scrapper-clone/
+├── app/                    # Main application code
+│   ├── api/               # API routes and endpoints
+│   │   └── routes.py     # FastAPI application
+│   ├── core/             # Core monitoring functionality
+│   │   └── monitor.py    # Patient form monitor
+│   ├── database/         # Database utilities
+│   │   ├── utils.py      # Database helper functions
+│   │   └── schema.sql    # Database schema
+│   ├── utils/            # Utility modules
+│   │   ├── api_client.py # External API client
+│   │   ├── auth.py       # Authentication
+│   │   ├── locations.py  # Location mappings
+│   │   └── patient.py    # Patient data utilities
+│   └── templates/        # HTML templates
+├── scripts/              # Setup and utility scripts
+├── tests/                # Test files
+├── docs/                 # Documentation
+├── deployment/           # Deployment configuration
+├── run_all.py           # Main entry point (runs both monitor and API)
+└── requirements.txt     # Python dependencies
+```
+
 ## Files
 
 - `run_all.py` - **Run both monitor and API server together** (recommended)
-- `monitor_patient_form.py` - Main script for form monitoring
-- `api.py` - FastAPI server to access patient data
-- `save_to_db.py` - Database saving utilities
-- `locations.py` - Location ID to name mapping
-- `db_schema.sql` - Database schema
+- `app/core/monitor.py` - Main script for form monitoring
+- `app/api/routes.py` - FastAPI server to access patient data
+- `tests/save_to_db.py` - Database saving utilities
+- `app/utils/locations.py` - Location ID to name mapping
+- `app/database/schema.sql` - Database schema
 
 ## License
 

@@ -13,8 +13,6 @@ Practical guide for the Intellivisit engineering team to connect with and consum
 | Staging / Production | `https://app-97926.on-aptible.com/`       | Aptible-hosted deployment for all integrations. |
 | Interactive docs   | `https://app-97926.on-aptible.com/docs`    | Swagger UI for live exploration and testing.    |
 
-During local development you may still run the API with `uvicorn api:app --reload` to serve `http://localhost:8000`, but Intellivisit integrations must target the Aptible environment listed above.
-
 ---
 
 ## Authentication
