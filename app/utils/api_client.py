@@ -16,6 +16,14 @@ except ImportError:
 from app.database.utils import DB_AVAILABLE, get_db_connection
 from app.utils.patient import normalize_status_value
 
+try:
+    from app.config.intellivisit_clients import get_client_config_by_name, INTELLIVISIT_CLIENTS
+except ImportError:  # pragma: no cover - optional dependency for certain scripts
+    INTELLIVISIT_CLIENTS = {}
+
+    def get_client_config_by_name(_: Optional[str]):
+        return None
+
 logger = logging.getLogger(__name__)
 
 _recently_sent_emr_ids: Set[str] = set()
@@ -25,6 +33,32 @@ _cached_token: Optional[str] = None
 _token_expires_at: Optional[datetime] = None
 _token_lock = threading.Lock()
 _patch_endpoint_available = True
+
+
+def _resolve_default_client_id() -> str:
+    """
+    Determine which client_id should be used when requesting API tokens.
+    Prefers explicit API_CLIENT_ID, otherwise falls back to configured environments.
+    """
+    explicit = os.getenv("API_CLIENT_ID")
+    if explicit:
+        return explicit
+
+    env_name = os.getenv("INTELLIVISIT_CLIENT_ENV") or os.getenv("API_CLIENT_NAME") or "staging"
+    env_name = env_name.lower()
+
+    cfg = get_client_config_by_name(env_name)
+    if cfg and cfg.get("client_id"):
+        return str(cfg["client_id"])
+
+    # As a final fallback, pick the first configured client if available.
+    for cfg in INTELLIVISIT_CLIENTS.values():
+        client_id = cfg.get("client_id")
+        if client_id:
+            return str(client_id)
+
+    # Last resort for environments without config import.
+    return "Stage-1c3dca8d-730f-4a32-9221-4e4277903505"
 
 
 def check_if_patient_recently_sent(emr_id: str, minutes_threshold: int = 5) -> bool:
@@ -93,7 +127,7 @@ async def get_api_token(api_base_url: str, force_refresh: bool = False) -> Optio
         logger.warning("httpx not available. Cannot get API token.")
         return None
 
-    client_id = os.getenv("API_CLIENT_ID", "patient-form-monitor")
+    client_id = _resolve_default_client_id()
     expires_hours = int(os.getenv("API_TOKEN_EXPIRES_HOURS", "24"))
 
     token_url = api_base_url.rstrip("/") + "/auth/token"

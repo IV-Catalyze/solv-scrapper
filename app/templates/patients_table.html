@@ -228,12 +228,22 @@
 
         th.col-patient,
         td.col-patient {
-            width: 30%;
+            width: 26%;
+        }
+
+        th.col-location,
+        td.col-location {
+            width: 16%;
         }
 
         th.col-status,
         td.col-status {
             width: 12%;
+        }
+
+        th.col-captured,
+        td.col-captured {
+            width: 15%;
         }
 
         thead {
@@ -464,9 +474,9 @@
                     <th class="col-emr">EMR ID</th>
                     <th class="col-patient">Patient</th>
                     <th>Visit Details</th>
-                    <th>Location</th>
+                    <th class="col-location">Location</th>
                     <th class="col-status">Status</th>
-                    <th class="sortable sort-desc" data-sort="captured">Captured</th>
+                    <th class="col-captured sortable sort-desc" data-sort="captured">Captured</th>
                     <th>Contact</th>
                 </tr>
                 </thead>
@@ -502,7 +512,7 @@
                                 <div class="muted">Calendar: {{ patient.calendar_date }}</div>
                             {% endif %}
                         </td>
-                        <td>
+                        <td class="col-location">
                             {% if patient.location_name %}
                                 {{ patient.location_name }}
                             {% else %}
@@ -520,7 +530,7 @@
                                 <span class="status-badge unknown">Unknown</span>
                             {% endif %}
                         </td>
-                        <td>
+                        <td class="col-captured">
                             {% if patient.captured_display %}
                                 {{ patient.captured_display }}
                             {% elif patient.captured_at %}

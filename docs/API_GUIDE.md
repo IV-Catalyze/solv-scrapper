@@ -61,7 +61,7 @@ Generate a token using the `/auth/token` endpoint:
 ```bash
 curl -X POST "http://localhost:8000/auth/token" \
   -H "Content-Type: application/json" \
-  -d '{"client_id": "my-client", "expires_hours": 24}'
+  -d '{"client_id": "Stage-1c3dca8d-730f-4a32-9221-4e4277903505", "expires_hours": 24}'
 ```
 
 Use the token in requests:
@@ -70,6 +70,17 @@ Use the token in requests:
 curl -H "Authorization: Bearer YOUR_TOKEN" \
   "http://localhost:8000/patients?locationId=AXjwbE"
 ```
+
+#### Intellivisit client identifiers
+
+| Environment | Client ID | Allowed locations |
+|-------------|-----------|-------------------|
+| Staging | `Stage-1c3dca8d-730f-4a32-9221-4e4277903505` | Demo clinic only (`AXjwbE`) |
+| Production | `Prod-1f190fe5-d799-4786-bce2-37c3ad2c1561` | All Exer locations |
+
+- **Staging tokens** are automatically constrained to the demo clinic. Every request to `/patients`, `/patients/create`, etc. must include `locationId=AXjwbE` (or omit it, in which case the server injects the demo location on your behalf).
+- **Production tokens** may target any location ID from `app/utils/locations.py`.
+- Requests that specify a location outside the caller's allow-list will return `403 Forbidden`.
 
 ### 2. API Key
 
@@ -173,7 +184,7 @@ Sample call (with authentication):
 # First, get a token
 TOKEN=$(curl -s -X POST "http://localhost:8000/auth/token" \
   -H "Content-Type: application/json" \
-  -d '{"client_id": "test-client"}' | jq -r '.access_token')
+  -d '{"client_id": "Stage-1c3dca8d-730f-4a32-9221-4e4277903505"}' | jq -r '.access_token')
 
 # Then use it
 curl -H "Authorization: Bearer $TOKEN" \

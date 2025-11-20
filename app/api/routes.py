@@ -57,6 +57,14 @@ from pathlib import Path
 
 from app.utils.api_client import get_api_token
 
+# Import encounter parsing functions
+try:
+    from app.utils.encounter import parse_encounter_payload, validate_encounter_payload
+except ImportError:
+    print("Warning: encounter.py not found. Encounter parsing will be unavailable.")
+    parse_encounter_payload = None
+    validate_encounter_payload = None
+
 # Import patient saving functions
 try:
     from app.database.utils import normalize_patient_record
@@ -115,6 +123,38 @@ def parse_datetime(value: Any) -> datetime:
     return datetime.min
 
 DEFAULT_STATUSES = ["checked_in", "confirmed"]
+
+
+def ensure_client_location_access(
+    location_id: Optional[str],
+    current_client: Optional[TokenData],
+) -> Optional[str]:
+    """
+    Ensure the authenticated client is permitted to access the requested location.
+
+    Returns the effective location ID (may inject the client's sole allowed ID)
+    or raises HTTPException when the access rules would be violated.
+    """
+    if not current_client or current_client.allowed_location_ids is None:
+        return location_id
+
+    allowed = current_client.allowed_location_ids
+    if not allowed:
+        raise HTTPException(status_code=403, detail="No locations are enabled for this client.")
+
+    if location_id:
+        if location_id not in allowed:
+            raise HTTPException(status_code=403, detail="This client is not permitted to access the requested location.")
+        return location_id
+
+    if len(allowed) == 1:
+        # Auto-select the only available location for convenience.
+        return allowed[0]
+
+    raise HTTPException(
+        status_code=403,
+        detail="locationId is required for this client. Provide a permitted location ID explicitly.",
+    )
 
 
 def resolve_location_id(location_id: Optional[str], *, required: bool = True) -> Optional[str]:
@@ -556,7 +596,10 @@ def save_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
     
     Args:
         conn: PostgreSQL database connection
-        encounter_data: Dictionary containing encounter data
+        encounter_data: Dictionary containing encounter data with:
+            - Individual fields (id, encounter_id, client_id, patient_id, etc.)
+            - raw_payload: Optional raw JSON payload (JSONB)
+            - parsed_payload: Optional parsed JSON payload (JSONB)
         
     Returns:
         Dictionary with the saved encounter data
@@ -585,14 +628,24 @@ def save_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
         # Convert chief_complaints to JSONB
         chief_complaints_json = Json(chief_complaints)
         
+        # Extract raw_payload and parsed_payload if provided
+        raw_payload_json = None
+        if encounter_data.get('raw_payload'):
+            raw_payload_json = Json(encounter_data['raw_payload'])
+        
+        parsed_payload_json = None
+        if encounter_data.get('parsed_payload'):
+            parsed_payload_json = Json(encounter_data['parsed_payload'])
+        
         # Use INSERT ... ON CONFLICT to handle duplicates (update on conflict)
         # Note: chief_complaints is always updated since it's required
         query = """
             INSERT INTO encounters (
                 id, encounter_id, client_id, patient_id, trauma_type,
-                chief_complaints, status, created_by, started_at
+                chief_complaints, status, created_by, started_at,
+                raw_payload, parsed_payload
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (encounter_id) 
             DO UPDATE SET
                 client_id = EXCLUDED.client_id,
@@ -602,6 +655,8 @@ def save_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
                 status = EXCLUDED.status,
                 created_by = EXCLUDED.created_by,
                 started_at = EXCLUDED.started_at,
+                raw_payload = EXCLUDED.raw_payload,
+                parsed_payload = EXCLUDED.parsed_payload,
                 updated_at = CURRENT_TIMESTAMP
             RETURNING *
         """
@@ -618,6 +673,8 @@ def save_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
                 encounter_data.get('status'),
                 encounter_data.get('created_by'),
                 started_at,
+                raw_payload_json,
+                parsed_payload_json,
             )
         )
         
@@ -631,6 +688,21 @@ def save_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
         if formatted_result.get('chief_complaints'):
             if isinstance(formatted_result['chief_complaints'], str):
                 formatted_result['chief_complaints'] = json.loads(formatted_result['chief_complaints'])
+        
+        # Convert raw_payload and parsed_payload JSONB back to dicts if present
+        if formatted_result.get('raw_payload'):
+            if isinstance(formatted_result['raw_payload'], str):
+                try:
+                    formatted_result['raw_payload'] = json.loads(formatted_result['raw_payload'])
+                except json.JSONDecodeError:
+                    pass  # Keep as string if not valid JSON
+        
+        if formatted_result.get('parsed_payload'):
+            if isinstance(formatted_result['parsed_payload'], str):
+                try:
+                    formatted_result['parsed_payload'] = json.loads(formatted_result['parsed_payload'])
+                except json.JSONDecodeError:
+                    pass  # Keep as string if not valid JSON
         
         return formatted_result
         
@@ -904,6 +976,11 @@ async def generate_token(request: TokenRequest):
             expires_hours=request.expires_hours
         )
         return token_data
+    except ValueError as e:
+        raise HTTPException(
+            status_code=403,
+            detail=str(e),
+        )
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -1082,6 +1159,8 @@ async def get_patient_by_emr_id(
                 detail=f"Patient with EMR ID '{emr_id}' not found"
             )
         
+        ensure_client_location_access(record.get("location_id"), current_client)
+        
         response_payload = build_patient_payload(record)
 
         return PatientPayload(**response_payload)
@@ -1195,6 +1274,9 @@ async def create_patient(
                     ),
                 )
 
+        normalized_location_id = ensure_client_location_access(normalized.get("location_id"), current_client)
+        normalized["location_id"] = normalized_location_id
+
         inserted_count = insert_patients(conn, [normalized], on_conflict='update')
         
         if inserted_count == 0:
@@ -1297,7 +1379,7 @@ async def update_patient_status(
         
         # Check if patient exists
         cursor.execute(
-            "SELECT id, emr_id, status FROM patients WHERE emr_id = %s LIMIT 1",
+            "SELECT id, emr_id, status, location_id FROM patients WHERE emr_id = %s LIMIT 1",
             (emr_id_clean,)
         )
         existing = cursor.fetchone()
@@ -1307,6 +1389,8 @@ async def update_patient_status(
                 status_code=404,
                 detail=f"Patient with EMR ID '{emr_id_clean}' not found"
             )
+        
+        ensure_client_location_access(existing.get("location_id"), current_client)
         
         # Update status
         cursor.execute(
@@ -1368,79 +1452,124 @@ async def update_patient_status(
     },
 )
 async def create_encounter(
-    encounter_data: EncounterCreateRequest,
+    request: Request,
     current_client: TokenData = get_auth_dependency()
 ) -> EncounterResponse:
     """
     Create or update an encounter record from the provided data.
     
     This endpoint accepts encounter data in JSON format and saves it to the database.
+    The full raw JSON payload is stored as `raw_payload`, and a simplified parsed
+    structure is stored as `parsed_payload` for processing in the queue and UI.
+    
     If an encounter with the same `encounterId` already exists, it will be updated.
     
     **Required fields:**
-    - `id`: Unique identifier for the encounter (UUID)
-    - `patientId`: Patient identifier (UUID) - **REQUIRED**
-    - `encounterId`: Encounter identifier (UUID)
-    - `clientId`: Client identifier (UUID)
-    - `chiefComplaints`: List of chief complaint objects - **REQUIRED (at least one complaint)**
+    - `id` or `encounter_id`: Unique identifier for the encounter (UUID)
+    - `patientId` or `patient_id`: Patient identifier (UUID) - **REQUIRED**
+    - `encounterId` or `encounter_id`: Encounter identifier (UUID)
+    - `clientId` or `client_id`: Client identifier (UUID)
+    - `chiefComplaints` or `chief_complaints`: List of chief complaint objects - **REQUIRED (at least one complaint)**
     
     **Optional fields:**
-    - `traumaType`: Type of trauma (e.g., "BURN")
+    - `traumaType` or `trauma_type`: Type of trauma (e.g., "BURN")
     - `status`: Status of the encounter (e.g., "COMPLETE")
-    - `createdBy`: Email or identifier of the user who created the encounter
-    - `startedAt`: ISO 8601 timestamp when the encounter started
+    - `createdBy` or `created_by`: Email or identifier of the user who created the encounter
+    - `startedAt` or `started_at`: ISO 8601 timestamp when the encounter started
     
+    The endpoint supports both camelCase and snake_case field names.
     Requires authentication via Bearer token or API key.
     """
     conn = None
     
     try:
-        # Validate required fields
-        if not encounter_data.patientId:
+        # Capture raw JSON body
+        raw_json = await request.json()
+        
+        # Store raw payload as-is
+        raw_payload = raw_json.copy() if isinstance(raw_json, dict) else raw_json
+        
+        # Parse the raw JSON to create parsed_payload
+        if not parse_encounter_payload:
             raise HTTPException(
-                status_code=400,
-                detail="patientId is required. Please provide a patient identifier."
+                status_code=500,
+                detail="Encounter parsing functionality is unavailable"
             )
         
-        if not encounter_data.encounterId:
+        parsed_payload = parse_encounter_payload(raw_json)
+        
+        # Validate parsed payload
+        if not validate_encounter_payload:
             raise HTTPException(
-                status_code=400,
-                detail="encounterId is required. Please provide an encounter identifier."
+                status_code=500,
+                detail="Encounter validation functionality is unavailable"
             )
         
-        if not encounter_data.clientId:
+        is_valid, error_message = validate_encounter_payload(parsed_payload)
+        if not is_valid:
             raise HTTPException(
                 status_code=400,
-                detail="clientId is required. Please provide a client identifier."
+                detail=error_message or "Invalid encounter payload"
+            )
+        
+        # Extract required fields from parsed_payload
+        encounter_id = parsed_payload.get('encounter_id')
+        patient_id = parsed_payload.get('patient_id')
+        client_id = parsed_payload.get('client_id')
+        id_value = parsed_payload.get('id') or encounter_id
+        
+        # Ensure we have all required fields
+        if not encounter_id:
+            raise HTTPException(
+                status_code=400,
+                detail="encounter_id is required. Please provide an encounter identifier."
+            )
+        
+        if not patient_id:
+            raise HTTPException(
+                status_code=400,
+                detail="patient_id is required. Please provide a patient identifier."
+            )
+        
+        if not client_id:
+            raise HTTPException(
+                status_code=400,
+                detail="client_id is required. Please provide a client identifier."
+            )
+
+        if current_client and current_client.client_id and current_client.client_id != client_id:
+            raise HTTPException(
+                status_code=403,
+                detail="client_id in payload does not match the authenticated client.",
             )
         
         # Validate chief_complaints is not empty
-        if not encounter_data.chiefComplaints or len(encounter_data.chiefComplaints) == 0:
+        chief_complaints = parsed_payload.get('chief_complaints', [])
+        if not chief_complaints or len(chief_complaints) == 0:
             raise HTTPException(
                 status_code=400,
-                detail="chiefComplaints cannot be empty. At least one complaint is required."
+                detail="chief_complaints cannot be empty. At least one complaint is required."
             )
         
-        # Convert Pydantic model to dict and transform field names
-        # Convert chief complaints to list of dicts (already validated to be non-empty)
-        chief_complaints_list = [complaint.model_dump() for complaint in encounter_data.chiefComplaints]
-        
+        # Build encounter_dict with individual fields from parsed_payload
         encounter_dict = {
-            'id': encounter_data.id,
-            'encounter_id': encounter_data.encounterId,
-            'client_id': encounter_data.clientId,
-            'patient_id': encounter_data.patientId,
-            'trauma_type': encounter_data.traumaType,
-            'chief_complaints': chief_complaints_list,  # Always non-empty (validated above)
-            'status': encounter_data.status,
-            'created_by': encounter_data.createdBy,
-            'started_at': encounter_data.startedAt,
+            'id': id_value,
+            'encounter_id': encounter_id,
+            'client_id': client_id,
+            'patient_id': patient_id,
+            'trauma_type': parsed_payload.get('trauma_type'),
+            'chief_complaints': chief_complaints,
+            'status': parsed_payload.get('status'),
+            'created_by': parsed_payload.get('created_by'),
+            'started_at': parsed_payload.get('started_at'),
+            'raw_payload': raw_payload,  # Store full raw JSON
+            'parsed_payload': parsed_payload,  # Store simplified parsed structure
         }
         
         # Get database connection
         conn = get_db_connection()
         
-        # Save the encounter
+        # Save the encounter (with both raw and parsed payloads)
         saved_encounter = save_encounter(conn, encounter_dict)
         
         # Format the response
@@ -1540,6 +1669,7 @@ async def list_patients(
 
     try:
         normalized_location_id = resolve_location_id(locationId, required=False)
+        normalized_location_id = ensure_client_location_access(normalized_location_id, current_client)
         use_remote_reads = use_remote_api_for_reads()
 
         if use_remote_reads and normalized_location_id:

@@ -11,7 +11,8 @@ This module provides JWT-based authentication following production best practice
 
 import os
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+
 from jose import JWTError, jwt
 from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
@@ -32,6 +33,13 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440
 API_KEY_NAME = "X-API-Key"
 API_KEY = os.getenv("API_KEY")  # Static API key for simple integrations
 
+# Client configuration
+try:
+    from app.config.intellivisit_clients import get_client_config_by_id
+except ImportError:  # pragma: no cover - optional during partial installs
+    def get_client_config_by_id(_: Optional[str]) -> Optional[Dict[str, Any]]:
+        return None
+
 # Password hashing context (for future use if needed)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -43,15 +51,25 @@ api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
 class TokenData:
     """Token payload structure."""
-    def __init__(self, client_id: str, scopes: Optional[list] = None):
+
+    def __init__(
+        self,
+        client_id: str,
+        scopes: Optional[List[str]] = None,
+        *,
+        allowed_location_ids: Optional[List[str]] = None,
+        environment: Optional[str] = None,
+    ):
         self.client_id = client_id
         self.scopes = scopes or []
+        self.allowed_location_ids = allowed_location_ids
+        self.environment = environment
 
 
 def create_access_token(
     client_id: str,
     expires_delta: Optional[timedelta] = None,
-    scopes: Optional[list] = None
+    scopes: Optional[List[str]] = None
 ) -> str:
     """
     Create a JWT access token.
@@ -109,7 +127,16 @@ def verify_token(token: str) -> TokenData:
             raise credentials_exception
         
         scopes = payload.get("scopes", [])
-        token_data = TokenData(client_id=client_id, scopes=scopes)
+        client_cfg = get_client_config_by_id(client_id)
+        if client_cfg is None:
+            raise credentials_exception
+
+        token_data = TokenData(
+            client_id=client_id,
+            scopes=scopes,
+            allowed_location_ids=client_cfg.get("allowed_location_ids"),  # type: ignore[arg-type]
+            environment=client_cfg.get("environment"),  # type: ignore[arg-type]
+        )
         return token_data
     except JWTError:
         raise credentials_exception
@@ -163,7 +190,7 @@ async def get_current_client(
     if api_key:
         if verify_api_key(api_key):
             # Return a TokenData object for API key auth
-            return TokenData(client_id="api_key_client", scopes=["read", "write"])
+            return TokenData(client_id="api_key_client", scopes=["read", "write"], allowed_location_ids=None)
         else:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -194,7 +221,16 @@ def create_token_for_client(client_id: str, expires_hours: Optional[int] = None)
     if expires_hours:
         expires_delta = timedelta(hours=expires_hours)
     
-    access_token = create_access_token(client_id=client_id, expires_delta=expires_delta)
+    client_cfg = get_client_config_by_id(client_id)
+    if client_cfg is None:
+        raise ValueError(f"Unknown client_id '{client_id}'. Contact an administrator for a valid client.")
+
+    scopes = client_cfg.get("scopes")
+    access_token = create_access_token(
+        client_id=client_id,
+        expires_delta=expires_delta,
+        scopes=scopes if isinstance(scopes, list) else None,
+    )
     
     expire_time = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     
@@ -203,6 +239,7 @@ def create_token_for_client(client_id: str, expires_hours: Optional[int] = None)
         "token_type": "bearer",
         "expires_at": expire_time.isoformat(),
         "expires_in": int((expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)).total_seconds()),
-        "client_id": client_id
+        "client_id": client_id,
+        "environment": client_cfg.get("environment"),
     }
 
