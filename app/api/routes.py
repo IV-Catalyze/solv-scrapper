@@ -12,7 +12,7 @@ try:
     from fastapi import FastAPI, HTTPException, Query, Request, Depends
     from fastapi.responses import HTMLResponse, JSONResponse
     from fastapi.templating import Jinja2Templates
-    from pydantic import BaseModel, Field, field_validator
+    from pydantic import BaseModel, Field, field_validator, model_validator
     import psycopg2
     from psycopg2.extras import RealDictCursor
 except ImportError:
@@ -92,6 +92,7 @@ app = FastAPI(
         {"name": "Dashboard", "description": "Server-rendered views for the patient queue."},
         {"name": "Patients", "description": "JSON APIs for querying patient records and queue data."},
         {"name": "Encounters", "description": "JSON APIs for creating and managing encounter records."},
+        {"name": "Queue", "description": "JSON APIs for creating and managing queue records."},
     ],
 )
 
@@ -767,6 +768,233 @@ def format_encounter_response(record: Dict[str, Any]) -> Dict[str, Any]:
     return formatted
 
 
+def save_queue(conn, queue_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Save or update a queue record in the database.
+    
+    Args:
+        conn: PostgreSQL database connection
+        queue_data: Dictionary containing queue data with:
+            - queue_id: Optional UUID (will be generated if not provided)
+            - encounter_id: UUID (required)
+            - emr_id: Optional string
+            - status: Optional string (default: 'PENDING')
+            - raw_payload: Optional JSON payload (JSONB)
+            - parsed_payload: Optional parsed JSON payload (JSONB)
+            - attempts: Optional integer (default: 0)
+        
+    Returns:
+        Dictionary with the saved queue data
+        
+    Raises:
+        psycopg2.Error: If database operation fails
+    """
+    import json
+    import uuid
+    from psycopg2.extras import Json
+    
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        # Generate queue_id if not provided
+        queue_id = queue_data.get('queue_id')
+        if not queue_id:
+            queue_id = str(uuid.uuid4())
+        
+        encounter_id = queue_data.get('encounter_id')
+        if not encounter_id:
+            raise ValueError("encounter_id is required for queue entries")
+        
+        # Get status, default to PENDING
+        status = queue_data.get('status', 'PENDING')
+        if status not in ['PENDING', 'PROCESSING', 'DONE', 'ERROR']:
+            status = 'PENDING'
+        
+        # Get attempts, default to 0
+        attempts = queue_data.get('attempts', 0)
+        if not isinstance(attempts, int):
+            attempts = 0
+        
+        # Extract raw_payload and parsed_payload if provided
+        raw_payload_json = None
+        if queue_data.get('raw_payload'):
+            raw_payload_json = Json(queue_data['raw_payload'])
+        
+        parsed_payload_json = None
+        if queue_data.get('parsed_payload'):
+            parsed_payload_json = Json(queue_data['parsed_payload'])
+        
+        # Use INSERT ... ON CONFLICT to handle duplicates (update on conflict)
+        query = """
+            INSERT INTO queue (
+                queue_id, encounter_id, emr_id, status,
+                raw_payload, parsed_payload, attempts
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (encounter_id) 
+            DO UPDATE SET
+                emr_id = EXCLUDED.emr_id,
+                status = EXCLUDED.status,
+                raw_payload = EXCLUDED.raw_payload,
+                parsed_payload = EXCLUDED.parsed_payload,
+                attempts = EXCLUDED.attempts,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+        """
+        
+        cursor.execute(
+            query,
+            (
+                queue_id,
+                encounter_id,
+                queue_data.get('emr_id'),
+                status,
+                raw_payload_json,
+                parsed_payload_json,
+                attempts,
+            )
+        )
+        
+        result = cursor.fetchone()
+        conn.commit()
+        
+        # Format the result for response
+        formatted_result = format_patient_record(result)
+        
+        # Convert raw_payload and parsed_payload JSONB back to dicts if present
+        if formatted_result.get('raw_payload'):
+            if isinstance(formatted_result['raw_payload'], str):
+                try:
+                    formatted_result['raw_payload'] = json.loads(formatted_result['raw_payload'])
+                except json.JSONDecodeError:
+                    pass  # Keep as string if not valid JSON
+        
+        if formatted_result.get('parsed_payload'):
+            if isinstance(formatted_result['parsed_payload'], str):
+                try:
+                    formatted_result['parsed_payload'] = json.loads(formatted_result['parsed_payload'])
+                except json.JSONDecodeError:
+                    pass  # Keep as string if not valid JSON
+        
+        return formatted_result
+        
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+
+
+def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a queue entry from an encounter record.
+    
+    Args:
+        conn: PostgreSQL database connection
+        encounter_data: Dictionary containing encounter data (from save_encounter result)
+        
+    Returns:
+        Dictionary with the created queue data
+    """
+    import json
+    
+    # Extract data from encounter
+    encounter_id = encounter_data.get('encounter_id')
+    if not encounter_id:
+        raise ValueError("encounter_id is required to create queue entry")
+    
+    # Get raw_payload and parsed_payload from encounter
+    raw_payload = encounter_data.get('raw_payload')
+    parsed_payload = encounter_data.get('parsed_payload')
+    
+    # Ensure parsed_payload has the correct structure with experityAction set to null
+    if parsed_payload:
+        if isinstance(parsed_payload, str):
+            try:
+                parsed_payload = json.loads(parsed_payload)
+            except json.JSONDecodeError:
+                parsed_payload = {}
+        
+        # Ensure experityAction is present and set to null
+        if 'experityAction' not in parsed_payload:
+            parsed_payload['experityAction'] = None
+    else:
+        # Create parsed_payload structure from encounter data
+        # Handle chief_complaints - it might be a list or JSON string
+        chief_complaints = encounter_data.get('chief_complaints', [])
+        if isinstance(chief_complaints, str):
+            try:
+                chief_complaints = json.loads(chief_complaints)
+            except json.JSONDecodeError:
+                chief_complaints = []
+        
+        parsed_payload = {
+            'trauma_type': encounter_data.get('trauma_type'),
+            'chief_complaints': chief_complaints,
+            'experityAction': None
+        }
+    
+    # Build queue data
+    queue_data = {
+        'encounter_id': str(encounter_id),
+        'emr_id': encounter_data.get('emr_id', ''),
+        'status': 'PENDING',
+        'raw_payload': raw_payload,
+        'parsed_payload': parsed_payload,
+        'attempts': 0,
+    }
+    
+    # Save queue entry
+    return save_queue(conn, queue_data)
+
+
+def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Format queue record for JSON response."""
+    import json
+    
+    formatted = {
+        'queue_id': str(record.get('queue_id', '')),
+        'encounter_id': str(record.get('encounter_id', '')),
+        'emr_id': record.get('emr_id', ''),
+        'status': record.get('status', 'PENDING'),
+        'raw_payload': record.get('raw_payload'),
+        'parsed_payload': record.get('parsed_payload'),
+        'attempts': record.get('attempts', 0),
+        'created_at': None,
+        'updated_at': None,
+    }
+    
+    # Convert datetime objects to ISO format strings
+    if record.get('created_at'):
+        created_at = record['created_at']
+        if isinstance(created_at, datetime):
+            formatted['created_at'] = created_at.isoformat()
+        elif isinstance(created_at, str):
+            formatted['created_at'] = created_at
+    
+    if record.get('updated_at'):
+        updated_at = record['updated_at']
+        if isinstance(updated_at, datetime):
+            formatted['updated_at'] = updated_at.isoformat()
+        elif isinstance(updated_at, str):
+            formatted['updated_at'] = updated_at
+    
+    # Handle JSONB fields
+    if formatted.get('raw_payload'):
+        if isinstance(formatted['raw_payload'], str):
+            try:
+                formatted['raw_payload'] = json.loads(formatted['raw_payload'])
+            except json.JSONDecodeError:
+                pass
+    
+    if formatted.get('parsed_payload'):
+        if isinstance(formatted['parsed_payload'], str):
+            try:
+                formatted['parsed_payload'] = json.loads(formatted['parsed_payload'])
+            except json.JSONDecodeError:
+                pass
+    
+    return formatted
+
+
 def build_patient_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     """Build patient response payload in normalized structure."""
     captured = record.get("captured_at")
@@ -933,6 +1161,37 @@ class EncounterResponse(BaseModel):
     started_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the encounter started.")
     created_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was created.")
     updated_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was last updated.")
+    
+    class Config:
+        extra = "allow"
+
+
+# Queue data submission models
+class QueueUpdateRequest(BaseModel):
+    """Request model for updating queue experityAction."""
+    queue_id: Optional[str] = Field(None, description="Queue identifier (UUID). Either queue_id or encounter_id is required.")
+    encounter_id: Optional[str] = Field(None, description="Encounter identifier (UUID). Either queue_id or encounter_id is required.")
+    experityAction: Optional[Dict[str, Any]] = Field(None, description="Experity action object to update in parsed_payload.")
+    
+    @model_validator(mode='after')
+    def validate_at_least_one_identifier(self):
+        """Ensure at least one identifier is provided."""
+        if not self.queue_id and not self.encounter_id:
+            raise ValueError('Either queue_id or encounter_id must be provided.')
+        return self
+
+
+class QueueResponse(BaseModel):
+    """Response model for queue records."""
+    queue_id: str = Field(..., description="Unique identifier for the queue entry (UUID).")
+    encounter_id: str = Field(..., description="Encounter identifier (UUID).")
+    emr_id: Optional[str] = Field(None, description="EMR identifier for the patient.")
+    status: str = Field(..., description="Queue status: PENDING, PROCESSING, DONE, or ERROR.")
+    raw_payload: Optional[Dict[str, Any]] = Field(None, description="Raw JSON payload from encounter.")
+    parsed_payload: Optional[Dict[str, Any]] = Field(None, description="Parsed payload with trauma_type, chief_complaints, and experityAction.")
+    created_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was created.")
+    updated_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was last updated.")
+    attempts: int = Field(default=0, description="Number of processing attempts.")
     
     class Config:
         extra = "allow"
@@ -1590,6 +1849,13 @@ async def create_encounter(
         # Save the encounter (with both raw and parsed payloads)
         saved_encounter = save_encounter(conn, encounter_dict)
         
+        # Automatically create queue entry from encounter
+        try:
+            create_queue_from_encounter(conn, saved_encounter)
+        except Exception as e:
+            # Log error but don't fail the encounter creation
+            print(f"Warning: Failed to create queue entry for encounter {encounter_id}: {str(e)}")
+        
         # Format the response
         formatted_response = format_encounter_response(saved_encounter)
         
@@ -1619,6 +1885,250 @@ async def create_encounter(
             detail=f"Internal server error: {str(e)}"
         )
     finally:
+        if conn:
+            conn.close()
+
+
+@app.post(
+    "/queue",
+    tags=["Queue"],
+    summary="Update queue experityAction",
+    response_model=QueueResponse,
+    responses={
+        200: {"description": "Queue entry updated successfully."},
+        400: {"description": "Invalid request data or missing required fields."},
+        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        404: {"description": "Queue entry not found."},
+        500: {"description": "Database or server error while updating the queue."},
+    },
+)
+async def update_queue_experity_action(
+    request_data: QueueUpdateRequest,
+    current_client: TokenData = get_auth_dependency()
+) -> QueueResponse:
+    """
+    Update the experityAction in a queue entry's parsed_payload.
+    
+    This endpoint allows updating the experityAction field within the parsed_payload
+    of a queue entry. The queue entry can be identified by either queue_id or encounter_id.
+    
+    **Request Body:**
+    - `queue_id` (optional): Queue identifier (UUID)
+    - `encounter_id` (optional): Encounter identifier (UUID)
+    - `experityAction` (optional): Experity action object to set in parsed_payload
+    
+    **Note:** Either `queue_id` or `encounter_id` must be provided.
+    
+    Requires authentication via Bearer token or API key.
+    """
+    conn = None
+    cursor = None
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Find queue entry by queue_id or encounter_id
+        queue_entry = None
+        if request_data.queue_id:
+            cursor.execute(
+                "SELECT * FROM queue WHERE queue_id = %s",
+                (request_data.queue_id,)
+            )
+            queue_entry = cursor.fetchone()
+        elif request_data.encounter_id:
+            cursor.execute(
+                "SELECT * FROM queue WHERE encounter_id = %s",
+                (request_data.encounter_id,)
+            )
+            queue_entry = cursor.fetchone()
+        
+        if not queue_entry:
+            raise HTTPException(
+                status_code=404,
+                detail="Queue entry not found. Provide a valid queue_id or encounter_id."
+            )
+        
+        # Get current parsed_payload
+        import json
+        from psycopg2.extras import Json
+        
+        parsed_payload = queue_entry.get('parsed_payload')
+        if isinstance(parsed_payload, str):
+            try:
+                parsed_payload = json.loads(parsed_payload)
+            except json.JSONDecodeError:
+                parsed_payload = {}
+        elif parsed_payload is None:
+            parsed_payload = {}
+        
+        # Update experityAction if provided
+        if request_data.experityAction is not None:
+            parsed_payload['experityAction'] = request_data.experityAction
+        
+        # Update the queue entry
+        cursor.execute(
+            """
+            UPDATE queue
+            SET parsed_payload = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE queue_id = %s
+            RETURNING *
+            """,
+            (Json(parsed_payload), queue_entry['queue_id'])
+        )
+        
+        updated_entry = cursor.fetchone()
+        conn.commit()
+        
+        # Format the response
+        formatted_response = format_queue_response(updated_entry)
+        
+        return QueueResponse(**formatted_response)
+        
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.get(
+    "/queue",
+    tags=["Queue"],
+    summary="List queue entries with filters",
+    response_model=List[QueueResponse],
+    responses={
+        200: {"description": "List of queue entries matching the filters."},
+        400: {"description": "Invalid query parameters."},
+        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        500: {"description": "Database or server error while fetching queue entries."},
+    },
+)
+async def list_queue(
+    queue_id: Optional[str] = Query(
+        default=None,
+        alias="queue_id",
+        description="Filter by queue identifier (UUID)."
+    ),
+    encounter_id: Optional[str] = Query(
+        default=None,
+        alias="encounter_id",
+        description="Filter by encounter identifier (UUID)."
+    ),
+    status: Optional[str] = Query(
+        default=None,
+        alias="status",
+        description="Filter by status: PENDING, PROCESSING, DONE, or ERROR."
+    ),
+    emr_id: Optional[str] = Query(
+        default=None,
+        alias="emr_id",
+        description="Filter by EMR identifier."
+    ),
+    limit: Optional[int] = Query(
+        default=None,
+        ge=1,
+        alias="limit",
+        description="Maximum number of records to return."
+    ),
+    current_client: TokenData = get_auth_dependency()
+) -> List[QueueResponse]:
+    """
+    Retrieve queue entries with optional filters.
+    
+    This endpoint allows querying queue entries by various filters:
+    - `queue_id`: Get specific queue entry by UUID
+    - `encounter_id`: Get queue entry by encounter UUID
+    - `status`: Filter by status (PENDING, PROCESSING, DONE, ERROR)
+    - `emr_id`: Filter by EMR identifier
+    - `limit`: Limit the number of results
+    
+    Results are ordered by `created_at` descending (newest first).
+    
+    Requires authentication via Bearer token or API key.
+    """
+    conn = None
+    cursor = None
+    
+    try:
+        # Validate status if provided
+        if status and status not in ['PENDING', 'PROCESSING', 'DONE', 'ERROR']:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status: {status}. Must be one of: PENDING, PROCESSING, DONE, ERROR"
+            )
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Build query with filters
+        query = "SELECT * FROM queue WHERE 1=1"
+        params: List[Any] = []
+        
+        if queue_id:
+            query += " AND queue_id = %s"
+            params.append(queue_id)
+        
+        if encounter_id:
+            query += " AND encounter_id = %s"
+            params.append(encounter_id)
+        
+        if status:
+            query += " AND status = %s"
+            params.append(status)
+        
+        if emr_id:
+            query += " AND emr_id = %s"
+            params.append(emr_id)
+        
+        # Order by created_at descending
+        query += " ORDER BY created_at DESC"
+        
+        # Apply limit if provided
+        if limit is not None:
+            query += " LIMIT %s"
+            params.append(limit)
+        
+        cursor.execute(query, tuple(params))
+        results = cursor.fetchall()
+        
+        # Format the results
+        formatted_results = [format_queue_response(record) for record in results]
+        
+        return [QueueResponse(**result) for result in formatted_results]
+        
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
         if conn:
             conn.close()
 

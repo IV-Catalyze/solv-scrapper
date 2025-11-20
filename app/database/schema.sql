@@ -213,3 +213,58 @@ CREATE TRIGGER update_encounters_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+-- Create queue table
+CREATE TABLE IF NOT EXISTS queue (
+    queue_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    encounter_id UUID UNIQUE NOT NULL,
+    emr_id VARCHAR(255),
+    status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'DONE', 'ERROR')),
+    raw_payload JSONB,
+    parsed_payload JSONB,
+    attempts INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indexes for queue table
+CREATE INDEX IF NOT EXISTS idx_queue_encounter_id ON queue(encounter_id);
+CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status);
+CREATE INDEX IF NOT EXISTS idx_queue_emr_id ON queue(emr_id);
+CREATE INDEX IF NOT EXISTS idx_queue_created_at ON queue(created_at);
+
+-- Ensure new columns exist (for legacy tables)
+ALTER TABLE queue
+    ADD COLUMN IF NOT EXISTS queue_id UUID DEFAULT gen_random_uuid(),
+    ADD COLUMN IF NOT EXISTS encounter_id UUID,
+    ADD COLUMN IF NOT EXISTS emr_id VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'PENDING',
+    ADD COLUMN IF NOT EXISTS raw_payload JSONB,
+    ADD COLUMN IF NOT EXISTS parsed_payload JSONB,
+    ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+-- Add check constraint for status if it doesn't exist
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'queue_status_check' 
+        AND conrelid = 'queue'::regclass
+    ) THEN
+        ALTER TABLE queue 
+        ADD CONSTRAINT queue_status_check 
+        CHECK (status IN ('PENDING', 'PROCESSING', 'DONE', 'ERROR'));
+    END IF;
+END $$;
+
+-- Ensure uniqueness on encounter_id
+CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_encounter_id_unique ON queue(encounter_id);
+
+-- Create trigger to automatically update updated_at for queue
+DROP TRIGGER IF EXISTS update_queue_updated_at ON queue;
+CREATE TRIGGER update_queue_updated_at
+    BEFORE UPDATE ON queue
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
