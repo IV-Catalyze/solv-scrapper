@@ -29,7 +29,7 @@ JWT tokens provide secure, time-limited access with automatic expiration.
 curl -X POST "https://app-97926.on-aptible.com/auth/token" \
   -H "Content-Type: application/json" \
   -d '{
-    "client_id": "intellivisit-production",
+    "client_id": "Stage-1c3dca8d-730f-4a32-9221-4e4277903505",
     "expires_hours": 24
   }'
 ```
@@ -41,7 +41,7 @@ curl -X POST "https://app-97926.on-aptible.com/auth/token" \
   "token_type": "bearer",
   "expires_at": "2024-11-07T14:22:03.000Z",
   "expires_in": 86400,
-  "client_id": "intellivisit-production"
+  "client_id": "Stage-1c3dca8d-730f-4a32-9221-4e4277903505"
 }
 ```
 
@@ -228,32 +228,77 @@ curl -s \
 
 Create or update an encounter record for a patient. If an encounter with the same `encounterId` already exists it will be updated in place (idempotent upsert).
 
+### Data Storage
+
+The API stores encounter data in three forms for maximum flexibility:
+
+1. **Individual columns**: Core fields (encounter_id, patient_id, client_id, etc.) are stored in indexed columns for fast queries
+2. **raw_payload**: The complete original JSON request body is preserved exactly as received (JSONB)
+3. **parsed_payload**: A normalized, simplified structure (snake_case format) optimized for queue processing and UI consumption (JSONB)
+
+This dual-payload approach ensures:
+- **Audit trail**: `raw_payload` preserves the exact original request for debugging and compliance
+- **Processing efficiency**: `parsed_payload` provides a standardized format for queue processing and UI rendering
+- **Query performance**: Individual columns remain indexed for fast filtering and sorting
+
+### Field Name Support
+
+The endpoint **supports both camelCase and snake_case** field names. You can send either format and the API will handle conversion automatically:
+
+- `encounterId` or `encounter_id` → stored as `encounter_id`
+- `patientId` or `patient_id` → stored as `patient_id`
+- `clientId` or `client_id` → stored as `client_id`
+- `traumaType` or `trauma_type` → stored as `trauma_type`
+- `chiefComplaints` or `chief_complaints` → stored as `chief_complaints`
+- `createdBy` or `created_by` → stored as `created_by`
+- `startedAt` or `started_at` → stored as `started_at`
+
 ### Authentication
 
 Provide either:
 - `Authorization: Bearer <token>` header (recommended), or
 - `X-API-Key: <api-key>`
 
+#### Client IDs by environment
+
+| Environment | Client ID | Allowed locations |
+|-------------|-----------|-------------------|
+| Staging | `Stage-1c3dca8d-730f-4a32-9221-4e4277903505` | `Exer Urgent Care - Demo (AXjwbE)` only |
+| Production | `Prod-1f190fe5-d799-4786-bce2-37c3ad2c1561` | All locations listed in `app/utils/locations.py` |
+
+- Tokens are issued only for the client IDs above. Supplying an unknown ID to `/auth/token` returns `403`.
+- Staging tokens automatically default to the demo location; supplying a different `locationId` will be rejected.
+- Production tokens must still include a valid `locationId`, but every entry from `LOCATION_MAP` is permitted.
+
 ### Request body schema
 
 | Field             | Type        | Required | Description |
 |-------------------|-------------|----------|-------------|
-| `id`              | string (UUID) | Yes | Unique identifier for the encounter. |
-| `clientId`        | string (UUID) | Yes | Customer/client identifier supplied by Solv. |
-| `patientId`       | string (UUID) | Yes | Identifier for the patient. |
-| `encounterId`     | string (UUID) | Yes | Encounter identifier; used for idempotent updates. |
-| `traumaType`      | string      | No  | Type of trauma (e.g. `BURN`, `FALL`). |
-| `chiefComplaints` | array       | Yes | At least one complaint object is required. |
+| `id` or `encounter_id` | string (UUID) | Yes | Unique identifier for the encounter. |
+| `clientId` or `client_id` | string (UUID) | Yes | Customer/client identifier supplied by Solv. |
+| `patientId` or `patient_id` | string (UUID) | Yes | Identifier for the patient. |
+| `encounterId` or `encounter_id` | string (UUID) | Yes | Encounter identifier; used for idempotent updates. |
+| `traumaType` or `trauma_type` | string | No | Type of trauma (e.g. `BURN`, `FALL`, `CUT`). |
+| `chiefComplaints` or `chief_complaints` | array | Yes | At least one complaint object is required. |
 | `chiefComplaints[].id` | string (UUID) | Yes | Unique identifier for the complaint. |
 | `chiefComplaints[].description` | string | Yes | Human-readable description of the complaint. |
 | `chiefComplaints[].type` | string | Yes | Complaint type (e.g. `trauma`). |
 | `chiefComplaints[].part` | string | Yes | Body part affected. |
-| `chiefComplaints[].bodyParts` | array | No | Optional list of detailed body-part strings. |
-| `status`          | string      | No  | Encounter status (`COMPLETE`, `IN_PROGRESS`, etc.). |
-| `createdBy`       | string      | No  | Email or identifier of the user/system that created the encounter. |
-| `startedAt`       | string (ISO 8601) | No | When the encounter began. |
+| `chiefComplaints[].bodyParts` or `chiefComplaints[].body_parts` | array | No | Optional list of detailed body-part strings. |
+| `status` | string | No | Encounter status (`COMPLETE`, `IN_PROGRESS`, `PENDING`, etc.). |
+| `createdBy` or `created_by` | string | No | Email or identifier of the user/system that created the encounter. |
+| `startedAt` or `started_at` | string (ISO 8601) | No | When the encounter began (UTC). |
+| `createdAt` or `created_at` | string (ISO 8601) | No | Auto-generated if not provided. |
+| `updatedAt` or `updated_at` | string (ISO 8601) | No | Auto-generated if not provided. |
 
-### Example request
+**Additional Fields**: You can include any additional fields in your request body (e.g., `attributes`, `orders`, `accessLogs`, `predictedDiagnoses`, `additionalQuestions`, etc.). These will be:
+- ✅ **Preserved in `raw_payload`**: All extra fields are stored exactly as received in the `raw_payload` JSONB column
+- ❌ **Not in `parsed_payload`**: Only standardized fields appear in the simplified `parsed_payload`
+- ❌ **Not in individual columns**: Only core indexed fields are stored as individual columns
+
+This allows you to send full encounter objects with all metadata while maintaining a clean, standardized structure for queue processing and UI rendering.
+
+### Example request (camelCase format)
 
 ```
 curl -X POST "https://app-97926.on-aptible.com/encounter" \
@@ -272,15 +317,115 @@ curl -X POST "https://app-97926.on-aptible.com/encounter" \
         "type": "trauma",
         "part": "arm",
         "bodyParts": ["left arm", "forearm"]
+      },
+      {
+        "id": "726c47ab-a7d9-4836-a7a0-b5e99fc13ac7",
+        "description": "Second degree burn",
+        "type": "trauma",
+        "part": "arm",
+        "bodyParts": ["left arm"]
       }
     ],
     "status": "COMPLETE",
-    "createdBy": "nurse@example.com",
+    "createdBy": "randall.meeker@intellivisit.com",
     "startedAt": "2025-11-12T22:19:01.432Z"
   }'
 ```
 
+### Example request (complex payload with extra fields)
+
+The endpoint accepts complex payloads with additional fields beyond the core schema. All extra fields are preserved in `raw_payload`:
+
+```
+curl -X POST "https://app-97926.on-aptible.com/encounter" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+  -d '{
+    "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+    "patientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+    "encounterId": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+    "traumaType": "BURN",
+    "status": "COMPLETE",
+    "createdBy": "randall.meeker@intellivisit.com",
+    "startedAt": "2025-11-12T22:19:01.432Z",
+    "chiefComplaints": [
+      {
+        "id": "09b5349d-d7c2-4506-9705-b5cc12947b6b",
+        "description": "Injury Head",
+        "type": "trauma",
+        "part": "head",
+        "bodyParts": []
+      }
+    ],
+    "attributes": {
+      "gender": "male",
+      "pulseOx": 99,
+      "ageYears": 69,
+      "heightCm": 167.64,
+      "weightKg": 63.5,
+      "pulseRateBpm": 20,
+      "bodyTemperatureCelsius": 37
+    },
+    "orders": [
+      {
+        "id": "b577ff78-96e5-448f-a614-f99f0f8e7d23",
+        "type": "clinical",
+        "label": "Notify Provider",
+        "performed": true
+      }
+    ],
+    "predictedDiagnoses": [
+      {
+        "id": "03703469-e4f4-4eb4-9fd7-44c7734c5230",
+        "name": "cerebral hemorrhage",
+        "probability": 1
+      }
+    ],
+    "additionalQuestions": {
+      "conditions": [
+        {"name": "history of anxiety", "answer": false}
+      ]
+    },
+    "accessLogs": [...],
+    "predictedProcedures": ["Emergency physical exam", "Head CT"],
+    "source": "CONCIERGE",
+    "esi": 2
+  }'
+```
+
+All extra fields (attributes, orders, predictedDiagnoses, etc.) will be preserved in `raw_payload` but only standardized fields appear in `parsed_payload` and individual columns.
+
+### Example request (snake_case format)
+
+```
+curl -X POST "https://app-97926.on-aptible.com/encounter" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+  -d '{
+    "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+    "client_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+    "patient_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+    "encounter_id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+    "trauma_type": "BURN",
+    "chief_complaints": [
+      {
+        "id": "09b5349d-d7c2-4506-9705-b5cc12947b6b",
+        "description": "Injury Head",
+        "type": "trauma",
+        "part": "head",
+        "bodyParts": []
+      }
+    ],
+    "status": "COMPLETE",
+    "created_by": "randall.meeker@intellivisit.com",
+    "started_at": "2025-11-12T22:19:01.432Z"
+  }'
+```
+
 ### Example response (201 Created)
+
+The response always uses snake_case field names regardless of input format:
 
 ```
 {
@@ -296,13 +441,62 @@ curl -X POST "https://app-97926.on-aptible.com/encounter" \
       "type": "trauma",
       "part": "arm",
       "bodyParts": ["left arm", "forearm"]
+    },
+    {
+      "id": "726c47ab-a7d9-4836-a7a0-b5e99fc13ac7",
+      "description": "Second degree burn",
+      "type": "trauma",
+      "part": "arm",
+      "bodyParts": ["left arm"]
     }
   ],
   "status": "COMPLETE",
-  "created_by": "nurse@example.com",
+  "created_by": "randall.meeker@intellivisit.com",
   "started_at": "2025-11-12T22:19:01.432Z",
   "created_at": "2025-11-12T22:19:05.123Z",
   "updated_at": "2025-11-12T22:19:05.123Z"
+}
+```
+
+### Database Storage Details
+
+When an encounter is created or updated, the following data structures are stored:
+
+**Individual columns** (for indexed queries):
+- `id`, `encounter_id`, `client_id`, `patient_id`
+- `trauma_type`, `status`, `created_by`
+- `chief_complaints` (as JSONB array)
+- `started_at`, `created_at`, `updated_at`
+
+**raw_payload** (JSONB - original request preserved):
+```json
+{
+  "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+  "encounterId": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+  "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+  "patientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+  "traumaType": "BURN",
+  "chiefComplaints": [...],
+  "status": "COMPLETE",
+  "createdBy": "randall.meeker@intellivisit.com",
+  "startedAt": "2025-11-12T22:19:01.432Z"
+}
+```
+
+**parsed_payload** (JSONB - normalized structure):
+```json
+{
+  "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+  "encounter_id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+  "client_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+  "patient_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+  "trauma_type": "BURN",
+  "chief_complaints": [...],
+  "status": "COMPLETE",
+  "created_by": "randall.meeker@intellivisit.com",
+  "started_at": "2025-11-12T22:19:01.432Z",
+  "created_at": "2025-11-12T22:19:01.432Z",
+  "updated_at": "2025-11-12T22:19:01.432Z"
 }
 ```
 
@@ -310,10 +504,10 @@ curl -X POST "https://app-97926.on-aptible.com/encounter" \
 
 | HTTP code | Message | Notes |
 |-----------|---------|-------|
-| `400 Bad Request` | Missing required fields (`patientId`, `clientId`, `encounterId`, `chiefComplaints`) or empty complaint list | Ensure all required fields are present and at least one complaint is provided. |
+| `400 Bad Request` | Missing required fields (`patientId`/`patient_id`, `clientId`/`client_id`, `encounterId`/`encounter_id`) or empty `chiefComplaints`/`chief_complaints` list | Ensure all required fields are present and at least one complaint is provided. Field names can be either camelCase or snake_case. |
 | `401 Unauthorized` | Authentication required | Provide a valid Bearer token or API key. |
 | `404 Not Found` | Patient or related record not found (rare) | Confirm identifiers exist in your tenant. |
-| `409 Conflict` | Duplicate `encounterId` with conflicting identifiers | Ensure `encounterId` uniquely identifies the encounter for the same patient/client combination. |
+| `409 Conflict` | Duplicate `encounterId`/`encounter_id` with conflicting identifiers | Ensure `encounterId` uniquely identifies the encounter for the same patient/client combination. |
 | `500 Internal Server Error` | Database or server error | Retry with backoff; contact Solv if persistent. |
 
 ---

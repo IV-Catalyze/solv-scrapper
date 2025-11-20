@@ -142,6 +142,8 @@ CREATE TABLE IF NOT EXISTS encounters (
     status VARCHAR(50),
     created_by VARCHAR(255),
     started_at TIMESTAMP,
+    raw_payload JSONB,
+    parsed_payload JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT chief_complaints_not_empty CHECK (jsonb_array_length(chief_complaints) > 0)
@@ -166,6 +168,8 @@ ALTER TABLE encounters
     ADD COLUMN IF NOT EXISTS status VARCHAR(50),
     ADD COLUMN IF NOT EXISTS created_by VARCHAR(255),
     ADD COLUMN IF NOT EXISTS started_at TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS raw_payload JSONB,
+    ADD COLUMN IF NOT EXISTS parsed_payload JSONB,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
