@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS encounters (
     encounter_id UUID UNIQUE NOT NULL,
     client_id VARCHAR(255) NOT NULL,
     patient_id UUID NOT NULL,
+    emr_id VARCHAR(255),
     trauma_type VARCHAR(50),
     chief_complaints JSONB NOT NULL,
     status VARCHAR(50),
@@ -153,6 +154,7 @@ CREATE TABLE IF NOT EXISTS encounters (
 CREATE INDEX IF NOT EXISTS idx_encounters_encounter_id ON encounters(encounter_id);
 CREATE INDEX IF NOT EXISTS idx_encounters_patient_id ON encounters(patient_id);
 CREATE INDEX IF NOT EXISTS idx_encounters_client_id ON encounters(client_id);
+CREATE INDEX IF NOT EXISTS idx_encounters_emr_id ON encounters(emr_id);
 CREATE INDEX IF NOT EXISTS idx_encounters_started_at ON encounters(started_at);
 CREATE INDEX IF NOT EXISTS idx_encounters_status ON encounters(status);
 CREATE INDEX IF NOT EXISTS idx_encounters_created_at ON encounters(created_at);
@@ -163,6 +165,7 @@ ALTER TABLE encounters
     ADD COLUMN IF NOT EXISTS encounter_id UUID,
     ADD COLUMN IF NOT EXISTS client_id VARCHAR(255),
     ADD COLUMN IF NOT EXISTS patient_id UUID,
+    ADD COLUMN IF NOT EXISTS emr_id VARCHAR(255),
     ADD COLUMN IF NOT EXISTS trauma_type VARCHAR(50),
     ADD COLUMN IF NOT EXISTS chief_complaints JSONB,
     ADD COLUMN IF NOT EXISTS status VARCHAR(50),

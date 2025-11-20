@@ -24,6 +24,7 @@ def parse_encounter_payload(raw_json: Dict[str, Any]) -> Dict[str, Any]:
             "encounter_id": str,
             "client_id": str,
             "patient_id": str,
+            "emr_id": Optional[str],
             "trauma_type": Optional[str],
             "chief_complaints": List[Dict],
             "status": Optional[str],
@@ -62,6 +63,9 @@ def parse_encounter_payload(raw_json: Dict[str, Any]) -> Dict[str, Any]:
     # Extract patient_id
     patient_id_value = get_field('patient_id', 'patientId')
     
+    # Extract emr_id
+    emr_id_value = get_field('emr_id', 'emrId')
+    
     # Extract trauma_type
     trauma_type_value = get_field('trauma_type', 'traumaType')
     
@@ -96,6 +100,7 @@ def parse_encounter_payload(raw_json: Dict[str, Any]) -> Dict[str, Any]:
         "encounter_id": encounter_id_value,
         "client_id": client_id_value,
         "patient_id": patient_id_value,
+        "emr_id": emr_id_value,
         "trauma_type": trauma_type_value,
         "chief_complaints": chief_complaints_value,
         "status": status_value,
