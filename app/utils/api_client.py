@@ -128,16 +128,21 @@ async def get_api_token(api_base_url: str, force_refresh: bool = False) -> Optio
         return None
 
     client_id = _resolve_default_client_id()
-    expires_hours = int(os.getenv("API_TOKEN_EXPIRES_HOURS", "24"))
+    expires_hours_env = os.getenv("API_TOKEN_EXPIRES_HOURS")
+    expires_hours = int(expires_hours_env) if expires_hours_env else None
 
     token_url = api_base_url.rstrip("/") + "/auth/token"
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:  # type: ignore[attr-defined]
             logger.info("Requesting API token from: %s", token_url)
+            # Only include expires_hours if explicitly set (defaults to 24 hours on server)
+            token_request = {"client_id": client_id}
+            if expires_hours is not None:
+                token_request["expires_hours"] = expires_hours
             response = await client.post(
                 token_url,
-                json={"client_id": client_id, "expires_hours": expires_hours},
+                json=token_request,
                 headers={"Content-Type": "application/json"},
             )
 
@@ -153,9 +158,11 @@ async def get_api_token(api_base_url: str, force_refresh: bool = False) -> Optio
                                 expires_at_str = expires_at_str[:-1] + "+00:00"
                             _token_expires_at = datetime.fromisoformat(expires_at_str)
                         except Exception:
-                            _token_expires_at = datetime.now() + timedelta(hours=expires_hours)
+                            # Default to 24 hours if expires_hours not set
+                            _token_expires_at = datetime.now() + timedelta(hours=expires_hours or 24)
                     else:
-                        _token_expires_at = datetime.now() + timedelta(hours=expires_hours)
+                        # Default to 24 hours if expires_hours not set
+                        _token_expires_at = datetime.now() + timedelta(hours=expires_hours or 24)
 
                     with _token_lock:
                         _cached_token = access_token

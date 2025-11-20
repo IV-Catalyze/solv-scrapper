@@ -135,7 +135,7 @@ CREATE TRIGGER update_pending_patients_updated_at
 CREATE TABLE IF NOT EXISTS encounters (
     id UUID PRIMARY KEY,
     encounter_id UUID UNIQUE NOT NULL,
-    client_id UUID NOT NULL,
+    client_id VARCHAR(255) NOT NULL,
     patient_id UUID NOT NULL,
     trauma_type VARCHAR(50),
     chief_complaints JSONB NOT NULL,
@@ -161,7 +161,7 @@ CREATE INDEX IF NOT EXISTS idx_encounters_created_at ON encounters(created_at);
 ALTER TABLE encounters
     ADD COLUMN IF NOT EXISTS id UUID,
     ADD COLUMN IF NOT EXISTS encounter_id UUID,
-    ADD COLUMN IF NOT EXISTS client_id UUID,
+    ADD COLUMN IF NOT EXISTS client_id VARCHAR(255),
     ADD COLUMN IF NOT EXISTS patient_id UUID,
     ADD COLUMN IF NOT EXISTS trauma_type VARCHAR(50),
     ADD COLUMN IF NOT EXISTS chief_complaints JSONB,

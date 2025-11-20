@@ -666,7 +666,7 @@ def save_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
             (
                 encounter_data['id'],
                 encounter_data['encounter_id'],
-                encounter_data['client_id'],
+                encounter_data['client_id'],  # Use full client_id (with prefix if present)
                 encounter_data['patient_id'],
                 encounter_data.get('trauma_type'),
                 chief_complaints_json,  # Always provided (validated above)
@@ -846,7 +846,7 @@ class TokenRequest(BaseModel):
         None,
         ge=1,
         le=8760,  # Max 1 year
-        description="Optional expiration time in hours (default: 24 hours)"
+        description="Optional expiration time in hours. If not provided, defaults to 24 hours."
     )
 
 
@@ -920,7 +920,7 @@ class EncounterResponse(BaseModel):
     """Response model for encounter records."""
     id: str = Field(..., description="Unique identifier for the encounter (UUID).")
     encounter_id: str = Field(..., description="Encounter identifier (UUID).")
-    client_id: str = Field(..., description="Client identifier (UUID).")
+    client_id: str = Field(..., description="Client identifier (may include prefix like 'Stage-' or 'Prod-').")
     patient_id: str = Field(..., description="Patient identifier (UUID).")
     trauma_type: Optional[str] = Field(None, description="Type of trauma.")
     chief_complaints: List[Dict[str, Any]] = Field(default_factory=list, description="List of chief complaints.")
@@ -956,10 +956,21 @@ async def generate_token(request: TokenRequest):
     - Issued timestamp
     
     **Usage:**
-    1. Call this endpoint with your client_id to get a token
+    1. Call this endpoint with your client_id (expires_hours is optional, defaults to 24 hours)
     2. Include the token in subsequent requests using the Authorization header:
        `Authorization: Bearer <token>`
-    3. Tokens expire after the specified time (default: 24 hours)
+    3. Tokens expire after 24 hours by default (or the specified expires_hours if provided)
+    
+    **Request Body:**
+    - `client_id` (required): Your client identifier
+    - `expires_hours` (optional): Token expiration in hours (default: 24, max: 8760)
+    
+    **Example Request:**
+    ```json
+    {
+      "client_id": "Prod-1f190fe5-d799-4786-bce2-37c3ad2c1561"
+    }
+    ```
     
     **Alternative:** You can also use API key authentication by setting the
     `X-API-Key` header instead of a Bearer token.
@@ -971,9 +982,11 @@ async def generate_token(request: TokenRequest):
         )
     
     try:
+        # Use default of 24 hours if expires_hours is None or not provided
+        expires_hours = request.expires_hours if request.expires_hours is not None else 24
         token_data = create_token_for_client(
             client_id=request.client_id,
-            expires_hours=request.expires_hours
+            expires_hours=expires_hours
         )
         return token_data
     except ValueError as e:
@@ -1468,7 +1481,7 @@ async def create_encounter(
     - `id` or `encounter_id`: Unique identifier for the encounter (UUID)
     - `patientId` or `patient_id`: Patient identifier (UUID) - **REQUIRED**
     - `encounterId` or `encounter_id`: Encounter identifier (UUID)
-    - `clientId` or `client_id`: Client identifier (UUID)
+    - `clientId` or `client_id`: Client identifier (string, may include prefix like 'Stage-' or 'Prod-')
     - `chiefComplaints` or `chief_complaints`: List of chief complaint objects - **REQUIRED (at least one complaint)**
     
     **Optional fields:**
