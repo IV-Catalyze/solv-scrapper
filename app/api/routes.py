@@ -1129,6 +1129,7 @@ class EncounterCreateRequest(BaseModel):
     clientId: str = Field(..., description="Client identifier (UUID).")
     patientId: str = Field(..., description="Patient identifier (UUID). Required.")
     encounterId: str = Field(..., description="Encounter identifier (UUID).")
+    emrId: Optional[str] = Field(None, description="EMR identifier for the patient (links encounter to patient EMR record).")
     traumaType: Optional[str] = Field(None, description="Type of trauma (e.g., 'BURN').")
     chiefComplaints: List[ChiefComplaint] = Field(..., min_length=1, description="List of chief complaints. At least one complaint is required.")
     status: Optional[str] = Field(None, description="Status of the encounter (e.g., 'COMPLETE').")
@@ -1748,6 +1749,7 @@ async def create_encounter(
     - `chiefComplaints` or `chief_complaints`: List of chief complaint objects - **REQUIRED (at least one complaint)**
     
     **Optional fields:**
+    - `emrId` or `emr_id`: EMR identifier for the patient (links encounter to patient EMR record)
     - `traumaType` or `trauma_type`: Type of trauma (e.g., "BURN")
     - `status`: Status of the encounter (e.g., "COMPLETE")
     - `createdBy` or `created_by`: Email or identifier of the user who created the encounter
