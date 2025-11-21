@@ -92,6 +92,7 @@ app = FastAPI(
         {"name": "Patients", "description": "JSON APIs for querying patient records and queue data."},
         {"name": "Encounters", "description": "JSON APIs for creating and managing encounter records."},
         {"name": "Queue", "description": "JSON APIs for creating and managing queue records."},
+        {"name": "Summaries", "description": "JSON APIs for creating and managing summary records."},
     ],
 )
 
@@ -994,6 +995,126 @@ def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
     return formatted
 
 
+def save_summary(conn, summary_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Save a summary record in the database.
+    
+    Args:
+        conn: PostgreSQL database connection
+        summary_data: Dictionary containing summary data with:
+            - emr_id: EMR identifier (required)
+            - note: Summary note text (required)
+        
+    Returns:
+        Dictionary with the saved summary data
+        
+    Raises:
+        psycopg2.Error: If database operation fails
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        emr_id = summary_data.get('emr_id')
+        note = summary_data.get('note')
+        
+        if not emr_id:
+            raise ValueError("emr_id is required for summary entries")
+        if not note:
+            raise ValueError("note is required for summary entries")
+        
+        # Insert new summary record
+        query = """
+            INSERT INTO summaries (emr_id, note)
+            VALUES (%s, %s)
+            RETURNING *
+        """
+        
+        cursor.execute(query, (emr_id, note))
+        
+        result = cursor.fetchone()
+        conn.commit()
+        
+        # Format the result for response
+        formatted_result = format_patient_record(result)
+        
+        return formatted_result
+        
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+
+
+def get_summary_by_emr_id(conn, emr_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve a summary record by EMR ID.
+    
+    Args:
+        conn: PostgreSQL database connection
+        emr_id: EMR identifier to search for
+        
+    Returns:
+        Dictionary with the summary data, or None if not found
+        
+    Raises:
+        psycopg2.Error: If database operation fails
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        query = """
+            SELECT * FROM summaries
+            WHERE emr_id = %s
+            ORDER BY updated_at DESC
+            LIMIT 1
+        """
+        
+        cursor.execute(query, (emr_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            return None
+        
+        # Format the result for response
+        formatted_result = format_patient_record(result)
+        
+        return formatted_result
+        
+    except psycopg2.Error as e:
+        raise e
+    finally:
+        cursor.close()
+
+
+def format_summary_response(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Format summary record for JSON response."""
+    formatted = {
+        'id': record.get('id'),
+        'emr_id': record.get('emr_id', ''),
+        'note': record.get('note', ''),
+        'created_at': None,
+        'updated_at': None,
+    }
+    
+    # Convert datetime objects to ISO format strings
+    if record.get('created_at'):
+        created_at = record['created_at']
+        if isinstance(created_at, datetime):
+            formatted['created_at'] = created_at.isoformat()
+        elif isinstance(created_at, str):
+            formatted['created_at'] = created_at
+    
+    if record.get('updated_at'):
+        updated_at = record['updated_at']
+        if isinstance(updated_at, datetime):
+            formatted['updated_at'] = updated_at.isoformat()
+        elif isinstance(updated_at, str):
+            formatted['updated_at'] = updated_at
+    
+    return formatted
+
+
 def build_patient_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     """Build patient response payload in normalized structure."""
     captured = record.get("captured_at")
@@ -1187,6 +1308,24 @@ class QueueResponse(BaseModel):
     class Config:
         extra = "allow"
 
+
+# Summary data submission models
+class SummaryRequest(BaseModel):
+    """Request model for creating or updating a summary record."""
+    emr_id: str = Field(..., description="EMR identifier for the patient.")
+    note: str = Field(..., description="Summary note text.")
+
+
+class SummaryResponse(BaseModel):
+    """Response model for summary records."""
+    id: int = Field(..., description="Unique identifier for the summary record.")
+    emr_id: str = Field(..., description="EMR identifier for the patient.")
+    note: str = Field(..., description="Summary note text.")
+    created_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was created.")
+    updated_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was last updated.")
+    
+    class Config:
+        extra = "allow"
 
 
 # Token generation endpoint removed - HMAC authentication only
@@ -2153,4 +2292,160 @@ async def list_patients(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@app.post(
+    "/summary",
+    tags=["Summaries"],
+    summary="Create summary record",
+    response_model=SummaryResponse,
+    status_code=201,
+    responses={
+        201: {"description": "Summary record created successfully."},
+        400: {"description": "Invalid request data or missing required fields."},
+        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        500: {"description": "Database or server error while saving the summary."},
+    },
+)
+async def create_summary(
+    summary_data: SummaryRequest,
+    current_client: TokenData = get_auth_dependency()
+) -> SummaryResponse:
+    """
+    Create a summary record for a patient.
+    
+    This endpoint accepts summary data in JSON format and saves it to the database.
+    The summary is linked to a patient via the EMR ID.
+    
+    **Required fields:**
+    - `emr_id`: EMR identifier for the patient (required)
+    - `note`: Summary note text (required)
+    
+    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
+    """
+    conn = None
+    
+    try:
+        # Validate required fields
+        if not summary_data.emr_id:
+            raise HTTPException(
+                status_code=400,
+                detail="emr_id is required. Please provide an EMR identifier."
+            )
+        
+        if not summary_data.note:
+            raise HTTPException(
+                status_code=400,
+                detail="note is required. Please provide summary note text."
+            )
+        
+        # Prepare summary data
+        summary_dict = {
+            'emr_id': summary_data.emr_id,
+            'note': summary_data.note,
+        }
+        
+        # Get database connection
+        conn = get_db_connection()
+        
+        # Save the summary
+        saved_summary = save_summary(conn, summary_dict)
+        
+        # Format the response
+        formatted_response = format_summary_response(saved_summary)
+        
+        return SummaryResponse(**formatted_response)
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get(
+    "/summary",
+    tags=["Summaries"],
+    summary="Get summary record by EMR ID",
+    response_model=SummaryResponse,
+    responses={
+        200: {"description": "Summary record retrieved successfully."},
+        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        404: {"description": "Summary not found for the specified EMR ID."},
+        500: {"description": "Database or server error while fetching the summary."},
+    },
+)
+async def get_summary(
+    emr_id: str = Query(..., alias="emr_id", description="EMR identifier for the patient."),
+    current_client: TokenData = get_auth_dependency()
+) -> SummaryResponse:
+    """
+    Retrieve the most recent summary record for a patient by EMR ID.
+    
+    The query orders rows by `updated_at DESC` and returns the most recent summary.
+    
+    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
+    """
+    conn = None
+    
+    try:
+        if not emr_id:
+            raise HTTPException(
+                status_code=400,
+                detail="emr_id query parameter is required."
+            )
+        
+        # Get database connection
+        conn = get_db_connection()
+        
+        # Retrieve the summary
+        summary = get_summary_by_emr_id(conn, emr_id)
+        
+        if not summary:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Summary not found for EMR ID: {emr_id}"
+            )
+        
+        # Format the response
+        formatted_response = format_summary_response(summary)
+        
+        return SummaryResponse(**formatted_response)
+        
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
 

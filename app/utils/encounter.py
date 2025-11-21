@@ -133,10 +133,11 @@ def validate_encounter_payload(parsed_payload: Dict[str, Any]) -> Tuple[bool, Op
         Tuple of (is_valid: bool, error_message: Optional[str])
     """
     # Required fields
+    # Note: client_id is optional - can be provided via HMAC authentication
     required_fields = {
         'encounter_id': 'encounter_id',
         'patient_id': 'patient_id',
-        'client_id': 'client_id',
+        # 'client_id': 'client_id',  # Optional - can come from authenticated client
     }
     
     missing_fields = []
