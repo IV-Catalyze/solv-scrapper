@@ -27,12 +27,11 @@ except ImportError:
 
 # Import authentication module
 try:
-    from app.utils.auth import get_current_client, create_token_for_client, TokenData
+    from app.utils.auth import get_current_client, TokenData
     AUTH_ENABLED = True
 except ImportError:
     print("Warning: auth.py not found. Authentication will be disabled.")
     get_current_client = None
-    create_token_for_client = None
     TokenData = None
     AUTH_ENABLED = False
 
@@ -84,11 +83,11 @@ app = FastAPI(
         "Endpoints for retrieving patient queue data rendered in the dashboard UI or consumed as JSON. "
         "Filters and response fields mirror the helpers defined in `api.py`, such as "
         "`prepare_dashboard_patients`, `build_patient_payload`, and `decorate_patient_payload`. "
-        "All API endpoints require authentication via JWT Bearer token or API key."
+        "All API endpoints require HMAC signature authentication via X-Timestamp and X-Signature headers."
     ),
     version="1.0.0",
     openapi_tags=[
-        {"name": "Authentication", "description": "Token generation and authentication endpoints."},
+        {"name": "Authentication", "description": "HMAC signature authentication (X-Timestamp and X-Signature headers required)."},
         {"name": "Dashboard", "description": "Server-rendered views for the patient queue."},
         {"name": "Patients", "description": "JSON APIs for querying patient records and queue data."},
         {"name": "Encounters", "description": "JSON APIs for creating and managing encounter records."},
@@ -1069,16 +1068,7 @@ def decorate_patient_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
-# Token generation request model
-class TokenRequest(BaseModel):
-    """Request model for token generation."""
-    client_id: str = Field(..., description="Identifier for the client/service requesting access")
-    expires_hours: Optional[int] = Field(
-        None,
-        ge=1,
-        le=8760,  # Max 1 year
-        description="Optional expiration time in hours. If not provided, defaults to 24 hours."
-    )
+# Token generation endpoint removed - HMAC authentication only
 
 
 # Patient data submission models
@@ -1126,7 +1116,7 @@ class ChiefComplaint(BaseModel):
 class EncounterCreateRequest(BaseModel):
     """Request model for creating an encounter record."""
     id: str = Field(..., description="Unique identifier for the encounter (UUID).")
-    clientId: str = Field(..., description="Client identifier (UUID).")
+    clientId: Optional[str] = Field(None, description="Client identifier (optional - will use authenticated client if not provided).")
     patientId: str = Field(..., description="Patient identifier (UUID). Required.")
     encounterId: str = Field(..., description="Encounter identifier (UUID).")
     emrId: Optional[str] = Field(None, description="EMR identifier for the patient (links encounter to patient EMR record).")
@@ -1199,70 +1189,8 @@ class QueueResponse(BaseModel):
 
 
 
-@app.post(
-    "/auth/token",
-    tags=["Authentication"],
-    summary="Generate access token",
-    response_model=Dict[str, Any],
-    responses={
-        200: {"description": "Access token generated successfully."},
-        400: {"description": "Invalid request parameters."},
-    },
-)
-async def generate_token(request: TokenRequest):
-    """
-    Generate a JWT access token for API authentication.
-    
-    This endpoint allows clients to obtain an access token that can be used
-    to authenticate subsequent API requests. The token includes:
-    - Client identifier
-    - Expiration time
-    - Issued timestamp
-    
-    **Usage:**
-    1. Call this endpoint with your client_id (expires_hours is optional, defaults to 24 hours)
-    2. Include the token in subsequent requests using the Authorization header:
-       `Authorization: Bearer <token>`
-    3. Tokens expire after 24 hours by default (or the specified expires_hours if provided)
-    
-    **Request Body:**
-    - `client_id` (required): Your client identifier
-    - `expires_hours` (optional): Token expiration in hours (default: 24, max: 8760)
-    
-    **Example Request:**
-    ```json
-    {
-      "client_id": "Prod-1f190fe5-d799-4786-bce2-37c3ad2c1561"
-    }
-    ```
-    
-    **Alternative:** You can also use API key authentication by setting the
-    `X-API-Key` header instead of a Bearer token.
-    """
-    if not create_token_for_client:
-        raise HTTPException(
-            status_code=503,
-            detail="Authentication service unavailable"
-        )
-    
-    try:
-        # Use default of 24 hours if expires_hours is None or not provided
-        expires_hours = request.expires_hours if request.expires_hours is not None else 24
-        token_data = create_token_for_client(
-            client_id=request.client_id,
-            expires_hours=expires_hours
-        )
-        return token_data
-    except ValueError as e:
-        raise HTTPException(
-            status_code=403,
-            detail=str(e),
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate token: {str(e)}"
-        )
+# Token generation endpoint removed - HMAC authentication only
+# Clients authenticate each request using HMAC signatures
 
 
 @app.get(
@@ -1745,10 +1673,10 @@ async def create_encounter(
     - `id` or `encounter_id`: Unique identifier for the encounter (UUID)
     - `patientId` or `patient_id`: Patient identifier (UUID) - **REQUIRED**
     - `encounterId` or `encounter_id`: Encounter identifier (UUID)
-    - `clientId` or `client_id`: Client identifier (string, may include prefix like 'Stage-' or 'Prod-')
     - `chiefComplaints` or `chief_complaints`: List of chief complaint objects - **REQUIRED (at least one complaint)**
     
     **Optional fields:**
+    - `clientId` or `client_id`: Client identifier (optional - will use authenticated client from HMAC signature)
     - `emrId` or `emr_id`: EMR identifier for the patient (links encounter to patient EMR record)
     - `traumaType` or `trauma_type`: Type of trauma (e.g., "BURN")
     - `status`: Status of the encounter (e.g., "COMPLETE")
@@ -1756,7 +1684,7 @@ async def create_encounter(
     - `startedAt` or `started_at`: ISO 8601 timestamp when the encounter started
     
     The endpoint supports both camelCase and snake_case field names.
-    Requires authentication via Bearer token or API key.
+    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
     conn = None
     
@@ -1809,12 +1737,17 @@ async def create_encounter(
                 detail="patient_id is required. Please provide a patient identifier."
             )
         
+        # Use authenticated client_id if not provided in payload
         if not client_id:
+            if current_client and current_client.client_id:
+                client_id = current_client.client_id
+            else:
             raise HTTPException(
                 status_code=400,
-                detail="client_id is required. Please provide a client identifier."
+                    detail="client_id is required. Please provide a client identifier or authenticate with HMAC."
             )
 
+        # Validate client_id matches authenticated client if provided
         if current_client and current_client.client_id and current_client.client_id != client_id:
             raise HTTPException(
                 status_code=403,

@@ -268,3 +268,45 @@ CREATE TRIGGER update_queue_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+-- Create summaries table
+CREATE TABLE IF NOT EXISTS summaries (
+    id SERIAL PRIMARY KEY,
+    emr_id VARCHAR(255) NOT NULL,
+    note TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indexes for summaries table
+CREATE INDEX IF NOT EXISTS idx_summaries_emr_id ON summaries(emr_id);
+CREATE INDEX IF NOT EXISTS idx_summaries_created_at ON summaries(created_at);
+
+-- Ensure new columns exist (for legacy tables)
+ALTER TABLE summaries
+    ADD COLUMN IF NOT EXISTS emr_id VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS note TEXT,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+-- Add NOT NULL constraints if they don't exist
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name = 'summaries' AND column_name = 'emr_id' 
+               AND is_nullable = 'YES') THEN
+        ALTER TABLE summaries ALTER COLUMN emr_id SET NOT NULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name = 'summaries' AND column_name = 'note' 
+               AND is_nullable = 'YES') THEN
+        ALTER TABLE summaries ALTER COLUMN note SET NOT NULL;
+    END IF;
+END $$;
+
+-- Create trigger to automatically update updated_at for summaries
+DROP TRIGGER IF EXISTS update_summaries_updated_at ON summaries;
+CREATE TRIGGER update_summaries_updated_at
+    BEFORE UPDATE ON summaries
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
