@@ -1742,10 +1742,10 @@ async def create_encounter(
             if current_client and current_client.client_id:
                 client_id = current_client.client_id
             else:
-            raise HTTPException(
-                status_code=400,
+                raise HTTPException(
+                    status_code=400,
                     detail="client_id is required. Please provide a client identifier or authenticate with HMAC."
-            )
+                )
 
         # Validate client_id matches authenticated client if provided
         if current_client and current_client.client_id and current_client.client_id != client_id:
