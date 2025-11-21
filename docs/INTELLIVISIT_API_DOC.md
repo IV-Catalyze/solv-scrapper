@@ -2,7 +2,7 @@
 
 ## Integration Guide - Solv Health x Intellivisit
 
-Practical guide for the Intellivisit engineering team to connect with and consume the Solv Health Patient Queue API hosted on Aptible. The API mirrors the Solv dashboard dataset so Intellivisit can retrieve and synchronize patient data in near real time.
+Practical guide for the Intellivisit engineering team to connect with and consume the Solv Health Patient Queue API. The API provides real-time access to patient queue data.
 
 ---
 
@@ -10,74 +10,168 @@ Practical guide for the Intellivisit engineering team to connect with and consum
 
 | Environment        | Base URL                                   | Description                                     |
 |--------------------|---------------------------------------------|-------------------------------------------------|
-| Staging / Production | `https://app-97926.on-aptible.com/`       | Aptible-hosted deployment for all integrations. |
+| Production | `https://app-97926.on-aptible.com/`       | Production deployment for all integrations. |
 | Interactive docs   | `https://app-97926.on-aptible.com/docs`    | Swagger UI for live exploration and testing.    |
 
 ---
 
 ## Authentication
 
-**All API endpoints require authentication.** The API supports two authentication methods:
+**All API endpoints require HMAC signature authentication.** The API uses HMAC-SHA256 signatures to authenticate each request, providing request-level security without requiring token management.
 
-### 1. JWT Bearer Token (Recommended)
+### HMAC Signature Authentication
 
-JWT tokens provide secure, time-limited access with automatic expiration.
+HMAC (Hash-based Message Authentication Code) authentication requires each request to include two headers:
+- `X-Timestamp`: ISO 8601 UTC timestamp (e.g., `2025-11-21T13:49:04Z`)
+- `X-Signature`: Base64-encoded HMAC-SHA256 signature
 
-**Step 1: Generate an access token**
+### How HMAC Authentication Works
+
+**Step 1: Generate the signature**
+
+The signature is computed over a canonical string containing:
+```
+METHOD + "\n" + PATH + "\n" + TIMESTAMP + "\n" + BODY_HASH
+```
+
+Where:
+- `METHOD`: HTTP method in uppercase (e.g., `GET`, `POST`)
+- `PATH`: Request path including query string (e.g., `/summary?emr_id=123`)
+- `TIMESTAMP`: ISO 8601 UTC timestamp (e.g., `2025-11-21T13:49:04Z`)
+- `BODY_HASH`: SHA256 hash of the request body (hex format, empty string for GET requests)
+
+**Step 2: Compute HMAC signature**
+
+```python
+import hmac
+import hashlib
+import base64
+from datetime import datetime, timezone
+
+# Get current UTC timestamp
+timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+# Hash the request body (empty for GET requests)
+body_str = json.dumps(request_body) if request_body else ""
+body_hash = hashlib.sha256(body_str.encode('utf-8')).hexdigest()
+
+# Create canonical string
+canonical = f"{METHOD}\n{PATH}\n{timestamp}\n{body_hash}"
+
+# Generate HMAC signature
+signature = hmac.new(
+    secret_key.encode('utf-8'),
+    canonical.encode('utf-8'),
+    hashlib.sha256
+).digest()
+
+# Base64 encode the signature
+signature_b64 = base64.b64encode(signature).decode('utf-8')
+```
+
+**Step 3: Include headers in request**
 
 ```bash
-curl -X POST "https://app-97926.on-aptible.com/auth/token" \
+curl -X POST "https://app-97926.on-aptible.com/summary" \
   -H "Content-Type: application/json" \
+  -H "X-Timestamp: 2025-11-21T13:49:04Z" \
+  -H "X-Signature: abc123xyz789..." \
   -d '{
-    "client_id": "Stage-1c3dca8d-730f-4a32-9221-4e4277903505",
-    "expires_hours": 24
+    "emr_id": "EMR12345",
+    "note": "Patient summary text..."
   }'
 ```
 
-**Response:**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer",
-  "expires_at": "2024-11-07T14:22:03.000Z",
-  "expires_in": 86400,
-  "client_id": "Stage-1c3dca8d-730f-4a32-9221-4e4277903505"
+### Example: Complete Request
+
+**POST /summary with HMAC authentication:**
+
+```bash
+# Python example
+import hmac
+import hashlib
+import base64
+import json
+import requests
+from datetime import datetime, timezone
+
+# Configuration
+SECRET_KEY = "your-hmac-secret-key"
+API_URL = "https://app-97926.on-aptible.com/summary"
+
+# Request data
+method = "POST"
+path = "/summary"
+body = {
+    "emr_id": "EMR12345",
+    "note": "Patient summary text..."
 }
+
+# Generate timestamp
+timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+# Hash body
+body_str = json.dumps(body)
+body_hash = hashlib.sha256(body_str.encode('utf-8')).hexdigest()
+
+# Create canonical string
+canonical = f"{method}\n{path}\n{timestamp}\n{body_hash}"
+
+# Generate signature
+signature = base64.b64encode(
+    hmac.new(
+        SECRET_KEY.encode('utf-8'),
+        canonical.encode('utf-8'),
+        hashlib.sha256
+    ).digest()
+).decode('utf-8')
+
+# Make request
+response = requests.post(
+    API_URL,
+    headers={
+        "Content-Type": "application/json",
+        "X-Timestamp": timestamp,
+        "X-Signature": signature
+    },
+    json=body
+)
 ```
 
-**Step 2: Use the token in API requests**
-
-Include the token in the `Authorization` header:
+**GET /summary with query parameters:**
 
 ```bash
-curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
-  "https://app-97926.on-aptible.com/patients?locationId=AXjwbE"
+# For GET requests with query parameters, include them in the path
+method = "GET"
+path = "/summary?emr_id=EMR12345"
+body_str = ""  # Empty for GET requests
+body_hash = hashlib.sha256(body_str.encode('utf-8')).hexdigest()
+
+# Rest of the process is the same...
 ```
 
-### 2. API Key (Alternative)
+### Security Features
 
-For simpler integrations, you can use a static API key provided by Solv.
+- **Timestamp validation**: Requests must be within ±5 minutes of server time (prevents replay attacks)
+- **Request integrity**: Any change to method, path, timestamp, or body invalidates the signature
+- **Constant-time comparison**: Server uses constant-time comparison to prevent timing attacks
+- **No token management**: Each request is independently authenticated; no tokens to store or refresh
 
-```bash
-curl -H "X-API-Key: your-api-key-here" \
-  "https://app-97926.on-aptible.com/patients?locationId=AXjwbE"
-```
+### Secret Key Management
 
-**Note:** API keys are provided by Solv during onboarding. Contact `integrations@solvhealth.com` to obtain your API key.
-
-### Token Management
-
-- **Token expiration**: Default tokens expire after 24 hours. You can request custom expiration times (1 hour to 1 year).
-- **Token refresh**: Generate a new token before expiration using the `/auth/token` endpoint.
-- **Security**: Store tokens securely and never commit them to version control. Use environment variables or secret management systems.
-- **Best practice**: Implement token refresh logic in your integration to automatically renew tokens before expiration.
+- **Secret keys** are provided by Solv during onboarding
+- **Storage**: Store secret keys securely using environment variables or secret management systems
+- **Never commit** secret keys to version control
+- **Contact**: `integrations@solvhealth.com` to obtain your HMAC secret key
 
 ### Error Responses
 
 | HTTP Code | Error | Resolution |
 |-----------|-------|------------|
-| `401 Unauthorized` | Missing or invalid token/API key | Verify your Authorization header or X-API-Key header |
-| `401 Unauthorized` | Token expired | Generate a new token using `/auth/token` |
+| `401 Unauthorized` | Missing HMAC headers | Provide both `X-Timestamp` and `X-Signature` headers |
+| `401 Unauthorized` | Invalid HMAC signature | Verify signature computation matches server expectations |
+| `401 Unauthorized` | Timestamp expired or invalid | Ensure timestamp is within ±5 minutes of server time |
+| `401 Unauthorized` | Invalid secret key | Verify you're using the correct secret key for your environment |
 
 ---
 
@@ -96,11 +190,12 @@ curl -H "X-API-Key: your-api-key-here" \
 
 | Method | Path                  | Description                                              | Auth Required |
 |--------|-----------------------|----------------------------------------------------------|---------------|
-| POST   | `/auth/token`         | Generate JWT access token                                | No            |
 | GET    | `/`                   | Render the patient dashboard HTML (visual inspection)    | No            |
-| GET    | `/patients`           | Retrieve the active patient queue for a location         | Yes           |
-| GET    | `/patient/{emr_id}`   | Retrieve the most recent record for a specific EMR ID    | Yes           |
-| POST   | `/encounter`          | Create or update an encounter record                     | Yes           |
+| GET    | `/patients`           | Retrieve the active patient queue for a location         | Yes (HMAC)    |
+| GET    | `/patient/{emr_id}`   | Retrieve the most recent record for a specific EMR ID    | Yes (HMAC)    |
+| POST   | `/encounter`          | Create or update an encounter record                     | Yes (HMAC)    |
+| POST   | `/summary`            | Create a summary record for a patient                   | Yes (HMAC)    |
+| GET    | `/summary`            | Retrieve summary record by EMR ID                        | Yes (HMAC)    |
 
 Full interactive documentation: `https://app-97926.on-aptible.com/docs`
 
@@ -120,25 +215,19 @@ Retrieve the active patient queue for a specific clinic location.
 
 ### Example request
 
-**With Bearer token:**
-```
+**With HMAC authentication:**
+```bash
+# Note: You need to generate the HMAC signature first (see authentication section)
 curl -s \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
-  "https://app-97926.on-aptible.com/patients?locationId=AXjwbE&statuses=confirmed&statuses=checked_in&limit=25" \
-  | jq
-```
-
-**With API key:**
-```
-curl -s \
-  -H "X-API-Key: YOUR_API_KEY_HERE" \
+  -H "X-Timestamp: 2025-11-21T13:49:04Z" \
+  -H "X-Signature: YOUR_SIGNATURE_HERE" \
   "https://app-97926.on-aptible.com/patients?locationId=AXjwbE&statuses=confirmed&statuses=checked_in&limit=25" \
   | jq
 ```
 
 ### Example response
 
-```
+```json
 [
   {
     "emr_id": "EMR12345",
@@ -162,8 +251,9 @@ curl -s \
 
 | HTTP code             | Message                                      | Notes                                                       |
 |-----------------------|----------------------------------------------|-------------------------------------------------------------|
-| `401 Unauthorized`    | Authentication required                      | Provide a valid Bearer token or API key in headers.        |
+| `401 Unauthorized`    | Authentication required                      | Provide valid HMAC signature headers (`X-Timestamp` and `X-Signature`).        |
 | `400 Bad Request`     | Missing or invalid `locationId` or statuses  | Ensure a valid `locationId` and at least one valid status.  |
+| `403 Forbidden`       | Client not permitted to access this location | Verify your client has access to the requested location.    |
 | `500 Internal Server Error` | Unexpected server or database error    | Retry with exponential backoff; contact Solv if persistent. |
 
 ---
@@ -180,25 +270,19 @@ Retrieve the latest record for a specific EMR (Electronic Medical Record) ID.
 
 ### Example request
 
-**With Bearer token:**
-```
+**With HMAC authentication:**
+```bash
+# Note: You need to generate the HMAC signature first (see authentication section)
 curl -s \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
-  "https://app-97926.on-aptible.com/patient/EMR12345" \
-  | jq
-```
-
-**With API key:**
-```
-curl -s \
-  -H "X-API-Key: YOUR_API_KEY_HERE" \
+  -H "X-Timestamp: 2025-11-21T13:49:04Z" \
+  -H "X-Signature: YOUR_SIGNATURE_HERE" \
   "https://app-97926.on-aptible.com/patient/EMR12345" \
   | jq
 ```
 
 ### Example response
 
-```
+```json
 {
   "emr_id": "EMR12345",
   "location_id": "AXjwbE",
@@ -228,19 +312,6 @@ curl -s \
 
 Create or update an encounter record for a patient. If an encounter with the same `encounterId` already exists it will be updated in place (idempotent upsert).
 
-### Data Storage
-
-The API stores encounter data in three forms for maximum flexibility:
-
-1. **Individual columns**: Core fields (encounter_id, patient_id, client_id, etc.) are stored in indexed columns for fast queries
-2. **raw_payload**: The complete original JSON request body is preserved exactly as received (JSONB)
-3. **parsed_payload**: A normalized, simplified structure (snake_case format) optimized for queue processing and UI consumption (JSONB)
-
-This dual-payload approach ensures:
-- **Audit trail**: `raw_payload` preserves the exact original request for debugging and compliance
-- **Processing efficiency**: `parsed_payload` provides a standardized format for queue processing and UI rendering
-- **Query performance**: Individual columns remain indexed for fast filtering and sorting
-
 ### Field Name Support
 
 The endpoint **supports both camelCase and snake_case** field names. You can send either format and the API will handle conversion automatically:
@@ -248,6 +319,7 @@ The endpoint **supports both camelCase and snake_case** field names. You can sen
 - `encounterId` or `encounter_id` → stored as `encounter_id`
 - `patientId` or `patient_id` → stored as `patient_id`
 - `clientId` or `client_id` → stored as `client_id`
+- `emrId` or `emr_id` → stored as `emr_id`
 - `traumaType` or `trauma_type` → stored as `trauma_type`
 - `chiefComplaints` or `chief_complaints` → stored as `chief_complaints`
 - `createdBy` or `created_by` → stored as `created_by`
@@ -255,29 +327,34 @@ The endpoint **supports both camelCase and snake_case** field names. You can sen
 
 ### Authentication
 
-Provide either:
-- `Authorization: Bearer <token>` header (recommended), or
-- `X-API-Key: <api-key>`
+Provide HMAC signature authentication headers:
+- `X-Timestamp`: ISO 8601 UTC timestamp
+- `X-Signature`: Base64-encoded HMAC-SHA256 signature
+
+See the [Authentication](#authentication) section above for detailed instructions on generating HMAC signatures.
 
 #### Client IDs by environment
 
+When creating encounters, include the appropriate `clientId` in your request payload:
+
 | Environment | Client ID | Allowed locations |
 |-------------|-----------|-------------------|
-| Staging | `Stage-1c3dca8d-730f-4a32-9221-4e4277903505` | `Exer Urgent Care - Demo (AXjwbE)` only |
-| Production | `Prod-1f190fe5-d799-4786-bce2-37c3ad2c1561` | All locations listed in `app/utils/locations.py` |
+| Staging | `Stage-1c3dca8d-730f-4a32-9221-4e4277903505` | Demo location only |
+| Production | `Prod-1f190fe5-d799-4786-bce2-37c3ad2c1561` | All locations |
 
-- Tokens are issued only for the client IDs above. Supplying an unknown ID to `/auth/token` returns `403`.
-- Staging tokens automatically default to the demo location; supplying a different `locationId` will be rejected.
-- Production tokens must still include a valid `locationId`, but every entry from `LOCATION_MAP` is permitted.
+- The `clientId` in your request payload should match the client associated with your HMAC secret key.
+- Staging clients are restricted to the demo location (`AXjwbE`).
+- Production clients can access all locations but must still provide a valid `locationId` in requests.
 
 ### Request body schema
 
 | Field             | Type        | Required | Description |
 |-------------------|-------------|----------|-------------|
 | `id` or `encounter_id` | string (UUID) | Yes | Unique identifier for the encounter. |
-| `clientId` or `client_id` | string (UUID) | Yes | Customer/client identifier supplied by Solv. |
+| `clientId` or `client_id` | string | Yes | Customer/client identifier supplied by Solv (may include prefix like 'Stage-' or 'Prod-'). |
 | `patientId` or `patient_id` | string (UUID) | Yes | Identifier for the patient. |
 | `encounterId` or `encounter_id` | string (UUID) | Yes | Encounter identifier; used for idempotent updates. |
+| `emrId` or `emr_id` | string | No | EMR identifier for the patient (links encounter to patient EMR record). |
 | `traumaType` or `trauma_type` | string | No | Type of trauma (e.g. `BURN`, `FALL`, `CUT`). |
 | `chiefComplaints` or `chief_complaints` | array | Yes | At least one complaint object is required. |
 | `chiefComplaints[].id` | string (UUID) | Yes | Unique identifier for the complaint. |
@@ -288,27 +365,22 @@ Provide either:
 | `status` | string | No | Encounter status (`COMPLETE`, `IN_PROGRESS`, `PENDING`, etc.). |
 | `createdBy` or `created_by` | string | No | Email or identifier of the user/system that created the encounter. |
 | `startedAt` or `started_at` | string (ISO 8601) | No | When the encounter began (UTC). |
-| `createdAt` or `created_at` | string (ISO 8601) | No | Auto-generated if not provided. |
-| `updatedAt` or `updated_at` | string (ISO 8601) | No | Auto-generated if not provided. |
 
-**Additional Fields**: You can include any additional fields in your request body (e.g., `attributes`, `orders`, `accessLogs`, `predictedDiagnoses`, `additionalQuestions`, etc.). These will be:
-- ✅ **Preserved in `raw_payload`**: All extra fields are stored exactly as received in the `raw_payload` JSONB column
-- ❌ **Not in `parsed_payload`**: Only standardized fields appear in the simplified `parsed_payload`
-- ❌ **Not in individual columns**: Only core indexed fields are stored as individual columns
-
-This allows you to send full encounter objects with all metadata while maintaining a clean, standardized structure for queue processing and UI rendering.
+**Additional Fields**: You can include any additional fields in your request body (e.g., `attributes`, `orders`, `accessLogs`, `predictedDiagnoses`, `additionalQuestions`, etc.). These will be preserved in the stored payload.
 
 ### Example request (camelCase format)
 
-```
+```bash
 curl -X POST "https://app-97926.on-aptible.com/encounter" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+  -H "X-Timestamp: 2025-11-21T13:49:04Z" \
+  -H "X-Signature: YOUR_SIGNATURE_HERE" \
   -d '{
     "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
-    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+    "clientId": "Stage-1c3dca8d-730f-4a32-9221-4e4277903505",
     "patientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
     "encounterId": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+    "emrId": "EMR12345",
     "traumaType": "BURN",
     "chiefComplaints": [
       {
@@ -317,96 +389,27 @@ curl -X POST "https://app-97926.on-aptible.com/encounter" \
         "type": "trauma",
         "part": "arm",
         "bodyParts": ["left arm", "forearm"]
-      },
-      {
-        "id": "726c47ab-a7d9-4836-a7a0-b5e99fc13ac7",
-        "description": "Second degree burn",
-        "type": "trauma",
-        "part": "arm",
-        "bodyParts": ["left arm"]
       }
     ],
     "status": "COMPLETE",
-    "createdBy": "randall.meeker@intellivisit.com",
+    "createdBy": "user@example.com",
     "startedAt": "2025-11-12T22:19:01.432Z"
   }'
 ```
 
-### Example request (complex payload with extra fields)
-
-The endpoint accepts complex payloads with additional fields beyond the core schema. All extra fields are preserved in `raw_payload`:
-
-```
-curl -X POST "https://app-97926.on-aptible.com/encounter" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
-  -d '{
-    "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
-    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-    "patientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-    "encounterId": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
-    "traumaType": "BURN",
-    "status": "COMPLETE",
-    "createdBy": "randall.meeker@intellivisit.com",
-    "startedAt": "2025-11-12T22:19:01.432Z",
-    "chiefComplaints": [
-      {
-        "id": "09b5349d-d7c2-4506-9705-b5cc12947b6b",
-        "description": "Injury Head",
-        "type": "trauma",
-        "part": "head",
-        "bodyParts": []
-      }
-    ],
-    "attributes": {
-      "gender": "male",
-      "pulseOx": 99,
-      "ageYears": 69,
-      "heightCm": 167.64,
-      "weightKg": 63.5,
-      "pulseRateBpm": 20,
-      "bodyTemperatureCelsius": 37
-    },
-    "orders": [
-      {
-        "id": "b577ff78-96e5-448f-a614-f99f0f8e7d23",
-        "type": "clinical",
-        "label": "Notify Provider",
-        "performed": true
-      }
-    ],
-    "predictedDiagnoses": [
-      {
-        "id": "03703469-e4f4-4eb4-9fd7-44c7734c5230",
-        "name": "cerebral hemorrhage",
-        "probability": 1
-      }
-    ],
-    "additionalQuestions": {
-      "conditions": [
-        {"name": "history of anxiety", "answer": false}
-      ]
-    },
-    "accessLogs": [...],
-    "predictedProcedures": ["Emergency physical exam", "Head CT"],
-    "source": "CONCIERGE",
-    "esi": 2
-  }'
-```
-
-All extra fields (attributes, orders, predictedDiagnoses, etc.) will be preserved in `raw_payload` but only standardized fields appear in `parsed_payload` and individual columns.
-
 ### Example request (snake_case format)
 
-```
+```bash
 curl -X POST "https://app-97926.on-aptible.com/encounter" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
+  -H "X-Timestamp: 2025-11-21T13:49:04Z" \
+  -H "X-Signature: YOUR_SIGNATURE_HERE" \
   -d '{
     "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
-    "client_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+    "client_id": "Stage-1c3dca8d-730f-4a32-9221-4e4277903505",
     "patient_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
     "encounter_id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+    "emr_id": "EMR12345",
     "trauma_type": "BURN",
     "chief_complaints": [
       {
@@ -418,7 +421,7 @@ curl -X POST "https://app-97926.on-aptible.com/encounter" \
       }
     ],
     "status": "COMPLETE",
-    "created_by": "randall.meeker@intellivisit.com",
+    "created_by": "user@example.com",
     "started_at": "2025-11-12T22:19:01.432Z"
   }'
 ```
@@ -427,12 +430,13 @@ curl -X POST "https://app-97926.on-aptible.com/encounter" \
 
 The response always uses snake_case field names regardless of input format:
 
-```
+```json
 {
   "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
   "encounter_id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
-  "client_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+  "client_id": "Stage-1c3dca8d-730f-4a32-9221-4e4277903505",
   "patient_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+  "emr_id": "EMR12345",
   "trauma_type": "BURN",
   "chief_complaints": [
     {
@@ -441,62 +445,13 @@ The response always uses snake_case field names regardless of input format:
       "type": "trauma",
       "part": "arm",
       "bodyParts": ["left arm", "forearm"]
-    },
-    {
-      "id": "726c47ab-a7d9-4836-a7a0-b5e99fc13ac7",
-      "description": "Second degree burn",
-      "type": "trauma",
-      "part": "arm",
-      "bodyParts": ["left arm"]
     }
   ],
   "status": "COMPLETE",
-  "created_by": "randall.meeker@intellivisit.com",
+  "created_by": "user@example.com",
   "started_at": "2025-11-12T22:19:01.432Z",
   "created_at": "2025-11-12T22:19:05.123Z",
   "updated_at": "2025-11-12T22:19:05.123Z"
-}
-```
-
-### Database Storage Details
-
-When an encounter is created or updated, the following data structures are stored:
-
-**Individual columns** (for indexed queries):
-- `id`, `encounter_id`, `client_id`, `patient_id`
-- `trauma_type`, `status`, `created_by`
-- `chief_complaints` (as JSONB array)
-- `started_at`, `created_at`, `updated_at`
-
-**raw_payload** (JSONB - original request preserved):
-```json
-{
-  "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
-  "encounterId": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
-  "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-  "patientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-  "traumaType": "BURN",
-  "chiefComplaints": [...],
-  "status": "COMPLETE",
-  "createdBy": "randall.meeker@intellivisit.com",
-  "startedAt": "2025-11-12T22:19:01.432Z"
-}
-```
-
-**parsed_payload** (JSONB - normalized structure):
-```json
-{
-  "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
-  "encounter_id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
-  "client_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-  "patient_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-  "trauma_type": "BURN",
-  "chief_complaints": [...],
-  "status": "COMPLETE",
-  "created_by": "randall.meeker@intellivisit.com",
-  "started_at": "2025-11-12T22:19:01.432Z",
-  "created_at": "2025-11-12T22:19:01.432Z",
-  "updated_at": "2025-11-12T22:19:01.432Z"
 }
 ```
 
@@ -505,9 +460,9 @@ When an encounter is created or updated, the following data structures are store
 | HTTP code | Message | Notes |
 |-----------|---------|-------|
 | `400 Bad Request` | Missing required fields (`patientId`/`patient_id`, `clientId`/`client_id`, `encounterId`/`encounter_id`) or empty `chiefComplaints`/`chief_complaints` list | Ensure all required fields are present and at least one complaint is provided. Field names can be either camelCase or snake_case. |
-| `401 Unauthorized` | Authentication required | Provide a valid Bearer token or API key. |
+| `401 Unauthorized` | Authentication required | Provide valid HMAC signature headers (`X-Timestamp` and `X-Signature`). |
+| `403 Forbidden` | Client ID in payload does not match authenticated client | Ensure the `clientId` in your payload matches the client associated with your HMAC secret key. |
 | `404 Not Found` | Patient or related record not found (rare) | Confirm identifiers exist in your tenant. |
-| `409 Conflict` | Duplicate `encounterId`/`encounter_id` with conflicting identifiers | Ensure `encounterId` uniquely identifies the encounter for the same patient/client combination. |
 | `500 Internal Server Error` | Database or server error | Retry with backoff; contact Solv if persistent. |
 
 ---
@@ -518,7 +473,7 @@ Render the internal Solv dashboard HTML view. This is primarily for quality assu
 
 Example:
 
-```
+```bash
 open "https://app-97926.on-aptible.com/?locationId=AXjwbE&statuses=confirmed&limit=25"
 ```
 
@@ -526,7 +481,7 @@ The response is an HTML table view of the patient queue.
 
 ---
 
-## 4. Interactive API Documentation
+## Interactive API Documentation
 
 - Swagger UI: `https://app-97926.on-aptible.com/docs`
 - Alternate read-only reference: `https://app-97926.on-aptible.com/redoc`
@@ -584,6 +539,7 @@ Additional fields may appear as the upstream data model evolves. Integrations sh
 | Empty response                 | Invalid or missing `locationId`.        | Verify the `locationId` parameter and supplied statuses.      |
 | `500 Internal Server Error`    | Database connection issue.              | Retry with backoff; escalate to Solv Integration Team.        |
 | Dashboard HTML empty           | No patients matching supplied status.   | Retry with broader statuses such as `confirmed` or `checked_in`. |
+| `403 Forbidden`                | Client not permitted to access location | Verify your client has access to the requested location.     |
 
 ---
 
@@ -596,6 +552,3 @@ Additional fields may appear as the upstream data model evolves. Integrations sh
 | Support hours   | 08:00-18:00 CT, Monday-Friday   |
 
 When submitting an incident include the full request URL, timestamp (UTC), response body or error message, and any `x-request-id` header values if available.
-
-
-
