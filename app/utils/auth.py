@@ -60,11 +60,11 @@ async def get_current_client(request: Request) -> TokenData:
     client_cfg = await verify_hmac_request(request)
     
     if not client_cfg:
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="HMAC authentication required. Provide X-Timestamp and X-Signature headers.",
             headers={"WWW-Authenticate": "HMAC"},
-    )
+        )
 
     # Return TokenData with client configuration
     return TokenData(
