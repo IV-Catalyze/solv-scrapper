@@ -905,38 +905,38 @@ def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[st
     raw_payload = encounter_data.get('raw_payload')
     parsed_payload = encounter_data.get('parsed_payload')
     
-        # Ensure parsed_payload has the correct structure with experityAction set to empty array
-        if parsed_payload:
-            if isinstance(parsed_payload, str):
-                try:
-                    parsed_payload = json.loads(parsed_payload)
-                except json.JSONDecodeError:
-                    parsed_payload = {}
-            
-            # Ensure experityAction is present and set to empty array
-            if 'experityAction' not in parsed_payload:
-                parsed_payload['experityAction'] = []
-            # Handle legacy null values - convert to empty array
-            elif parsed_payload.get('experityAction') is None:
-                parsed_payload['experityAction'] = []
-            # Handle legacy single object - convert to array
-            elif isinstance(parsed_payload.get('experityAction'), dict):
-                parsed_payload['experityAction'] = [parsed_payload['experityAction']]
-        else:
-            # Create parsed_payload structure from encounter data
-            # Handle chief_complaints - it might be a list or JSON string
-            chief_complaints = encounter_data.get('chief_complaints', [])
-            if isinstance(chief_complaints, str):
-                try:
-                    chief_complaints = json.loads(chief_complaints)
-                except json.JSONDecodeError:
-                    chief_complaints = []
-            
-            parsed_payload = {
-                'trauma_type': encounter_data.get('trauma_type'),
-                'chief_complaints': chief_complaints,
-                'experityAction': []
-            }
+    # Ensure parsed_payload has the correct structure with experityAction set to empty array
+    if parsed_payload:
+        if isinstance(parsed_payload, str):
+            try:
+                parsed_payload = json.loads(parsed_payload)
+            except json.JSONDecodeError:
+                parsed_payload = {}
+        
+        # Ensure experityAction is present and set to empty array
+        if 'experityAction' not in parsed_payload:
+            parsed_payload['experityAction'] = []
+        # Handle legacy null values - convert to empty array
+        elif parsed_payload.get('experityAction') is None:
+            parsed_payload['experityAction'] = []
+        # Handle legacy single object - convert to array
+        elif isinstance(parsed_payload.get('experityAction'), dict):
+            parsed_payload['experityAction'] = [parsed_payload['experityAction']]
+    else:
+        # Create parsed_payload structure from encounter data
+        # Handle chief_complaints - it might be a list or JSON string
+        chief_complaints = encounter_data.get('chief_complaints', [])
+        if isinstance(chief_complaints, str):
+            try:
+                chief_complaints = json.loads(chief_complaints)
+            except json.JSONDecodeError:
+                chief_complaints = []
+        
+        parsed_payload = {
+            'trauma_type': encounter_data.get('trauma_type'),
+            'chief_complaints': chief_complaints,
+            'experityAction': []
+        }
     
     # Build queue data
     queue_data = {
