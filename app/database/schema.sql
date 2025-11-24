@@ -214,6 +214,10 @@ CREATE TRIGGER update_encounters_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 
 -- Create queue table
+-- Note: parsed_payload JSONB structure:
+--   - trauma_type: string
+--   - chief_complaints: array of complaint objects
+--   - experityAction: array of action objects (each object contains template, bodyAreaKey, etc.)
 CREATE TABLE IF NOT EXISTS queue (
     queue_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     encounter_id UUID UNIQUE NOT NULL,

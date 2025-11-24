@@ -905,32 +905,38 @@ def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[st
     raw_payload = encounter_data.get('raw_payload')
     parsed_payload = encounter_data.get('parsed_payload')
     
-    # Ensure parsed_payload has the correct structure with experityAction set to null
-    if parsed_payload:
-        if isinstance(parsed_payload, str):
-            try:
-                parsed_payload = json.loads(parsed_payload)
-            except json.JSONDecodeError:
-                parsed_payload = {}
-        
-        # Ensure experityAction is present and set to null
-        if 'experityAction' not in parsed_payload:
-            parsed_payload['experityAction'] = None
-    else:
-        # Create parsed_payload structure from encounter data
-        # Handle chief_complaints - it might be a list or JSON string
-        chief_complaints = encounter_data.get('chief_complaints', [])
-        if isinstance(chief_complaints, str):
-            try:
-                chief_complaints = json.loads(chief_complaints)
-            except json.JSONDecodeError:
-                chief_complaints = []
-        
-        parsed_payload = {
-            'trauma_type': encounter_data.get('trauma_type'),
-            'chief_complaints': chief_complaints,
-            'experityAction': None
-        }
+        # Ensure parsed_payload has the correct structure with experityAction set to empty array
+        if parsed_payload:
+            if isinstance(parsed_payload, str):
+                try:
+                    parsed_payload = json.loads(parsed_payload)
+                except json.JSONDecodeError:
+                    parsed_payload = {}
+            
+            # Ensure experityAction is present and set to empty array
+            if 'experityAction' not in parsed_payload:
+                parsed_payload['experityAction'] = []
+            # Handle legacy null values - convert to empty array
+            elif parsed_payload.get('experityAction') is None:
+                parsed_payload['experityAction'] = []
+            # Handle legacy single object - convert to array
+            elif isinstance(parsed_payload.get('experityAction'), dict):
+                parsed_payload['experityAction'] = [parsed_payload['experityAction']]
+        else:
+            # Create parsed_payload structure from encounter data
+            # Handle chief_complaints - it might be a list or JSON string
+            chief_complaints = encounter_data.get('chief_complaints', [])
+            if isinstance(chief_complaints, str):
+                try:
+                    chief_complaints = json.loads(chief_complaints)
+                except json.JSONDecodeError:
+                    chief_complaints = []
+            
+            parsed_payload = {
+                'trauma_type': encounter_data.get('trauma_type'),
+                'chief_complaints': chief_complaints,
+                'experityAction': []
+            }
     
     # Build queue data
     queue_data = {
@@ -991,6 +997,18 @@ def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
                 formatted['parsed_payload'] = json.loads(formatted['parsed_payload'])
             except json.JSONDecodeError:
                 pass
+        
+        # Ensure experityAction is an array (handle legacy data)
+        if isinstance(formatted['parsed_payload'], dict):
+            experity_action = formatted['parsed_payload'].get('experityAction')
+            if experity_action is None:
+                formatted['parsed_payload']['experityAction'] = []
+            elif isinstance(experity_action, dict):
+                # Convert legacy single object to array
+                formatted['parsed_payload']['experityAction'] = [experity_action]
+            elif not isinstance(experity_action, list):
+                # If it's not a list, initialize as empty array
+                formatted['parsed_payload']['experityAction'] = []
     
     return formatted
 
@@ -1283,7 +1301,7 @@ class QueueUpdateRequest(BaseModel):
     """Request model for updating queue experityAction."""
     queue_id: Optional[str] = Field(None, description="Queue identifier (UUID). Either queue_id or encounter_id is required.")
     encounter_id: Optional[str] = Field(None, description="Encounter identifier (UUID). Either queue_id or encounter_id is required.")
-    experityAction: Optional[Dict[str, Any]] = Field(None, description="Experity action object to update in parsed_payload.")
+    experityAction: Optional[List[Dict[str, Any]]] = Field(None, description="Experity action objects array to update in parsed_payload.")
     
     @model_validator(mode='after')
     def validate_at_least_one_identifier(self):
@@ -1300,7 +1318,7 @@ class QueueResponse(BaseModel):
     emr_id: Optional[str] = Field(None, description="EMR identifier for the patient.")
     status: str = Field(..., description="Queue status: PENDING, PROCESSING, DONE, or ERROR.")
     raw_payload: Optional[Dict[str, Any]] = Field(None, description="Raw JSON payload from encounter.")
-    parsed_payload: Optional[Dict[str, Any]] = Field(None, description="Parsed payload with trauma_type, chief_complaints, and experityAction.")
+    parsed_payload: Optional[Dict[str, Any]] = Field(None, description="Parsed payload with trauma_type, chief_complaints, and experityAction (array of action objects).")
     created_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was created.")
     updated_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was last updated.")
     attempts: int = Field(default=0, description="Number of processing attempts.")
@@ -1989,9 +2007,11 @@ async def update_queue_experity_action(
     **Request Body:**
     - `queue_id` (optional): Queue identifier (UUID)
     - `encounter_id` (optional): Encounter identifier (UUID)
-    - `experityAction` (optional): Experity action object to set in parsed_payload
+    - `experityAction` (optional): Array of Experity action objects to set in parsed_payload
     
     **Note:** Either `queue_id` or `encounter_id` must be provided.
+    The experityAction field accepts an array of action objects. If a single object is provided,
+    it will be automatically converted to an array.
     
     Requires authentication via Bearer token or API key.
     """
@@ -2036,9 +2056,29 @@ async def update_queue_experity_action(
         elif parsed_payload is None:
             parsed_payload = {}
         
+        # Ensure experityAction exists and is an array (handle legacy data)
+        if 'experityAction' not in parsed_payload:
+            parsed_payload['experityAction'] = []
+        elif parsed_payload.get('experityAction') is None:
+            parsed_payload['experityAction'] = []
+        elif isinstance(parsed_payload.get('experityAction'), dict):
+            # Convert legacy single object to array
+            parsed_payload['experityAction'] = [parsed_payload['experityAction']]
+        elif not isinstance(parsed_payload.get('experityAction'), list):
+            # If it's not a list, initialize as empty array
+            parsed_payload['experityAction'] = []
+        
         # Update experityAction if provided
         if request_data.experityAction is not None:
-            parsed_payload['experityAction'] = request_data.experityAction
+            # Ensure experityAction is an array
+            if isinstance(request_data.experityAction, list):
+                parsed_payload['experityAction'] = request_data.experityAction
+            elif isinstance(request_data.experityAction, dict):
+                # Handle legacy single object - convert to array
+                parsed_payload['experityAction'] = [request_data.experityAction]
+            else:
+                # If it's not a list or dict, initialize as empty array
+                parsed_payload['experityAction'] = []
         
         # Update the queue entry
         cursor.execute(
