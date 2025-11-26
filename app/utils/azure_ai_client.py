@@ -22,7 +22,7 @@ except ImportError:
     logging.warning("httpx not available. Azure AI client will not work.")
 
 try:
-    from azure.identity import DefaultAzureCredential
+    from azure.identity import DefaultAzureCredential, ClientSecretCredential
     AZURE_IDENTITY_AVAILABLE = True
 except ImportError:
     AZURE_IDENTITY_AVAILABLE = False
@@ -79,7 +79,8 @@ class AzureAIResponseError(AzureAIClientError):
 
 def get_azure_token() -> str:
     """
-    Get Azure AD token using DefaultAzureCredential.
+    Get Azure AD token using Service Principal credentials if available,
+    otherwise falls back to DefaultAzureCredential.
     
     Returns:
         Bearer token string
@@ -93,8 +94,24 @@ def get_azure_token() -> str:
         )
     
     try:
-        credential = DefaultAzureCredential()
+        # Prefer Service Principal credentials if available (for production)
+        client_id = os.getenv("AZURE_CLIENT_ID")
+        client_secret = os.getenv("AZURE_CLIENT_SECRET")
+        tenant_id = os.getenv("AZURE_TENANT_ID")
+        
+        if client_id and client_secret and tenant_id:
+            logger.info("Using Service Principal credentials for Azure authentication")
+            credential = ClientSecretCredential(
+                tenant_id=tenant_id,
+                client_id=client_id,
+                client_secret=client_secret
+            )
+        else:
+            logger.info("Using DefaultAzureCredential for Azure authentication")
+            credential = DefaultAzureCredential()
+        
         token = credential.get_token(AZURE_SCOPE)
+        logger.debug(f"Successfully obtained Azure token (expires: {token.expires_on})")
         return token.token
     except Exception as e:
         logger.error(f"Failed to get Azure token: {str(e)}")
@@ -144,13 +161,36 @@ def extract_experity_actions(response_json: Dict[str, Any]) -> List[Dict[str, An
                         output_text += block.get("text", "")
         
         if not output_text:
-            raise AzureAIResponseError("No output_text found in response")
+            logger.error(
+                f"No output_text found in Azure AI response. "
+                f"Response structure: {json.dumps(response_json, indent=2)[:1000]}"
+            )
+            raise AzureAIResponseError(
+                "No output_text found in response. Azure AI may have returned an unexpected format."
+            )
+        
+        # Strip markdown code blocks if present (Azure AI sometimes wraps JSON in ```json ... ```)
+        output_text_clean = output_text.strip()
+        if output_text_clean.startswith("```json"):
+            # Remove opening ```json
+            output_text_clean = output_text_clean[7:].lstrip()
+        elif output_text_clean.startswith("```"):
+            # Remove opening ``` (generic code block)
+            output_text_clean = output_text_clean[3:].lstrip()
+        
+        if output_text_clean.endswith("```"):
+            # Remove closing ```
+            output_text_clean = output_text_clean[:-3].rstrip()
         
         # Parse JSON string to list of actions
         try:
-            experity_actions = json.loads(output_text)
+            experity_actions = json.loads(output_text_clean)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from output text: {output_text[:200]}")
+            logger.error(
+                f"Failed to parse JSON from output text. "
+                f"Output text length: {len(output_text)}. "
+                f"Output text preview: {output_text[:500]}"
+            )
             raise AzureAIResponseError(f"Response text is not valid JSON: {str(e)}") from e
         
         # Validate it's a list
@@ -257,12 +297,39 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> List[Dict[str, Any
                 # Handle other errors
                 if response.status_code >= 400:
                     error_text = response.text[:500]  # Limit error text length
+                    logger.error(
+                        f"Azure AI returned error {response.status_code}. "
+                        f"Response headers: {dict(response.headers)}. "
+                        f"Response text: {error_text}"
+                    )
                     raise AzureAIClientError(
                         f"Azure AI returned error {response.status_code}: {error_text}"
                     )
                 
+                # Check response content
+                response_text = response.text
+                logger.debug(f"Azure AI response status: {response.status_code}")
+                logger.debug(f"Azure AI response length: {len(response_text)} chars")
+                logger.debug(f"Azure AI response preview: {response_text[:200]}")
+                
+                if not response_text:
+                    raise AzureAIClientError(
+                        "Azure AI returned empty response body"
+                    )
+                
                 # Parse response
-                response_json = response.json()
+                try:
+                    response_json = response.json()
+                except (ValueError, json.JSONDecodeError) as e:
+                    logger.error(
+                        f"Failed to parse Azure AI response as JSON. "
+                        f"Status: {response.status_code}. "
+                        f"Response text (first 500 chars): {response_text[:500]}"
+                    )
+                    raise AzureAIClientError(
+                        f"Azure AI returned non-JSON response: {str(e)}. "
+                        f"Response preview: {response_text[:200]}"
+                    )
                 
                 # Extract Experity actions
                 experity_actions = extract_experity_actions(response_json)
