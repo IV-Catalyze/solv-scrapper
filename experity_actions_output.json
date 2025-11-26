@@ -1,0 +1,70 @@
+[
+  {
+    "template": "Neck",
+    "bodyAreaKey": "Neck",
+    "coordKey": "NECK_PARENT",
+    "bodyMapSide": "front",
+    "ui": {
+      "bodyMapClick": {
+        "x": 175,
+        "y": 535
+      }
+    },
+    "mainProblem": "Burn",
+    "notesTemplateKey": "NECK_TEMPLATE_A",
+    "notesPayload": {
+      "quality": [
+        "Burning"
+      ],
+      "severity": 6,
+      "notes": "Burn on neck with moderate severity"
+    },
+    "reasoning": "Mapped neck part to Neck body area, identified Burn from trauma_type and description, selected NECK_TEMPLATE_A for burns, used NECK_PARENT coordinates for front of neck"
+  },
+  {
+    "template": "Left Upper Extremity",
+    "bodyAreaKey": "Left Upper Extremity",
+    "coordKey": "L_SHOULDER_PARENT",
+    "bodyMapSide": "front",
+    "ui": {
+      "bodyMapClick": {
+        "x": 183,
+        "y": 556
+      }
+    },
+    "mainProblem": "Burn",
+    "notesTemplateKey": "LE_TEMPLATE_A",
+    "notesPayload": {
+      "quality": [
+        "Burning",
+        "Aching"
+      ],
+      "severity": 5,
+      "notes": "Heat burn to the left shoulder"
+    },
+    "reasoning": "Mapped shoulder part to Left Upper Extremity based on 'left' in description, identified Burn from trauma_type and description, selected LE_TEMPLATE_A for burns"
+  },
+  {
+    "template": "Right Upper Extremity",
+    "bodyAreaKey": "Right Upper Extremity",
+    "coordKey": "R_UPPER_ARM_PARENT",
+    "bodyMapSide": "front",
+    "ui": {
+      "bodyMapClick": {
+        "x": 136,
+        "y": 582
+      }
+    },
+    "mainProblem": "Burn",
+    "notesTemplateKey": "LE_TEMPLATE_A",
+    "notesPayload": {
+      "quality": [
+        "Burning",
+        "Aching"
+      ],
+      "severity": 5,
+      "notes": "Scald burn on right arm"
+    },
+    "reasoning": "Mapped arm part to Right Upper Extremity based on 'right' in description, identified Burn from trauma_type and description, selected LE_TEMPLATE_A for burns"
+  }
+]

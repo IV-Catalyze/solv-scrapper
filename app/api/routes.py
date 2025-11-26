@@ -56,6 +56,27 @@ from pathlib import Path
 
 from app.utils.api_client import get_api_token
 
+# Import Azure AI client
+try:
+    from app.utils.azure_ai_client import (
+        call_azure_ai_agent,
+        AzureAIClientError,
+        AzureAIAuthenticationError,
+        AzureAIRateLimitError,
+        AzureAITimeoutError,
+        AzureAIResponseError
+    )
+    AZURE_AI_AVAILABLE = True
+except ImportError:
+    print("Warning: azure_ai_client.py not found. Experity mapping endpoint will not work.")
+    call_azure_ai_agent = None
+    AZURE_AI_AVAILABLE = False
+    AzureAIClientError = Exception
+    AzureAIAuthenticationError = Exception
+    AzureAIRateLimitError = Exception
+    AzureAITimeoutError = Exception
+    AzureAIResponseError = Exception
+
 # Import encounter parsing functions
 try:
     from app.utils.encounter import parse_encounter_payload, validate_encounter_payload
@@ -1327,6 +1348,56 @@ class QueueResponse(BaseModel):
         extra = "allow"
 
 
+# Experity mapping endpoint models
+class ExperityMapRequest(BaseModel):
+    """Request model for mapping queue entry to Experity actions via Azure AI."""
+    queue_entry: Dict[str, Any] = Field(
+        ...,
+        description="Queue entry containing queue_id, encounter_id, raw_payload, and parsed_payload."
+    )
+    
+    @field_validator("queue_entry")
+    @classmethod
+    def validate_queue_entry(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate queue entry has required fields."""
+        if not isinstance(v, dict):
+            raise ValueError("queue_entry must be a dictionary")
+        
+        if not v.get("encounter_id"):
+            raise ValueError("queue_entry must contain 'encounter_id' field")
+        
+        if not v.get("raw_payload"):
+            raise ValueError("queue_entry must contain 'raw_payload' field")
+        
+        return v
+
+
+class ExperityAction(BaseModel):
+    """Model for a single Experity action."""
+    template: str = Field(..., description="Template name.")
+    bodyAreaKey: str = Field(..., description="Body area key.")
+    coordKey: Optional[str] = Field(None, description="Coordinate key.")
+    bodyMapSide: Optional[str] = Field(None, description="Body map side (front/back).")
+    ui: Optional[Dict[str, Any]] = Field(None, description="UI data including bodyMapClick coordinates.")
+    mainProblem: str = Field(..., description="Main problem description.")
+    notesTemplateKey: Optional[str] = Field(None, description="Notes template key.")
+    notesPayload: Optional[Dict[str, Any]] = Field(None, description="Notes payload data.")
+    reasoning: Optional[str] = Field(None, description="Reasoning for the mapping.")
+    
+    class Config:
+        extra = "allow"
+
+
+class ExperityMapResponse(BaseModel):
+    """Response model for Experity mapping endpoint."""
+    success: bool = Field(..., description="Whether the mapping was successful.")
+    data: Optional[Dict[str, Any]] = Field(None, description="Response data containing experity_actions.")
+    error: Optional[Dict[str, Any]] = Field(None, description="Error details if success is false.")
+    
+    class Config:
+        extra = "allow"
+
+
 # Summary data submission models
 class SummaryRequest(BaseModel):
     """Request model for creating or updating a summary record."""
@@ -2488,4 +2559,354 @@ async def get_summary(
     finally:
         if conn:
             conn.close()
+
+
+def update_queue_status_and_experity_action(
+    conn,
+    queue_id: str,
+    status: str,
+    experity_actions: Optional[List[Dict[str, Any]]] = None,
+    error_message: Optional[str] = None,
+    increment_attempts: bool = False
+) -> None:
+    """
+    Update queue entry status and optionally experity actions.
+    
+    Args:
+        conn: PostgreSQL database connection
+        queue_id: Queue identifier (UUID)
+        status: New status ('PROCESSING', 'DONE', 'ERROR')
+        experity_actions: Optional list of Experity action objects to store in parsed_payload
+        error_message: Optional error message to store (for ERROR status)
+        increment_attempts: Whether to increment the attempts counter
+    """
+    import json
+    from psycopg2.extras import Json
+    
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        # Get current queue entry
+        cursor.execute(
+            "SELECT parsed_payload FROM queue WHERE queue_id = %s",
+            (queue_id,)
+        )
+        queue_entry = cursor.fetchone()
+        
+        if not queue_entry:
+            raise ValueError(f"Queue entry not found: {queue_id}")
+        
+        # Parse current parsed_payload
+        parsed_payload = queue_entry.get('parsed_payload')
+        if isinstance(parsed_payload, str):
+            try:
+                parsed_payload = json.loads(parsed_payload)
+            except json.JSONDecodeError:
+                parsed_payload = {}
+        elif parsed_payload is None:
+            parsed_payload = {}
+        
+        # Update experityAction if provided
+        if experity_actions is not None:
+            parsed_payload['experityAction'] = experity_actions
+        
+        # Build update query
+        update_fields = ["status = %s", "parsed_payload = %s", "updated_at = CURRENT_TIMESTAMP"]
+        update_values = [status, Json(parsed_payload)]
+        
+        if increment_attempts:
+            update_fields.append("attempts = attempts + 1")
+        
+        if error_message and status == 'ERROR':
+            # Store error in parsed_payload for tracking
+            parsed_payload['error_message'] = error_message
+        
+        query = f"""
+            UPDATE queue
+            SET {', '.join(update_fields)}
+            WHERE queue_id = %s
+        """
+        update_values.append(queue_id)
+        
+        cursor.execute(query, tuple(update_values))
+        conn.commit()
+        
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+
+
+@app.post(
+    "/experity/map",
+    tags=["Queue"],
+    summary="Map queue entry to Experity actions via Azure AI",
+    response_model=ExperityMapResponse,
+    responses={
+        200: {"description": "Successfully mapped queue entry to Experity actions."},
+        400: {"description": "Invalid request data or missing required fields."},
+        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
+        404: {"description": "Queue entry not found in database."},
+        502: {"description": "Azure AI agent returned an error."},
+        504: {"description": "Request to Azure AI agent timed out."},
+        500: {"description": "Database or server error."},
+    },
+)
+async def map_queue_to_experity(
+    request_data: ExperityMapRequest,
+    current_client: TokenData = get_auth_dependency()
+) -> ExperityMapResponse:
+    """
+    Map a queue entry to Experity actions using Azure AI Experity Mapper Agent.
+    
+    This endpoint:
+    1. Validates the queue entry structure
+    2. Calls the Azure AI agent to generate Experity actions
+    3. Optionally updates the queue entry in the database with the results
+    4. Returns the Experity actions array
+    
+    **Request Body:**
+    - `queue_entry`: Dictionary containing:
+      - `queue_id`: Optional UUID (used for database updates)
+      - `encounter_id`: Required UUID
+      - `raw_payload`: Required dictionary with encounter data
+      - `parsed_payload`: Optional dictionary
+    
+    **Response:**
+    - `success`: Boolean indicating success
+    - `data`: Dictionary containing:
+      - `experity_actions`: Array of Experity action objects
+      - `queue_id`: Queue identifier (if available)
+      - `encounter_id`: Encounter identifier
+      - `processed_at`: ISO 8601 timestamp
+    - `error`: Error details if success is false
+    
+    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    if not AZURE_AI_AVAILABLE or not call_azure_ai_agent:
+        raise HTTPException(
+            status_code=500,
+            detail="Azure AI client is not available. Check server configuration."
+        )
+    
+    conn = None
+    queue_entry = request_data.queue_entry
+    queue_id = queue_entry.get("queue_id")
+    encounter_id = queue_entry.get("encounter_id")
+    
+    try:
+        # Validate queue_entry structure (already validated by Pydantic, but double-check)
+        if not encounter_id:
+            return ExperityMapResponse(
+                success=False,
+                error={
+                    "code": "VALIDATION_ERROR",
+                    "message": "queue_entry must contain 'encounter_id' field"
+                }
+            )
+        
+        if not queue_entry.get("raw_payload"):
+            return ExperityMapResponse(
+                success=False,
+                error={
+                    "code": "VALIDATION_ERROR",
+                    "message": "queue_entry must contain 'raw_payload' field"
+                }
+            )
+        
+        # Try to get queue_id from database if not provided
+        if not queue_id:
+            conn = get_db_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            try:
+                cursor.execute(
+                    "SELECT queue_id FROM queue WHERE encounter_id = %s",
+                    (encounter_id,)
+                )
+                result = cursor.fetchone()
+                if result:
+                    queue_id = str(result.get('queue_id'))
+            finally:
+                cursor.close()
+                if not queue_id:  # Only close conn if we're done with it
+                    conn.close()
+                    conn = None
+        
+        # Update queue status to PROCESSING if queue_id exists
+        if queue_id and conn is None:
+            conn = get_db_connection()
+        
+        if queue_id and conn:
+            try:
+                update_queue_status_and_experity_action(
+                    conn=conn,
+                    queue_id=queue_id,
+                    status='PROCESSING',
+                    increment_attempts=False
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update queue status to PROCESSING: {str(e)}")
+                # Continue even if database update fails
+        
+        # Call Azure AI agent
+        try:
+            experity_actions = await call_azure_ai_agent(queue_entry)
+        except AzureAIAuthenticationError as e:
+            error_response = ExperityMapResponse(
+                success=False,
+                error={
+                    "code": "AZURE_AI_AUTH_ERROR",
+                    "message": "Failed to authenticate with Azure AI",
+                    "details": {"azure_message": str(e)}
+                }
+            )
+            # Update queue status to ERROR
+            if queue_id and conn:
+                try:
+                    update_queue_status_and_experity_action(
+                        conn=conn,
+                        queue_id=queue_id,
+                        status='ERROR',
+                        error_message=str(e),
+                        increment_attempts=True
+                    )
+                except Exception:
+                    pass
+            raise HTTPException(status_code=502, detail=error_response.dict())
+            
+        except AzureAIRateLimitError as e:
+            error_response = ExperityMapResponse(
+                success=False,
+                error={
+                    "code": "AZURE_AI_RATE_LIMIT",
+                    "message": "Azure AI rate limit exceeded",
+                    "details": {"azure_message": str(e)}
+                }
+            )
+            # Update queue status to ERROR
+            if queue_id and conn:
+                try:
+                    update_queue_status_and_experity_action(
+                        conn=conn,
+                        queue_id=queue_id,
+                        status='ERROR',
+                        error_message=str(e),
+                        increment_attempts=True
+                    )
+                except Exception:
+                    pass
+            raise HTTPException(status_code=502, detail=error_response.dict())
+            
+        except AzureAITimeoutError as e:
+            error_response = ExperityMapResponse(
+                success=False,
+                error={
+                    "code": "AZURE_AI_TIMEOUT",
+                    "message": "Request to Azure AI agent timed out",
+                    "details": {"azure_message": str(e)}
+                }
+            )
+            # Update queue status to ERROR
+            if queue_id and conn:
+                try:
+                    update_queue_status_and_experity_action(
+                        conn=conn,
+                        queue_id=queue_id,
+                        status='ERROR',
+                        error_message=str(e),
+                        increment_attempts=True
+                    )
+                except Exception:
+                    pass
+            raise HTTPException(status_code=504, detail=error_response.dict())
+            
+        except (AzureAIResponseError, AzureAIClientError) as e:
+            error_response = ExperityMapResponse(
+                success=False,
+                error={
+                    "code": "AZURE_AI_ERROR",
+                    "message": "Azure AI agent returned an error",
+                    "details": {"azure_message": str(e)}
+                }
+            )
+            # Update queue status to ERROR
+            if queue_id and conn:
+                try:
+                    update_queue_status_and_experity_action(
+                        conn=conn,
+                        queue_id=queue_id,
+                        status='ERROR',
+                        error_message=str(e),
+                        increment_attempts=True
+                    )
+                except Exception:
+                    pass
+            raise HTTPException(status_code=502, detail=error_response.dict())
+        
+        # Update queue status to DONE and store experity_actions
+        if queue_id and conn:
+            try:
+                update_queue_status_and_experity_action(
+                    conn=conn,
+                    queue_id=queue_id,
+                    status='DONE',
+                    experity_actions=experity_actions,
+                    increment_attempts=False
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update queue status to DONE: {str(e)}")
+                # Continue even if database update fails
+        
+        # Build success response
+        response_data = {
+            "experity_actions": experity_actions,
+            "encounter_id": encounter_id,
+            "processed_at": datetime.now().isoformat() + "Z"
+        }
+        
+        if queue_id:
+            response_data["queue_id"] = queue_id
+        
+        return ExperityMapResponse(
+            success=True,
+            data=response_data
+        )
+        
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        logger.error(f"Database error in map_queue_to_experity: {str(e)}")
+        return ExperityMapResponse(
+            success=False,
+            error={
+                "code": "DATABASE_ERROR",
+                "message": "Database error occurred",
+                "details": {"error": str(e)}
+            }
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error in map_queue_to_experity: {str(e)}")
+        return ExperityMapResponse(
+            success=False,
+            error={
+                "code": "INTERNAL_ERROR",
+                "message": "Internal server error",
+                "details": {"error": str(e)}
+            }
+        )
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
