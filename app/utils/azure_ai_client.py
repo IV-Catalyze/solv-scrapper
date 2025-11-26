@@ -171,17 +171,25 @@ def extract_experity_actions(response_json: Dict[str, Any]) -> List[Dict[str, An
         
         # Strip markdown code blocks if present (Azure AI sometimes wraps JSON in ```json ... ```)
         # Also handle cases where there might be extra text before/after
+        import re
+        
         output_text_clean = output_text.strip()
         
-        # Remove opening markdown code block markers
-        if output_text_clean.startswith("```json"):
-            output_text_clean = output_text_clean[7:].lstrip()
-        elif output_text_clean.startswith("```"):
-            output_text_clean = output_text_clean[3:].lstrip()
-        
-        # Remove closing markdown code block markers
-        if output_text_clean.endswith("```"):
-            output_text_clean = output_text_clean[:-3].rstrip()
+        # Try regex extraction first (more reliable for markdown code blocks)
+        markdown_pattern = r'```(?:json)?\s*\n?(.*?)\n?```'
+        match = re.search(markdown_pattern, output_text_clean, re.DOTALL)
+        if match:
+            output_text_clean = match.group(1).strip()
+            logger.debug("Extracted JSON from markdown code block using regex")
+        else:
+            # Fallback to simple string operations
+            if output_text_clean.startswith("```json"):
+                output_text_clean = output_text_clean[7:].lstrip()
+            elif output_text_clean.startswith("```"):
+                output_text_clean = output_text_clean[3:].lstrip()
+            
+            if output_text_clean.endswith("```"):
+                output_text_clean = output_text_clean[:-3].rstrip()
         
         # Sometimes there's extra content after the JSON - find the first valid JSON array/dict
         # by looking for the opening bracket/brace and finding its matching close
@@ -257,15 +265,59 @@ def extract_experity_actions(response_json: Dict[str, Any]) -> List[Dict[str, An
         output_text_clean = output_text_clean.strip()
         
         # Parse JSON string to list of actions
+        # Try to parse - if it fails, attempt to extract valid JSON by trying different lengths
+        experity_actions = None
+        last_error = None
+        
         try:
             experity_actions = json.loads(output_text_clean)
         except json.JSONDecodeError as e:
-            logger.error(
-                f"Failed to parse JSON from output text. "
-                f"Output text length: {len(output_text)}. "
-                f"Output text preview: {output_text[:500]}"
+            last_error = e
+            logger.warning(
+                f"Initial JSON parse failed: {str(e)}. "
+                f"Attempting to extract valid JSON from response..."
             )
-            raise AzureAIResponseError(f"Response text is not valid JSON: {str(e)}") from e
+            
+            # Try to find valid JSON by attempting to parse progressively shorter substrings
+            # This handles cases where there's trailing content or incomplete extraction
+            for truncate_pos in range(len(output_text_clean), max(100, len(output_text_clean) - 500), -50):
+                try:
+                    test_json = output_text_clean[:truncate_pos].rstrip().rstrip(',')
+                    experity_actions = json.loads(test_json)
+                    logger.info(f"Successfully parsed JSON after truncating to {truncate_pos} characters")
+                    break
+                except json.JSONDecodeError:
+                    continue
+            
+            # If still failed, try to find JSON array/object boundaries more carefully
+            if experity_actions is None:
+                # Try to parse from different starting positions
+                for start_pos in range(min(50, len(output_text_clean))):
+                    if output_text_clean[start_pos:start_pos+1] in ['[', '{']:
+                        try:
+                            test_json = output_text_clean[start_pos:]
+                            experity_actions = json.loads(test_json)
+                            logger.info(f"Successfully parsed JSON starting from position {start_pos}")
+                            break
+                        except json.JSONDecodeError:
+                            continue
+        
+        if experity_actions is None:
+            # Show error context for debugging
+            error_pos = getattr(last_error, 'pos', None) if last_error else 0
+            start_pos = max(0, error_pos - 200)
+            end_pos = min(len(output_text_clean), error_pos + 200)
+            error_context = output_text_clean[start_pos:end_pos] if output_text_clean else "N/A"
+            logger.error(
+                f"Failed to parse JSON from output text after all attempts. "
+                f"Output text length: {len(output_text_clean)}. "
+                f"Error position: {error_pos}. "
+                f"Error: {str(last_error) if last_error else 'Unknown'}. "
+                f"First 500 chars: {output_text_clean[:500]}"
+            )
+            raise AzureAIResponseError(
+                f"Response text is not valid JSON: {str(last_error) if last_error else 'Failed to parse'}"
+            ) from last_error
         
         # Validate it's a list
         if not isinstance(experity_actions, list):
