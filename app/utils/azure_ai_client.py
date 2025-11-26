@@ -170,17 +170,91 @@ def extract_experity_actions(response_json: Dict[str, Any]) -> List[Dict[str, An
             )
         
         # Strip markdown code blocks if present (Azure AI sometimes wraps JSON in ```json ... ```)
+        # Also handle cases where there might be extra text before/after
         output_text_clean = output_text.strip()
+        
+        # Remove opening markdown code block markers
         if output_text_clean.startswith("```json"):
-            # Remove opening ```json
             output_text_clean = output_text_clean[7:].lstrip()
         elif output_text_clean.startswith("```"):
-            # Remove opening ``` (generic code block)
             output_text_clean = output_text_clean[3:].lstrip()
         
+        # Remove closing markdown code block markers
         if output_text_clean.endswith("```"):
-            # Remove closing ```
             output_text_clean = output_text_clean[:-3].rstrip()
+        
+        # Sometimes there's extra content after the JSON - find the first valid JSON array/dict
+        # by looking for the opening bracket/brace and finding its matching close
+        output_text_clean = output_text_clean.strip()
+        first_bracket = output_text_clean.find('[')
+        first_brace = output_text_clean.find('{')
+        
+        # Use the first opening bracket or brace, whichever comes first (or -1 if neither)
+        start_idx = min(first_bracket, first_brace) if first_bracket >= 0 and first_brace >= 0 else (first_bracket if first_bracket >= 0 else first_brace)
+        
+        if start_idx > 0:
+            # Found JSON starting after some prefix text
+            logger.debug(f"JSON starts at index {start_idx}, stripping prefix")
+            output_text_clean = output_text_clean[start_idx:]
+        
+        # Find the matching closing bracket/brace and strip anything after it
+        # Count brackets/braces to find where the JSON ends (ignoring brackets inside strings)
+        if output_text_clean.startswith('['):
+            bracket_count = 0
+            in_string = False
+            escape_next = False
+            
+            for i, char in enumerate(output_text_clean):
+                if escape_next:
+                    escape_next = False
+                    continue
+                
+                if char == '\\':
+                    escape_next = True
+                    continue
+                
+                if char == '"':
+                    in_string = not in_string
+                    continue
+                
+                if not in_string:
+                    if char == '[':
+                        bracket_count += 1
+                    elif char == ']':
+                        bracket_count -= 1
+                        if bracket_count == 0:
+                            # Found matching closing bracket
+                            output_text_clean = output_text_clean[:i+1]
+                            break
+        elif output_text_clean.startswith('{'):
+            brace_count = 0
+            in_string = False
+            escape_next = False
+            
+            for i, char in enumerate(output_text_clean):
+                if escape_next:
+                    escape_next = False
+                    continue
+                
+                if char == '\\':
+                    escape_next = True
+                    continue
+                
+                if char == '"':
+                    in_string = not in_string
+                    continue
+                
+                if not in_string:
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            # Found matching closing brace
+                            output_text_clean = output_text_clean[:i+1]
+                            break
+        
+        output_text_clean = output_text_clean.strip()
         
         # Parse JSON string to list of actions
         try:
