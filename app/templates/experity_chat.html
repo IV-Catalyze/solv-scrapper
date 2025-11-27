@@ -621,11 +621,25 @@
             // Generate HMAC signature
             const signature = generateHMAC(method, path, timestamp, bodyString, hmacSecret);
 
+            // Debug: Calculate body hash to show in headers (for debugging)
+            const bodyHash = CryptoJS.SHA256(bodyString).toString(CryptoJS.enc.Hex).toLowerCase();
+            const canonical = `POST\n${path}\n${timestamp}\n${bodyHash}`;
+
             // Display headers
             document.getElementById('headerTimestamp').textContent = timestamp;
             document.getElementById('headerSignature').textContent = signature;
             document.getElementById('headerContentType').textContent = 'application/json';
             document.getElementById('headersSection').style.display = 'block';
+            
+            // Log debug info to console
+            console.log('HMAC Debug Info:');
+            console.log('Method:', method);
+            console.log('Path:', path);
+            console.log('Timestamp:', timestamp);
+            console.log('Body string length:', bodyString.length);
+            console.log('Body hash:', bodyHash);
+            console.log('Canonical string:', canonical);
+            console.log('Signature:', signature);
 
             // Update UI
             updateStatus('loading', 'Sending request...');
