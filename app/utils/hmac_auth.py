@@ -96,19 +96,24 @@ async def get_request_body(request: Request) -> bytes:
     """
     Get request body as bytes.
     
+    This function caches the body in request._body so it can be read multiple times.
+    FastAPI's request.body() can only be read once, so we cache it.
+    
     Args:
         request: FastAPI request object
         
     Returns:
         Request body as bytes
     """
-    # Try to get body from request
-    if hasattr(request, "_body"):
-        return request._body or b""
+    # If already cached, return cached value
+    if hasattr(request, "_body") and request._body is not None:
+        return request._body
     
-    # For FastAPI, read the body
+    # Read the body and cache it
     try:
         body = await request.body()
+        # Cache it for future reads
+        request._body = body
         return body
     except Exception:
         return b""

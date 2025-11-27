@@ -2667,7 +2667,7 @@ def update_queue_status_and_experity_action(
     },
 )
 async def map_queue_to_experity(
-    request_data: ExperityMapRequest,
+    request: Request,
     current_client: TokenData = get_auth_dependency()
 ) -> ExperityMapResponse:
     """
@@ -2698,12 +2698,33 @@ async def map_queue_to_experity(
     Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
     import logging
+    import json
     logger = logging.getLogger(__name__)
     
     if not AZURE_AI_AVAILABLE or not call_azure_ai_agent:
         raise HTTPException(
             status_code=500,
             detail="Azure AI client is not available. Check server configuration."
+        )
+    
+    # Parse request body after HMAC verification (body already consumed and cached by dependency)
+    try:
+        # Use cached body from HMAC verification if available, otherwise read it
+        if hasattr(request, "_body") and request._body:
+            body_bytes = request._body
+            body_json = json.loads(body_bytes.decode('utf-8'))
+        else:
+            body_json = await request.json()
+        request_data = ExperityMapRequest(**body_json)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid JSON in request body: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid request format: {str(e)}"
         )
     
     conn = None
