@@ -408,12 +408,8 @@
             </div>
         </div>
 
-        <div class="config-section">
-            <div class="config-group">
-                <label for="hmacSecret">HMAC Secret</label>
-                <input type="password" id="hmacSecret" placeholder="Enter your HMAC secret key" />
-            </div>
-        </div>
+        <!-- HMAC Secret is hardcoded - no need to enter manually -->
+        <input type="hidden" id="hmacSecret" />
 
         <div class="main-content">
             <div class="input-panel">
@@ -476,16 +472,11 @@
         // Production API endpoint (hardcoded)
         const API_URL = 'https://app-97926.on-aptible.com/experity/map';
 
-        // Load saved HMAC secret from localStorage
-        const savedSecret = localStorage.getItem('hmacSecret');
-        if (savedSecret) {
-            hmacSecretInput.value = savedSecret;
-        }
-
-        // Save HMAC secret when changed
-        hmacSecretInput.addEventListener('input', () => {
-            localStorage.setItem('hmacSecret', hmacSecretInput.value);
-        });
+        // Staging HMAC Secret (hardcoded - no need to enter manually)
+        const STAGING_HMAC_SECRET = '3SaxUjALPb0Ko8Lw-_eUFvNBPjlZWpGVGqJVS7e1BbM';
+        
+        // Set the secret automatically (field is hidden)
+        hmacSecretInput.value = STAGING_HMAC_SECRET;
 
         // File upload handlers
         uploadArea.addEventListener('click', () => fileInput.click());
@@ -579,15 +570,11 @@
         }
 
         async function sendRequest() {
-            const hmacSecret = hmacSecretInput.value.trim();
+            // Use hardcoded staging secret
+            const hmacSecret = STAGING_HMAC_SECRET;
             const jsonText = jsonEditor.value.trim();
 
             // Validation
-            if (!hmacSecret) {
-                alert('Please enter your HMAC secret');
-                return;
-            }
-
             if (!jsonText) {
                 alert('Please provide JSON input');
                 return;
