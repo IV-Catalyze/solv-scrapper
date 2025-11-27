@@ -226,6 +226,48 @@
             background: #f0f4ff;
         }
 
+        .headers-section {
+            background: #f8f9fa;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 12px;
+        }
+
+        .headers-title {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 12px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .headers-content {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .headers-content div {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            word-break: break-all;
+        }
+
+        .headers-content strong {
+            color: #495057;
+            min-width: 140px;
+        }
+
+        .headers-content span {
+            color: #212529;
+            flex: 1;
+        }
+
         .button-group {
             display: flex;
             gap: 12px;
@@ -408,6 +450,14 @@
                 <div class="panel-header">
                     <h2>Response</h2>
                 </div>
+                <div class="headers-section" id="headersSection" style="display: none;">
+                    <div class="headers-title">Request Headers:</div>
+                    <div class="headers-content">
+                        <div><strong>X-Timestamp:</strong> <span id="headerTimestamp">-</span></div>
+                        <div><strong>X-Signature:</strong> <span id="headerSignature">-</span></div>
+                        <div><strong>Content-Type:</strong> <span id="headerContentType">application/json</span></div>
+                    </div>
+                </div>
                 <div id="responseDisplay" class="response-display empty">Response will appear here...</div>
             </div>
         </div>
@@ -497,6 +547,7 @@
             clearFile();
             responseDisplay.textContent = 'Response will appear here...';
             responseDisplay.className = 'response-display empty';
+            document.getElementById('headersSection').style.display = 'none';
             updateStatus('idle', 'Ready');
         }
 
@@ -558,6 +609,12 @@
 
             // Generate HMAC signature
             const signature = generateHMAC(method, path, timestamp, bodyString, hmacSecret);
+
+            // Display headers
+            document.getElementById('headerTimestamp').textContent = timestamp;
+            document.getElementById('headerSignature').textContent = signature;
+            document.getElementById('headerContentType').textContent = 'application/json';
+            document.getElementById('headersSection').style.display = 'block';
 
             // Update UI
             updateStatus('loading', 'Sending request...');
