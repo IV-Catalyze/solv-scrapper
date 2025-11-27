@@ -368,13 +368,6 @@
 
         <div class="config-section">
             <div class="config-group">
-                <label for="apiUrl">API Endpoint</label>
-                <select id="apiUrl">
-                    <option value="https://app-97926.on-aptible.com/experity/map">Production</option>
-                    <option value="http://localhost:8000/experity/map">Localhost</option>
-                </select>
-            </div>
-            <div class="config-group">
                 <label for="hmacSecret">HMAC Secret</label>
                 <input type="password" id="hmacSecret" placeholder="Enter your HMAC secret key" />
             </div>
@@ -428,8 +421,10 @@
         const sendBtn = document.getElementById('sendBtn');
         const statusIndicator = document.getElementById('statusIndicator');
         const fileInfo = document.getElementById('fileInfo');
-        const apiUrlSelect = document.getElementById('apiUrl');
         const hmacSecretInput = document.getElementById('hmacSecret');
+        
+        // Production API endpoint (hardcoded)
+        const API_URL = 'https://app-97926.on-aptible.com/experity/map';
 
         // Load saved HMAC secret from localStorage
         const savedSecret = localStorage.getItem('hmacSecret');
@@ -528,7 +523,6 @@
         }
 
         async function sendRequest() {
-            const apiUrl = apiUrlSelect.value;
             const hmacSecret = hmacSecretInput.value.trim();
             const jsonText = jsonEditor.value.trim();
 
@@ -552,7 +546,7 @@
             }
 
             // Extract path from URL
-            const urlObj = new URL(apiUrl);
+            const urlObj = new URL(API_URL);
             const path = urlObj.pathname;
             const method = 'POST';
 
@@ -572,7 +566,7 @@
             responseDisplay.textContent = 'Processing request...';
 
             try {
-                const response = await fetch(apiUrl, {
+                const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
