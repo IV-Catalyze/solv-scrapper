@@ -136,7 +136,6 @@ CREATE TABLE IF NOT EXISTS encounters (
     id UUID PRIMARY KEY,
     encounter_id UUID UNIQUE NOT NULL,
     client_id VARCHAR(255) NOT NULL,
-    patient_id UUID NOT NULL,
     emr_id VARCHAR(255),
     trauma_type VARCHAR(50),
     chief_complaints JSONB NOT NULL,
@@ -152,7 +151,6 @@ CREATE TABLE IF NOT EXISTS encounters (
 
 -- Create indexes for encounters table
 CREATE INDEX IF NOT EXISTS idx_encounters_encounter_id ON encounters(encounter_id);
-CREATE INDEX IF NOT EXISTS idx_encounters_patient_id ON encounters(patient_id);
 CREATE INDEX IF NOT EXISTS idx_encounters_client_id ON encounters(client_id);
 CREATE INDEX IF NOT EXISTS idx_encounters_emr_id ON encounters(emr_id);
 CREATE INDEX IF NOT EXISTS idx_encounters_started_at ON encounters(started_at);
@@ -164,7 +162,6 @@ ALTER TABLE encounters
     ADD COLUMN IF NOT EXISTS id UUID,
     ADD COLUMN IF NOT EXISTS encounter_id UUID,
     ADD COLUMN IF NOT EXISTS client_id VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS patient_id UUID,
     ADD COLUMN IF NOT EXISTS emr_id VARCHAR(255),
     ADD COLUMN IF NOT EXISTS trauma_type VARCHAR(50),
     ADD COLUMN IF NOT EXISTS chief_complaints JSONB,
@@ -175,6 +172,11 @@ ALTER TABLE encounters
     ADD COLUMN IF NOT EXISTS parsed_payload JSONB,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+-- Drop legacy encounter columns/indexes that are no longer used
+ALTER TABLE encounters
+    DROP COLUMN IF EXISTS patient_id;
+DROP INDEX IF EXISTS idx_encounters_patient_id;
 
 -- Add NOT NULL constraint to chief_complaints if it doesn't exist
 DO $$

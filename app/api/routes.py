@@ -619,7 +619,7 @@ def save_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
     Args:
         conn: PostgreSQL database connection
         encounter_data: Dictionary containing encounter data with:
-            - Individual fields (id, encounter_id, client_id, patient_id, etc.)
+            - Individual fields (id, encounter_id, client_id, etc.)
             - raw_payload: Optional raw JSON payload (JSONB)
             - parsed_payload: Optional parsed JSON payload (JSONB)
         
@@ -663,15 +663,14 @@ def save_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
         # Note: chief_complaints is always updated since it's required
         query = """
             INSERT INTO encounters (
-                id, encounter_id, client_id, patient_id, emr_id, trauma_type,
+                id, encounter_id, client_id, emr_id, trauma_type,
                 chief_complaints, status, created_by, started_at,
                 raw_payload, parsed_payload
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (encounter_id) 
             DO UPDATE SET
                 client_id = EXCLUDED.client_id,
-                patient_id = EXCLUDED.patient_id,
                 emr_id = EXCLUDED.emr_id,
                 trauma_type = EXCLUDED.trauma_type,
                 chief_complaints = EXCLUDED.chief_complaints,
@@ -690,7 +689,6 @@ def save_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
                 encounter_data['id'],
                 encounter_data['encounter_id'],
                 encounter_data['client_id'],  # Use full client_id (with prefix if present)
-                encounter_data['patient_id'],
                 encounter_data.get('emr_id'),
                 encounter_data.get('trauma_type'),
                 chief_complaints_json,  # Always provided (validated above)
@@ -745,7 +743,6 @@ def format_encounter_response(record: Dict[str, Any]) -> Dict[str, Any]:
         'id': str(record.get('id', '')),
         'encounter_id': str(record.get('encounter_id', '')),
         'client_id': str(record.get('client_id', '')),
-        'patient_id': str(record.get('patient_id', '')),
         'emr_id': record.get('emr_id'),
         'trauma_type': record.get('trauma_type'),
         'chief_complaints': record.get('chief_complaints', []),
@@ -1277,7 +1274,6 @@ class EncounterCreateRequest(BaseModel):
     """Request model for creating an encounter record."""
     id: str = Field(..., description="Unique identifier for the encounter (UUID).")
     clientId: Optional[str] = Field(None, description="Client identifier (optional - will use authenticated client if not provided).")
-    patientId: str = Field(..., description="Patient identifier (UUID). Required.")
     encounterId: str = Field(..., description="Encounter identifier (UUID).")
     emrId: Optional[str] = Field(None, description="EMR identifier for the patient (links encounter to patient EMR record).")
     traumaType: Optional[str] = Field(None, description="Type of trauma (e.g., 'BURN').")
@@ -1303,7 +1299,6 @@ class EncounterResponse(BaseModel):
     id: str = Field(..., description="Unique identifier for the encounter (UUID).")
     encounter_id: str = Field(..., description="Encounter identifier (UUID).")
     client_id: str = Field(..., description="Client identifier (may include prefix like 'Stage-' or 'Prod-').")
-    patient_id: str = Field(..., description="Patient identifier (UUID).")
     emr_id: Optional[str] = Field(None, description="EMR identifier for the patient.")
     trauma_type: Optional[str] = Field(None, description="Type of trauma.")
     chief_complaints: List[Dict[str, Any]] = Field(default_factory=list, description="List of chief complaints.")
@@ -1899,7 +1894,6 @@ async def create_encounter(
     
     **Required fields:**
     - `id` or `encounter_id`: Unique identifier for the encounter (UUID)
-    - `patientId` or `patient_id`: Patient identifier (UUID) - **REQUIRED**
     - `encounterId` or `encounter_id`: Encounter identifier (UUID)
     - `chiefComplaints` or `chief_complaints`: List of chief complaint objects - **REQUIRED (at least one complaint)**
     
@@ -1948,7 +1942,6 @@ async def create_encounter(
         
         # Extract required fields from parsed_payload
         encounter_id = parsed_payload.get('encounter_id')
-        patient_id = parsed_payload.get('patient_id')
         client_id = parsed_payload.get('client_id')
         id_value = parsed_payload.get('id') or encounter_id
         
@@ -1957,12 +1950,6 @@ async def create_encounter(
             raise HTTPException(
                 status_code=400,
                 detail="encounter_id is required. Please provide an encounter identifier."
-            )
-        
-        if not patient_id:
-            raise HTTPException(
-                status_code=400,
-                detail="patient_id is required. Please provide a patient identifier."
             )
         
         # Use authenticated client_id if not provided in payload
@@ -1995,7 +1982,6 @@ async def create_encounter(
             'id': id_value,
             'encounter_id': encounter_id,
             'client_id': client_id,
-            'patient_id': patient_id,
             'emr_id': parsed_payload.get('emr_id'),
             'trauma_type': parsed_payload.get('trauma_type'),
             'chief_complaints': chief_complaints,

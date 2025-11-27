@@ -23,7 +23,6 @@ def parse_encounter_payload(raw_json: Dict[str, Any]) -> Dict[str, Any]:
             "id": str,
             "encounter_id": str,
             "client_id": str,
-            "patient_id": str,
             "emr_id": Optional[str],
             "trauma_type": Optional[str],
             "chief_complaints": List[Dict],
@@ -59,9 +58,6 @@ def parse_encounter_payload(raw_json: Dict[str, Any]) -> Dict[str, Any]:
     
     # Extract client_id
     client_id_value = get_field('client_id', 'clientId')
-    
-    # Extract patient_id
-    patient_id_value = get_field('patient_id', 'patientId')
     
     # Extract emr_id
     emr_id_value = get_field('emr_id', 'emrId')
@@ -99,7 +95,6 @@ def parse_encounter_payload(raw_json: Dict[str, Any]) -> Dict[str, Any]:
         "id": id_value,
         "encounter_id": encounter_id_value,
         "client_id": client_id_value,
-        "patient_id": patient_id_value,
         "emr_id": emr_id_value,
         "trauma_type": trauma_type_value,
         "chief_complaints": chief_complaints_value,
@@ -118,7 +113,7 @@ def parse_encounter_payload(raw_json: Dict[str, Any]) -> Dict[str, Any]:
     }
     
     # Ensure required fields are present (validation happens in the endpoint)
-    # But we need at least id, encounter_id, client_id, patient_id for the structure
+    # But we need at least id, encounter_id, client_id for the structure
     return parsed_payload
 
 
@@ -136,7 +131,6 @@ def validate_encounter_payload(parsed_payload: Dict[str, Any]) -> Tuple[bool, Op
     # Note: client_id is optional - can be provided via HMAC authentication
     required_fields = {
         'encounter_id': 'encounter_id',
-        'patient_id': 'patient_id',
         # 'client_id': 'client_id',  # Optional - can come from authenticated client
     }
     
