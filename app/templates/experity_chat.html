@@ -614,11 +614,12 @@
             const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
             // Serialize body for hashing - MUST match exactly what gets sent
-            // JavaScript's JSON.stringify() by default produces compact JSON (no spaces)
+            // Use compact JSON (no spaces) to match server expectations exactly
             // This matches Python's json.dumps(body, separators=(',', ':'))
+            // CRITICAL: This exact string will be used for both hashing AND sending
             const bodyString = JSON.stringify(requestBody);
 
-            // Generate HMAC signature
+            // Generate HMAC signature using the exact body string
             const signature = generateHMAC(method, path, timestamp, bodyString, hmacSecret);
 
             // Debug: Calculate body hash to show in headers (for debugging)
@@ -648,7 +649,9 @@
             responseDisplay.textContent = 'Processing request...';
 
             try {
-                // Send the exact same bodyString that was used for hashing
+                // CRITICAL: Send the exact same bodyString that was used for hashing
+                // We pass bodyString directly (not JSON.stringify again) to ensure
+                // the server receives exactly what we hashed
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: {
@@ -656,7 +659,7 @@
                         'X-Timestamp': timestamp,
                         'X-Signature': signature
                     },
-                    body: bodyString  // Must be exact same string used for hash
+                    body: bodyString  // Exact same string used for HMAC hash calculation
                 });
 
                 const responseText = await response.text();
