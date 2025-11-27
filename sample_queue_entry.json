@@ -1,0 +1,37 @@
+{
+  "queue_entry": {
+    "queue_id": "a1b2c3d4-e5f6-4789-a012-345678901234",
+    "encounter_id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+    "emr_id": "EMR-2025-001234",
+    "status": "PENDING",
+    "raw_payload": {
+      "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+      "encounter_id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+      "client_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+      "patient_id": "d1e2f3a4-b5c6-7890-1234-567890123456",
+      "trauma_type": "BURN",
+      "chief_complaints": [
+        {
+          "id": "09b5349d-d7c2-4506-9705-b5cc12947b6b",
+          "description": "Chemical burn on head",
+          "type": "trauma",
+          "part": "head",
+          "bodyParts": ["head", "forehead"]
+        },
+        {
+          "id": "726c47ab-a7d9-4836-a7a0-b5e99fc13ac7",
+          "description": "Burn injury to face",
+          "type": "trauma",
+          "part": "head",
+          "bodyParts": ["face", "forehead"]
+        }
+      ],
+      "status": "COMPLETE",
+      "created_by": "randall.meeker@intellivisit.com",
+      "started_at": "2025-11-12T22:19:01.432Z",
+      "created_at": "2025-11-12T22:19:01.432Z",
+      "updated_at": "2025-11-12T22:19:01.432Z"
+    }
+  }
+}
+

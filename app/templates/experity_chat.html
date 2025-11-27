@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Experity Mapper - Chat UI</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 40px);
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 24px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .header .subtitle {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-top: 4px;
+        }
+
+        .config-section {
+            padding: 20px 32px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .config-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .config-group label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #495057;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .config-group input,
+        .config-group select {
+            padding: 10px 14px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .config-group input:focus,
+        .config-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .input-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #e9ecef;
+            padding: 24px;
+            overflow: hidden;
+        }
+
+        .output-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            background: #f8f9fa;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .panel-header h2 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #212529;
+        }
+
+        .upload-area {
+            border: 2px dashed #dee2e6;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 20px;
+            background: #f8f9fa;
+        }
+
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: #e7edff;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+
+        .upload-text {
+            color: #6c757d;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .upload-hint {
+            color: #adb5bd;
+            font-size: 12px;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .json-editor {
+            flex: 1;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 16px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            resize: none;
+            overflow-y: auto;
+            background: #ffffff;
+            color: #212529;
+        }
+
+        .json-editor:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .response-display {
+            flex: 1;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 16px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            overflow-y: auto;
+            background: #ffffff;
+            color: #212529;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .response-display.empty {
+            color: #adb5bd;
+            font-style: italic;
+        }
+
+        .response-display.success {
+            border-color: #28a745;
+            background: #f0fff4;
+        }
+
+        .response-display.error {
+            border-color: #dc3545;
+            background: #fff5f5;
+        }
+
+        .response-display.loading {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            flex: 1;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-indicator.idle {
+            background: #e9ecef;
+            color: #6c757d;
+        }
+
+        .status-indicator.loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-indicator.success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-indicator.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .spinner {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .file-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: #e7edff;
+            border-radius: 6px;
+            font-size: 12px;
+            color: #495057;
+            margin-bottom: 12px;
+        }
+
+        .file-info .remove {
+            cursor: pointer;
+            color: #dc3545;
+            font-weight: bold;
+            margin-left: auto;
+        }
+
+        .file-info .remove:hover {
+            color: #c82333;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                flex-direction: column;
+            }
+
+            .input-panel {
+                border-right: none;
+                border-bottom: 1px solid #e9ecef;
+            }
+
+            .config-section {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>Experity Mapper</h1>
+                <div class="subtitle">Convert Intellivisit queue entries to Experity actions via Azure AI</div>
+            </div>
+            <div class="status-indicator idle" id="statusIndicator">
+                <span>Ready</span>
+            </div>
+        </div>
+
+        <div class="config-section">
+            <div class="config-group">
+                <label for="apiUrl">API Endpoint</label>
+                <select id="apiUrl">
+                    <option value="https://app-97926.on-aptible.com/experity/map">Production</option>
+                    <option value="http://localhost:8000/experity/map">Localhost</option>
+                </select>
+            </div>
+            <div class="config-group">
+                <label for="hmacSecret">HMAC Secret</label>
+                <input type="password" id="hmacSecret" placeholder="Enter your HMAC secret key" />
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="input-panel">
+                <div class="panel-header">
+                    <h2>Input JSON</h2>
+                </div>
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <div class="upload-text">Click to upload or drag & drop JSON file</div>
+                    <div class="upload-hint">Supports .json files</div>
+                    <input type="file" id="fileInput" accept=".json" />
+                </div>
+                <div id="fileInfo" style="display: none;"></div>
+                <textarea 
+                    id="jsonEditor" 
+                    class="json-editor" 
+                    placeholder='Paste or upload JSON here. Example format:
+{
+  "queue_entry": {
+    "encounter_id": "uuid-here",
+    "raw_payload": { ... }
+  }
+}'
+                ></textarea>
+                <div class="button-group">
+                    <button class="btn btn-primary" id="sendBtn" onclick="sendRequest()">
+                        <span>Send Request</span>
+                    </button>
+                    <button class="btn btn-secondary" onclick="clearInput()">Clear</button>
+                </div>
+            </div>
+
+            <div class="output-panel">
+                <div class="panel-header">
+                    <h2>Response</h2>
+                </div>
+                <div id="responseDisplay" class="response-display empty">Response will appear here...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const uploadArea = document.getElementById('uploadArea');
+        const jsonEditor = document.getElementById('jsonEditor');
+        const responseDisplay = document.getElementById('responseDisplay');
+        const sendBtn = document.getElementById('sendBtn');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const fileInfo = document.getElementById('fileInfo');
+        const apiUrlSelect = document.getElementById('apiUrl');
+        const hmacSecretInput = document.getElementById('hmacSecret');
+
+        // Load saved HMAC secret from localStorage
+        const savedSecret = localStorage.getItem('hmacSecret');
+        if (savedSecret) {
+            hmacSecretInput.value = savedSecret;
+        }
+
+        // Save HMAC secret when changed
+        hmacSecretInput.addEventListener('input', () => {
+            localStorage.setItem('hmacSecret', hmacSecretInput.value);
+        });
+
+        // File upload handlers
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        function handleFile(file) {
+            if (!file.name.endsWith('.json')) {
+                alert('Please upload a JSON file');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const content = e.target.result;
+                    const json = JSON.parse(content);
+                    jsonEditor.value = JSON.stringify(json, null, 2);
+                    
+                    // Show file info
+                    fileInfo.innerHTML = `
+                        <span>📄 ${file.name}</span>
+                        <span class="remove" onclick="clearFile()">×</span>
+                    `;
+                    fileInfo.style.display = 'flex';
+                } catch (error) {
+                    alert('Invalid JSON file: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function clearFile() {
+            fileInput.value = '';
+            fileInfo.style.display = 'none';
+            jsonEditor.value = '';
+        }
+
+        function clearInput() {
+            clearFile();
+            responseDisplay.textContent = 'Response will appear here...';
+            responseDisplay.className = 'response-display empty';
+            updateStatus('idle', 'Ready');
+        }
+
+        function updateStatus(status, text) {
+            statusIndicator.className = `status-indicator ${status}`;
+            if (status === 'loading') {
+                statusIndicator.innerHTML = `<div class="spinner"></div><span>${text}</span>`;
+            } else {
+                statusIndicator.innerHTML = `<span>${text}</span>`;
+            }
+        }
+
+        function generateHMAC(method, path, timestamp, body, secret) {
+            // Calculate SHA256 hash of body (lowercase hex)
+            const bodyHash = CryptoJS.SHA256(body).toString(CryptoJS.enc.Hex).toLowerCase();
+            
+            // Create canonical string
+            const canonical = `${method}\n${path}\n${timestamp}\n${bodyHash}`;
+            
+            // Generate HMAC-SHA256 signature
+            const signature = CryptoJS.HmacSHA256(canonical, secret).toString(CryptoJS.enc.Base64);
+            
+            return signature;
+        }
+
+        async function sendRequest() {
+            const apiUrl = apiUrlSelect.value;
+            const hmacSecret = hmacSecretInput.value.trim();
+            const jsonText = jsonEditor.value.trim();
+
+            // Validation
+            if (!hmacSecret) {
+                alert('Please enter your HMAC secret');
+                return;
+            }
+
+            if (!jsonText) {
+                alert('Please provide JSON input');
+                return;
+            }
+
+            let requestBody;
+            try {
+                requestBody = JSON.parse(jsonText);
+            } catch (error) {
+                alert('Invalid JSON: ' + error.message);
+                return;
+            }
+
+            // Extract path from URL
+            const urlObj = new URL(apiUrl);
+            const path = urlObj.pathname;
+            const method = 'POST';
+
+            // Generate timestamp (ISO 8601 UTC)
+            const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+            // Serialize body for hashing
+            const bodyString = JSON.stringify(requestBody);
+
+            // Generate HMAC signature
+            const signature = generateHMAC(method, path, timestamp, bodyString, hmacSecret);
+
+            // Update UI
+            updateStatus('loading', 'Sending request...');
+            sendBtn.disabled = true;
+            responseDisplay.className = 'response-display loading';
+            responseDisplay.textContent = 'Processing request...';
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Timestamp': timestamp,
+                        'X-Signature': signature
+                    },
+                    body: bodyString
+                });
+
+                const responseText = await response.text();
+                let responseData;
+
+                try {
+                    responseData = JSON.parse(responseText);
+                } catch (e) {
+                    responseData = { raw: responseText };
+                }
+
+                if (response.ok) {
+                    responseDisplay.className = 'response-display success';
+                    responseDisplay.textContent = JSON.stringify(responseData, null, 2);
+                    updateStatus('success', `Success (${response.status})`);
+                } else {
+                    responseDisplay.className = 'response-display error';
+                    responseDisplay.textContent = `Error ${response.status}: ${response.statusText}\n\n${JSON.stringify(responseData, null, 2)}`;
+                    updateStatus('error', `Error (${response.status})`);
+                }
+            } catch (error) {
+                responseDisplay.className = 'response-display error';
+                responseDisplay.textContent = `Network Error: ${error.message}`;
+                updateStatus('error', 'Network Error');
+            } finally {
+                sendBtn.disabled = false;
+            }
+        }
+
+        // Allow Enter+Ctrl/Cmd to send
+        jsonEditor.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                sendRequest();
+            }
+        });
+    </script>
+</body>
+</html>
+

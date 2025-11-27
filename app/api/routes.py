@@ -1523,6 +1523,33 @@ async def root(
 
 
 @app.get(
+    "/experity/chat",
+    tags=["Dashboard"],
+    summary="Experity Mapper Chat UI",
+    response_class=HTMLResponse,
+    responses={
+        200: {
+            "content": {"text/html": {"example": "<!-- Experity Mapper Chat UI -->"}},
+            "description": "Interactive chat UI for mapping queue entries to Experity actions.",
+        },
+    },
+)
+async def experity_chat_ui(request: Request):
+    """
+    Render the Experity Mapper Chat UI.
+    
+    This page provides an interactive interface to:
+    - Upload JSON queue entries
+    - Send requests to the /experity/map endpoint
+    - View responses with Experity actions
+    """
+    return templates.TemplateResponse(
+        "experity_chat.html",
+        {"request": request},
+    )
+
+
+@app.get(
     "/patient/{emr_id}",
     tags=["Patients"],
     summary="Get latest patient record by EMR ID",
