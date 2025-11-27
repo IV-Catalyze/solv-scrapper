@@ -561,11 +561,16 @@
         }
 
         function generateHMAC(method, path, timestamp, body, secret) {
+            // Ensure method is uppercase (server expects uppercase)
+            const methodUpper = method.toUpperCase();
+            
             // Calculate SHA256 hash of body (lowercase hex)
+            // Body must be the exact string that will be sent
             const bodyHash = CryptoJS.SHA256(body).toString(CryptoJS.enc.Hex).toLowerCase();
             
-            // Create canonical string
-            const canonical = `${method}\n${path}\n${timestamp}\n${bodyHash}`;
+            // Create canonical string - MUST match server format exactly
+            // Format: METHOD + "\n" + PATH + "\n" + TIMESTAMP + "\n" + BODY_HASH
+            const canonical = `${methodUpper}\n${path}\n${timestamp}\n${bodyHash}`;
             
             // Generate HMAC-SHA256 signature
             const signature = CryptoJS.HmacSHA256(canonical, secret).toString(CryptoJS.enc.Base64);
@@ -596,15 +601,21 @@
                 return;
             }
 
-            // Extract path from URL
+            // Extract path from URL (exactly as server expects - no trailing slash)
             const urlObj = new URL(API_URL);
-            const path = urlObj.pathname;
+            let path = urlObj.pathname;
+            // Remove trailing slash if present (except for root path)
+            if (path !== '/' && path.endsWith('/')) {
+                path = path.slice(0, -1);
+            }
             const method = 'POST';
 
             // Generate timestamp (ISO 8601 UTC)
             const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-            // Serialize body for hashing
+            // Serialize body for hashing - MUST match exactly what gets sent
+            // JavaScript's JSON.stringify() by default produces compact JSON (no spaces)
+            // This matches Python's json.dumps(body, separators=(',', ':'))
             const bodyString = JSON.stringify(requestBody);
 
             // Generate HMAC signature
@@ -623,6 +634,7 @@
             responseDisplay.textContent = 'Processing request...';
 
             try {
+                // Send the exact same bodyString that was used for hashing
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: {
@@ -630,7 +642,7 @@
                         'X-Timestamp': timestamp,
                         'X-Signature': signature
                     },
-                    body: bodyString
+                    body: bodyString  // Must be exact same string used for hash
                 });
 
                 const responseText = await response.text();
