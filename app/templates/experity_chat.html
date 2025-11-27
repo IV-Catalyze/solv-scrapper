@@ -640,6 +640,9 @@
             console.log('Body string length:', bodyString.length);
             console.log('Body hash:', bodyHash);
             console.log('Canonical string:', canonical);
+            console.log('HMAC Secret (first 20 chars):', hmacSecret.substring(0, 20) + '...');
+            console.log('Expected secret starts with (Staging): 3SaxUjALPb0Ko8Lw-_');
+            console.log('Expected secret starts with (Production): PsGktLSZFQ0U3jhBAgV');
             console.log('Signature:', signature);
 
             // Update UI
@@ -675,6 +678,19 @@
                     responseDisplay.className = 'response-display success';
                     responseDisplay.textContent = JSON.stringify(responseData, null, 2);
                     updateStatus('success', `Success (${response.status})`);
+                } else if (response.status === 401) {
+                    responseDisplay.className = 'response-display error';
+                    let errorMsg = `Error ${response.status}: Authentication Failed\n\n`;
+                    errorMsg += JSON.stringify(responseData, null, 2) + '\n\n';
+                    errorMsg += 'Troubleshooting:\n';
+                    errorMsg += '1. Verify you entered the correct HMAC secret\n';
+                    errorMsg += '   - Staging: 3SaxUjALPb0Ko8Lw-_eUFvNBPjlZWpGVGqJVS7e1BbM\n';
+                    errorMsg += '   - Check console for secret prefix verification\n';
+                    errorMsg += '2. Make sure timestamp is current (within 5 minutes)\n';
+                    errorMsg += '3. Verify the JSON body is valid\n';
+                    errorMsg += '4. Check console for HMAC debug information';
+                    responseDisplay.textContent = errorMsg;
+                    updateStatus('error', `Error (${response.status})`);
                 } else {
                     responseDisplay.className = 'response-display error';
                     responseDisplay.textContent = `Error ${response.status}: ${response.statusText}\n\n${JSON.stringify(responseData, null, 2)}`;
