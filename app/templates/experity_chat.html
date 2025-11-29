@@ -415,6 +415,9 @@
             <div class="input-panel">
                 <div class="panel-header">
                     <h2>Input JSON</h2>
+                    <button class="btn-example" onclick="openExampleModal()" title="View example JSON">
+                        📋 Example
+                    </button>
                 </div>
                 <div class="upload-area" id="uploadArea">
                     <div class="upload-icon">📁</div>
@@ -455,6 +458,29 @@
                     </div>
                 </div>
                 <div id="responseDisplay" class="response-display empty">Response will appear here...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Example JSON Modal -->
+    <div id="exampleModal" class="modal" onclick="closeExampleModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2>Example JSON</h2>
+                <span class="modal-close" onclick="closeExampleModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 10px; color: #6c757d;">Copy this example JSON to test the endpoint:</p>
+                <div class="example-json-container">
+                    <pre id="exampleJsonCode" class="example-json-code"></pre>
+                    <button class="btn-copy" onclick="copyExampleJson()" title="Copy to clipboard">
+                        📋 Copy JSON
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="useExampleJson()">Use This Example</button>
+                <button class="btn btn-secondary" onclick="closeExampleModal()">Close</button>
             </div>
         </div>
     </div>
@@ -696,6 +722,107 @@
         jsonEditor.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 sendRequest();
+            }
+        });
+
+        // Example JSON modal functions
+        const exampleJson = {
+            "queue_entry": {
+                "queue_id": "a1b2c3d4-e5f6-4789-a012-345678901234",
+                "encounter_id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+                "emr_id": "EMR-2025-001234",
+                "status": "PENDING",
+                "raw_payload": {
+                    "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+                    "encounter_id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+                    "client_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                    "patient_id": "d1e2f3a4-b5c6-7890-1234-567890123456",
+                    "trauma_type": "BURN",
+                    "chief_complaints": [
+                        {
+                            "id": "09b5349d-d7c2-4506-9705-b5cc12947b6b",
+                            "description": "Chemical burn on head",
+                            "type": "trauma",
+                            "part": "head",
+                            "bodyParts": ["head", "forehead"]
+                        },
+                        {
+                            "id": "726c47ab-a7d9-4836-a7a0-b5e99fc13ac7",
+                            "description": "Burn injury to face",
+                            "type": "trauma",
+                            "part": "head",
+                            "bodyParts": ["face", "forehead"]
+                        }
+                    ],
+                    "status": "COMPLETE",
+                    "created_by": "randall.meeker@intellivisit.com",
+                    "started_at": "2025-11-12T22:19:01.432Z",
+                    "created_at": "2025-11-12T22:19:01.432Z",
+                    "updated_at": "2025-11-12T22:19:01.432Z"
+                }
+            }
+        };
+
+        function openExampleModal() {
+            const modal = document.getElementById('exampleModal');
+            const codeElement = document.getElementById('exampleJsonCode');
+            
+            // Display formatted JSON
+            codeElement.textContent = JSON.stringify(exampleJson, null, 2);
+            
+            // Show modal
+            modal.classList.add('show');
+        }
+
+        function closeExampleModal(event) {
+            // If event is provided, only close if clicking on backdrop
+            if (event && event.target.id !== 'exampleModal') {
+                return;
+            }
+            
+            const modal = document.getElementById('exampleModal');
+            modal.classList.remove('show');
+        }
+
+        function copyExampleJson() {
+            const codeElement = document.getElementById('exampleJsonCode');
+            const copyBtn = event.target;
+            
+            // Copy to clipboard
+            navigator.clipboard.writeText(JSON.stringify(exampleJson, null, 2)).then(() => {
+                // Show feedback
+                const originalText = copyBtn.textContent;
+                copyBtn.textContent = '✅ Copied!';
+                copyBtn.classList.add('copied');
+                
+                setTimeout(() => {
+                    copyBtn.textContent = originalText;
+                    copyBtn.classList.remove('copied');
+                }, 2000);
+            }).catch(err => {
+                alert('Failed to copy: ' + err);
+            });
+        }
+
+        function useExampleJson() {
+            // Insert example JSON into the editor
+            jsonEditor.value = JSON.stringify(exampleJson, null, 2);
+            
+            // Close modal
+            closeExampleModal();
+            
+            // Scroll to editor
+            jsonEditor.focus();
+            jsonEditor.scrollTop = 0;
+        }
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('exampleModal');
+                if (modal.classList.contains('show')) {
+                    closeExampleModal();
+                }
             }
         });
     </script>
