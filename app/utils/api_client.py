@@ -2,8 +2,12 @@ import json
 import logging
 import os
 import threading
-from datetime import datetime, timedelta
+import hmac
+import hashlib
+import base64
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Set
+from urllib.parse import urlparse
 
 try:
     import httpx
@@ -33,6 +37,88 @@ _cached_token: Optional[str] = None
 _token_expires_at: Optional[datetime] = None
 _token_lock = threading.Lock()
 _patch_endpoint_available = True
+
+
+def _get_hmac_secret() -> Optional[str]:
+    """
+    Get HMAC secret key from environment variables.
+    Prefers explicit HMAC_SECRET, then checks staging/production based on API_URL.
+    
+    Returns:
+        HMAC secret key string or None if not found
+    """
+    # Check for explicit HMAC secret
+    explicit_secret = os.getenv("HMAC_SECRET") or os.getenv("SOLV_HMAC_SECRET")
+    if explicit_secret:
+        return explicit_secret
+    
+    # Check for staging/production specific secrets
+    staging_secret = os.getenv("INTELLIVISIT_STAGING_HMAC_SECRET")
+    production_secret = os.getenv("INTELLIVISIT_PRODUCTION_HMAC_SECRET")
+    
+    # Determine which one to use based on API_URL or default to staging
+    api_url = os.getenv("API_URL", "")
+    if "staging" in api_url.lower() or not production_secret:
+        return staging_secret
+    else:
+        return production_secret or staging_secret
+
+
+def _generate_hmac_headers(method: str, path: str, body: Any, secret_key: str) -> Dict[str, str]:
+    """
+    Generate HMAC authentication headers for a request.
+    
+    Args:
+        method: HTTP method (GET, POST, etc.)
+        path: Request path (with query string if applicable)
+        body: Request body (dict, str, or bytes). For GET requests, use None or empty dict.
+        secret_key: HMAC secret key
+        
+    Returns:
+        Dictionary with X-Timestamp and X-Signature headers
+    """
+    # Generate timestamp
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    # Convert body to bytes
+    if method.upper() == "GET":
+        body_bytes = b''
+    elif isinstance(body, dict):
+        body_str = json.dumps(body)
+        body_bytes = body_str.encode('utf-8')
+    elif isinstance(body, str):
+        body_bytes = body.encode('utf-8')
+    elif isinstance(body, bytes):
+        body_bytes = body
+    elif body is None:
+        body_bytes = b''
+    else:
+        body_bytes = b''
+    
+    # Calculate body hash
+    body_hash = hashlib.sha256(body_bytes).hexdigest()
+    
+    # Create canonical string
+    canonical = f"{method.upper()}\n{path}\n{timestamp}\n{body_hash}"
+    
+    # Generate HMAC signature
+    signature = hmac.new(
+        secret_key.encode('utf-8'),
+        canonical.encode('utf-8'),
+        hashlib.sha256
+    ).digest()
+    signature_b64 = base64.b64encode(signature).decode('utf-8')
+    
+    headers = {
+        "X-Timestamp": timestamp,
+        "X-Signature": signature_b64
+    }
+    
+    # Only add Content-Type for requests with body
+    if method.upper() in ["POST", "PUT", "PATCH"] and body_bytes:
+        headers["Content-Type"] = "application/json"
+    
+    return headers
 
 
 def _resolve_default_client_id() -> str:
@@ -232,26 +318,18 @@ async def send_patient_to_api(patient_data: Dict[str, Any]) -> bool:
     api_url = api_base_url + "/patients/create"
     logger.info("Sending to production API: %s", api_url)
 
-    api_key = os.getenv("API_KEY")
-    api_token = os.getenv("API_TOKEN")
-
-    headers: Dict[str, str] = {"Content-Type": "application/json"}
-
-    if api_key:
-        headers["X-API-Key"] = api_key
-        logger.info("Using API key authentication")
-    elif api_token:
-        headers["Authorization"] = f"Bearer {api_token}"
-        logger.info("Using provided API token")
-    else:
-        logger.info("No API_TOKEN or API_KEY set - automatically fetching token...")
-        auto_token = await get_api_token(api_base_url)
-        if auto_token:
-            headers["Authorization"] = f"Bearer {auto_token}"
-            logger.info("Using auto-fetched API token")
-        else:
-            logger.warning("Failed to get API token - request may fail with 401")
-
+    # Use HMAC authentication
+    hmac_secret = _get_hmac_secret()
+    if not hmac_secret:
+        logger.error("HMAC secret key not found. Set HMAC_SECRET, INTELLIVISIT_STAGING_HMAC_SECRET, or INTELLIVISIT_PRODUCTION_HMAC_SECRET")
+        return False
+    
+    # Extract path from URL for HMAC signature
+    parsed_url = urlparse(api_url)
+    path = parsed_url.path
+    if parsed_url.query:
+        path += f"?{parsed_url.query}"
+    
     api_payload = {
         "emr_id": patient_data.get("emr_id") or "",
         "booking_id": patient_data.get("booking_id") or "",
@@ -271,6 +349,10 @@ async def send_patient_to_api(patient_data: Dict[str, Any]) -> bool:
 
     api_payload = {k: v if v else None for k, v in api_payload.items()}
 
+    # Generate HMAC headers for authentication
+    headers = _generate_hmac_headers("POST", path, api_payload, hmac_secret)
+    logger.info("Using HMAC authentication")
+
     logger.debug("API Request URL: %s", api_url)
     logger.debug("API Request payload: %s", json.dumps(api_payload, default=str))
     logger.debug("API Request headers: %s", json.dumps(headers))
@@ -282,46 +364,14 @@ async def send_patient_to_api(patient_data: Dict[str, Any]) -> bool:
             logger.info("Response received from patient API: %s", response.status_code)
 
             if response.status_code == 401:
-                if api_key:
-                    error_detail: Any = response.text
-                    try:
-                        error_json = response.json()
-                        error_detail = error_json.get("detail", error_detail)
-                    except Exception:
-                        pass
-                    logger.warning("API returned 401 with API_KEY: %s", error_detail)
-                    return False
-
-                logger.info("Got 401 - token expired or invalid, refreshing token...")
-                global _cached_token, _token_expires_at
-                with _token_lock:
-                    _cached_token = None
-                    _token_expires_at = None
-
-                fresh_token = await get_api_token(api_base_url, force_refresh=True)
-                if fresh_token:
-                    headers["Authorization"] = f"Bearer {fresh_token}"
-                    logger.info("Retrying request with fresh token...")
-                    response = await client.post(api_url, json=api_payload, headers=headers)
-                    logger.info("Retry response status: %s", response.status_code)
-                    if response.status_code == 401:
-                        error_detail = response.text
-                        try:
-                            error_json = response.json()
-                            error_detail = error_json.get("detail", error_detail)
-                        except Exception:
-                            pass
-                        logger.error("API still returned 401 after token refresh: %s", error_detail)
-                        return False
-                else:
-                    error_detail = response.text
-                    try:
-                        error_json = response.json()
-                        error_detail = error_json.get("detail", error_detail)
-                    except Exception:
-                        pass
-                    logger.error("API returned 401 and token refresh failed: %s", error_detail)
-                    return False
+                error_detail: Any = response.text
+                try:
+                    error_json = response.json()
+                    error_detail = error_json.get("detail", error_detail)
+                except Exception:
+                    pass
+                logger.error("API returned 401: %s", error_detail)
+                return False
 
             if response.status_code in [200, 201]:
                 result = response.json()
@@ -418,25 +468,23 @@ async def send_patch_status_update(emr_id: str, status: str) -> bool:
     api_url = f"{api_base_url}/patients/{emr_id_clean}"
     logger.info("Sending PATCH status update to: %s", api_url)
 
-    api_key = os.getenv("API_KEY")
-    api_token = os.getenv("API_TOKEN")
-
-    headers: Dict[str, str] = {"Content-Type": "application/json"}
-
-    if api_key:
-        headers["X-API-Key"] = api_key
-        logger.debug("Using API key authentication")
-    else:
-        if not api_token:
-            token = await get_api_token(api_base_url)
-            api_token = token or ""
-        if api_token:
-            headers["Authorization"] = f"Bearer {api_token}"
-            logger.debug("Using API token authentication")
-        else:
-            logger.warning("No authentication available for PATCH request")
+    # Use HMAC authentication
+    hmac_secret = _get_hmac_secret()
+    if not hmac_secret:
+        logger.error("HMAC secret key not found. Set HMAC_SECRET, INTELLIVISIT_STAGING_HMAC_SECRET, or INTELLIVISIT_PRODUCTION_HMAC_SECRET")
+        return False
+    
+    # Extract path from URL for HMAC signature
+    parsed_url = urlparse(api_url)
+    path = parsed_url.path
+    if parsed_url.query:
+        path += f"?{parsed_url.query}"
 
     patch_payload = {"status": normalized_status}
+
+    # Generate HMAC headers for authentication
+    headers = _generate_hmac_headers("PATCH", path, patch_payload, hmac_secret)
+    logger.info("Using HMAC authentication for PATCH request")
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:  # type: ignore[attr-defined]
@@ -445,19 +493,13 @@ async def send_patch_status_update(emr_id: str, status: str) -> bool:
             logger.info("PATCH response status: %s", response.status_code)
 
             if response.status_code == 401:
-                # Try refreshing token if we used auto-fetch
-                if not api_key and api_token:
-                    logger.info("Got 401 - refreshing token and retrying...")
-                    global _cached_token, _token_expires_at
-                    with _token_lock:
-                        _cached_token = None
-                        _token_expires_at = None
-
-                    fresh_token = await get_api_token(api_base_url, force_refresh=True)
-                    if fresh_token:
-                        headers["Authorization"] = f"Bearer {fresh_token}"
-                        response = await client.patch(api_url, json=patch_payload, headers=headers)
-                        logger.info("Retry PATCH response status: %s", response.status_code)
+                error_detail: Any = response.text
+                try:
+                    error_json = response.json()
+                    error_detail = error_json.get("detail", error_detail)
+                except Exception:
+                    pass
+                logger.error("PATCH request returned 401: %s", error_detail)
 
             if response.status_code == 404:
                 # Endpoint not deployed on remote API. Disable future attempts to avoid noise.
