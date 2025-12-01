@@ -1,0 +1,4 @@
+"""
+Summary endpoint tests.
+"""
+

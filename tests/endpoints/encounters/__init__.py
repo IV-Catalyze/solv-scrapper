@@ -1,0 +1,4 @@
+"""
+Encounter endpoint tests.
+"""
+

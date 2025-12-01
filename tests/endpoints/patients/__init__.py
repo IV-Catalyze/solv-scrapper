@@ -1,0 +1,4 @@
+"""
+Patient endpoint tests.
+"""
+
