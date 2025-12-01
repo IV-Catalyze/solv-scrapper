@@ -207,7 +207,7 @@ class TestUpdateQueueExperityAction:
                     path2 = "/queue"
                     body = {
                         "queue_id": queue_id,
-                        "experityAction": sample_experity_action
+                        "experityAction": [sample_experity_action]  # Must be array
                     }
                     headers2 = hmac_headers("POST", path2, body)
                     update_response = client.post(path2, json=body, headers=headers2)
@@ -236,7 +236,7 @@ class TestUpdateQueueExperityAction:
                     path2 = "/queue"
                     body = {
                         "encounter_id": encounter_id,
-                        "experityAction": sample_experity_action
+                        "experityAction": [sample_experity_action]  # Must be array
                     }
                     headers2 = hmac_headers("POST", path2, body)
                     update_response = client.post(path2, json=body, headers=headers2)
@@ -293,7 +293,7 @@ class TestUpdateQueueExperityAction:
         path = "/queue"
         body = {
             "queue_id": fake_queue_id,
-            "experityAction": sample_experity_action
+            "experityAction": [sample_experity_action]  # Must be array
         }
         headers = hmac_headers("POST", path, body)
         
@@ -305,7 +305,7 @@ class TestUpdateQueueExperityAction:
         fake_queue_id = str(uuid.uuid4())
         body = {
             "queue_id": fake_queue_id,
-            "experityAction": sample_experity_action
+            "experityAction": [sample_experity_action]  # Must be array
         }
         response = client.post("/queue", json=body)
         # Should require auth

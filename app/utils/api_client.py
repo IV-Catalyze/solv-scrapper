@@ -349,18 +349,24 @@ async def send_patient_to_api(patient_data: Dict[str, Any]) -> bool:
 
     api_payload = {k: v if v else None for k, v in api_payload.items()}
 
-    # Generate HMAC headers for authentication
-    headers = _generate_hmac_headers("POST", path, api_payload, hmac_secret)
+    # Serialize JSON body ourselves to ensure consistency between HMAC and request
+    # Use separators to ensure compact JSON (no extra spaces)
+    body_json_str = json.dumps(api_payload, separators=(',', ':'))
+    body_bytes = body_json_str.encode('utf-8')
+
+    # Generate HMAC headers using the exact body bytes we'll send
+    headers = _generate_hmac_headers("POST", path, body_bytes, hmac_secret)
     logger.info("Using HMAC authentication")
 
     logger.debug("API Request URL: %s", api_url)
-    logger.debug("API Request payload: %s", json.dumps(api_payload, default=str))
+    logger.debug("API Request payload: %s", body_json_str)
     logger.debug("API Request headers: %s", json.dumps(headers))
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:  # type: ignore[attr-defined]
             logger.info("Sending HTTP request to patient API...")
-            response = await client.post(api_url, json=api_payload, headers=headers)
+            # Send raw body bytes to ensure exact match with HMAC signature
+            response = await client.post(api_url, content=body_bytes, headers=headers)
             logger.info("Response received from patient API: %s", response.status_code)
 
             if response.status_code == 401:
@@ -482,14 +488,20 @@ async def send_patch_status_update(emr_id: str, status: str) -> bool:
 
     patch_payload = {"status": normalized_status}
 
-    # Generate HMAC headers for authentication
-    headers = _generate_hmac_headers("PATCH", path, patch_payload, hmac_secret)
+    # Serialize JSON body ourselves to ensure consistency between HMAC and request
+    # Use separators to ensure compact JSON (no extra spaces)
+    body_json_str = json.dumps(patch_payload, separators=(',', ':'))
+    body_bytes = body_json_str.encode('utf-8')
+
+    # Generate HMAC headers using the exact body bytes we'll send
+    headers = _generate_hmac_headers("PATCH", path, body_bytes, hmac_secret)
     logger.info("Using HMAC authentication for PATCH request")
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:  # type: ignore[attr-defined]
-            logger.debug("Sending PATCH request: %s", json.dumps(patch_payload))
-            response = await client.patch(api_url, json=patch_payload, headers=headers)
+            logger.debug("Sending PATCH request: %s", body_json_str)
+            # Send raw body bytes to ensure exact match with HMAC signature
+            response = await client.patch(api_url, content=body_bytes, headers=headers)
             logger.info("PATCH response status: %s", response.status_code)
 
             if response.status_code == 401:
