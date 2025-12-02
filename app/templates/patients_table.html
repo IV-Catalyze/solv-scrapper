@@ -174,6 +174,67 @@
             color: var(--accent);
         }
 
+        .search-input {
+            font: inherit;
+            padding: 0.55rem 1rem;
+            padding-left: 2.75rem;
+            border-radius: 8px;
+            border: 1px solid var(--field-border);
+            background: var(--field-bg);
+            color: var(--text);
+            min-width: 280px;
+            transition: all 0.2s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+
+        .search-wrapper {
+            position: relative;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 0.85rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted);
+            font-size: 1rem;
+            pointer-events: none;
+        }
+
+        .search-clear {
+            position: absolute;
+            right: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 0.25rem;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            width: 1.5rem;
+            height: 1.5rem;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+        }
+
+        .search-clear:hover {
+            background: var(--accent-soft);
+            color: var(--accent);
+        }
+
+        .search-wrapper:has(input:not(:placeholder-shown)) .search-clear {
+            display: flex;
+        }
+
         .actions {
             margin-left: auto;
             display: flex;
@@ -357,6 +418,70 @@
             font-size: 1rem;
         }
 
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            margin: 2rem 0 1rem;
+            padding: 1.5rem;
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--soft-shadow);
+        }
+
+        .pagination-info {
+            color: var(--muted);
+            font-size: 0.9rem;
+            margin-right: 1rem;
+        }
+
+        .pagination-controls {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .pagination-btn {
+            font: inherit;
+            padding: 0.5rem 0.9rem;
+            border-radius: 8px;
+            border: 1px solid var(--field-border);
+            background: var(--field-bg);
+            color: var(--text);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .pagination-btn:hover:not(:disabled):not(.active) {
+            border-color: var(--accent);
+            background: var(--accent-soft);
+            color: var(--accent);
+            transform: translateY(-1px);
+        }
+
+        .pagination-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination-btn.active {
+            background: var(--accent);
+            color: #ffffff;
+            border-color: var(--accent);
+            font-weight: 600;
+        }
+
+        .pagination-ellipsis {
+            padding: 0.5rem 0.3rem;
+            color: var(--muted);
+        }
+
         .footer-note {
             margin-top: 1.75rem;
             color: var(--muted);
@@ -403,9 +528,13 @@
             <h1>Patient Queue</h1>
             <div class="hero__meta">
                 <span class="pill">{{ location_label }}</span>
-                <span>{{ patients|length }} record{{ patients|length != 1 and 's' or '' }}</span>
-                {% if limit %}
-                    <span>Showing up to {{ limit }} results</span>
+                {% if total_count is defined %}
+                    <span>{{ total_count }} record{{ total_count != 1 and 's' or '' }}</span>
+                    {% if total_pages and total_pages > 1 %}
+                        <span>Page {{ page }} of {{ total_pages }}</span>
+                    {% endif %}
+                {% else %}
+                    <span>{{ patients|length }} record{{ patients|length != 1 and 's' or '' }}</span>
                 {% endif %}
             </div>
         </div>
@@ -454,13 +583,30 @@
             </div>
         </div>
 
-        {% if limit %}
-            <input type="hidden" name="limit" value="{{ limit }}">
-        {% endif %}
+        <div class="filter-group">
+            <label for="searchInput">Search</label>
+            <div class="search-wrapper">
+                <span class="search-icon">🔍</span>
+                <input
+                    type="text"
+                    id="searchInput"
+                    name="search"
+                    class="search-input"
+                    placeholder="Search by name, EMR ID, or phone..."
+                    value="{{ search or '' }}"
+                >
+                {% if search %}
+                    <button type="button" class="search-clear" id="searchClear" aria-label="Clear search">×</button>
+                {% endif %}
+            </div>
+        </div>
+
+        <input type="hidden" name="page" value="1" id="pageInput">
+        <input type="hidden" name="page_size" value="{{ page_size or 25 }}">
 
         <div class="actions">
             <button type="submit">Apply Filters</button>
-            {% if location_id %}
+            {% if location_id or search %}
                 <a class="reset-link" href="{{ request.url.path }}">Reset</a>
             {% endif %}
         </div>
@@ -552,10 +698,80 @@
             </table>
         {% else %}
             <div class="empty-state">
-                No patients match the current filters. Try selecting a different location.
+                {% if search %}
+                    No patients found matching "{{ search }}". Try adjusting your search terms or filters.
+                {% else %}
+                    No patients match the current filters. Try selecting a different location.
+                {% endif %}
             </div>
         {% endif %}
     </section>
+
+    {% if total_pages and total_pages > 1 %}
+        <div class="pagination">
+            <div class="pagination-info">
+                Showing {{ ((page - 1) * page_size) + 1 }} - {{ [page * page_size, total_count] | min }} of {{ total_count }} patients
+            </div>
+            <div class="pagination-controls">
+                {% set query_parts = [] %}
+                {% if location_id %}
+                    {% set _ = query_parts.append('locationId=' + location_id) %}
+                {% endif %}
+                {% if search %}
+                    {% set _ = query_parts.append('search=' + search | urlencode) %}
+                {% endif %}
+                {% set base_query = query_parts | join('&') %}
+                {% set query_prefix = base_query + '&' if base_query else '' %}
+
+                {% if page > 1 %}
+                    <a href="?{{ query_prefix }}page={{ page - 1 }}&page_size={{ page_size }}" class="pagination-btn">
+                        ← Previous
+                    </a>
+                {% else %}
+                    <span class="pagination-btn" disabled>← Previous</span>
+                {% endif %}
+
+                {% set start_page = [1, page - 2] | max %}
+                {% set end_page = [total_pages, page + 2] | min %}
+
+                {% if start_page > 1 %}
+                    <a href="?{{ query_prefix }}page=1&page_size={{ page_size }}" class="pagination-btn">1</a>
+                    {% if start_page > 2 %}
+                        <span class="pagination-ellipsis">...</span>
+                    {% endif %}
+                {% endif %}
+
+                {% for p in range(start_page, end_page + 1) %}
+                    {% if p == page %}
+                        <span class="pagination-btn active">{{ p }}</span>
+                    {% else %}
+                        <a href="?{{ query_prefix }}page={{ p }}&page_size={{ page_size }}" class="pagination-btn">{{ p }}</a>
+                    {% endif %}
+                {% endfor %}
+
+                {% if end_page < total_pages %}
+                    {% if end_page < total_pages - 1 %}
+                        <span class="pagination-ellipsis">...</span>
+                    {% endif %}
+                    <a href="?{{ query_prefix }}page={{ total_pages }}&page_size={{ page_size }}" class="pagination-btn">{{ total_pages }}</a>
+                {% endif %}
+
+                {% if page < total_pages %}
+                    <a href="?{{ query_prefix }}page={{ page + 1 }}&page_size={{ page_size }}" class="pagination-btn">
+                        Next →
+                    </a>
+                {% else %}
+                    <span class="pagination-btn" disabled>Next →</span>
+                {% endif %}
+            </div>
+        </div>
+    {% elif total_count and total_count > 0 %}
+        <div class="pagination">
+            <div class="pagination-info">
+                Showing all {{ total_count }} patient{{ total_count != 1 and 's' or '' }}
+            </div>
+        </div>
+    {% endif %}
 
     <div class="footer-note">
         Data provided by the `/patients` API endpoint.
@@ -693,6 +909,62 @@
         sortableHeader.addEventListener("click", () => {
             sortDirection = sortDirection === "asc" ? "desc" : "asc";
             sortTable();
+        });
+    })();
+
+    // Search functionality - reset to page 1 when searching
+    (function () {
+        const searchInput = document.getElementById("searchInput");
+        const searchClear = document.getElementById("searchClear");
+        const form = document.querySelector(".filters");
+        const pageInput = document.getElementById("pageInput");
+        
+        if (!searchInput || !form || !pageInput) {
+            return;
+        }
+
+        // Reset to page 1 when search input changes and form is submitted
+        form.addEventListener("submit", () => {
+            pageInput.value = "1";
+        });
+
+        // Allow Enter key to submit search
+        searchInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                pageInput.value = "1";
+                form.submit();
+            }
+        });
+
+        // Clear search button functionality
+        if (searchClear) {
+            searchClear.addEventListener("click", () => {
+                searchInput.value = "";
+                pageInput.value = "1";
+                form.submit();
+            });
+        }
+
+        // Show/hide clear button based on input value
+        searchInput.addEventListener("input", () => {
+            if (searchInput.value.trim() && !searchClear) {
+                // Create clear button if it doesn't exist
+                const clearBtn = document.createElement("button");
+                clearBtn.type = "button";
+                clearBtn.className = "search-clear";
+                clearBtn.id = "searchClear";
+                clearBtn.setAttribute("aria-label", "Clear search");
+                clearBtn.textContent = "×";
+                clearBtn.addEventListener("click", () => {
+                    searchInput.value = "";
+                    pageInput.value = "1";
+                    form.submit();
+                });
+                searchInput.parentElement.appendChild(clearBtn);
+            } else if (!searchInput.value.trim() && searchClear) {
+                searchClear.remove();
+            }
         });
     })();
 </script>

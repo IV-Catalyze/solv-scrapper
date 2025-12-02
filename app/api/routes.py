@@ -508,6 +508,49 @@ def fetch_pending_payloads(
     return payloads
 
 
+def filter_patients_by_search(
+    patients: List[Dict[str, Any]],
+    search_query: str,
+) -> List[Dict[str, Any]]:
+    """
+    Filter patients by search query (searches name, EMR ID, and phone number).
+    
+    Args:
+        patients: List of patient dictionaries
+        search_query: Search term to match against patient data
+        
+    Returns:
+        Filtered list of patients matching the search query
+    """
+    if not search_query:
+        return patients
+    
+    search_lower = search_query.lower().strip()
+    filtered = []
+    
+    for patient in patients:
+        # Search in name fields
+        first_name = (patient.get("legalFirstName") or "").lower()
+        last_name = (patient.get("legalLastName") or "").lower()
+        full_name = f"{first_name} {last_name}".strip()
+        
+        # Search in EMR ID
+        emr_id = (patient.get("emr_id") or "").lower()
+        
+        # Search in phone number
+        phone = (patient.get("mobilePhone") or "").replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
+        
+        # Check if search query matches any field
+        if (search_lower in first_name or 
+            search_lower in last_name or 
+            search_lower in full_name or
+            search_lower in emr_id or
+            search_lower in phone):
+            filtered.append(patient)
+    
+    return filtered
+
+
 def get_local_patients(
     cursor,
     location_id: Optional[str],
@@ -1443,11 +1486,23 @@ async def root(
         alias="statuses",
         description="Filter patients by status. Provide multiple values by repeating the query parameter."
     ),
-    limit: Optional[int] = Query(
+    search: Optional[str] = Query(
         default=None,
+        alias="search",
+        description="Search patients by name, EMR ID, or phone number."
+    ),
+    page: Optional[int] = Query(
+        default=1,
         ge=1,
-        alias="limit",
-        description="Maximum number of records to return."
+        alias="page",
+        description="Page number for pagination (starts at 1)."
+    ),
+    page_size: Optional[int] = Query(
+        default=25,
+        ge=1,
+        le=100,
+        alias="page_size",
+        description="Number of records per page (1-100)."
     ),
 ):
     """
@@ -1472,11 +1527,18 @@ async def root(
         if not normalized_statuses:
             normalized_statuses = DEFAULT_STATUSES.copy()
 
+    # Normalize search query
+    search_query = search.strip() if search and isinstance(search, str) and search.strip() else None
+
     try:
         use_remote_reads = use_remote_api_for_reads()
         if use_remote_reads and normalized_location_id:
             # Fetch patients directly from production API
-            patients = await fetch_remote_patients(normalized_location_id, normalized_statuses, limit)
+            all_patients = await fetch_remote_patients(normalized_location_id, normalized_statuses, None)
+            
+            # Apply search filter if provided
+            if search_query:
+                all_patients = filter_patients_by_search(all_patients, search_query)
 
             # Location dropdown is limited to the current location in remote mode
             locations = [
@@ -1489,11 +1551,26 @@ async def root(
             conn = get_db_connection()
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             try:
-                patients = get_local_patients(cursor, normalized_location_id, normalized_statuses, limit)
+                all_patients = get_local_patients(cursor, normalized_location_id, normalized_statuses, None)
+                
+                # Apply search filter if provided
+                if search_query:
+                    all_patients = filter_patients_by_search(all_patients, search_query)
+                
                 locations = fetch_locations(cursor)
             finally:
                 cursor.close()
                 conn.close()
+
+        # Calculate pagination
+        total_count = len(all_patients)
+        total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+        current_page = min(page, total_pages) if total_pages > 0 else 1
+        
+        # Apply pagination
+        start_idx = (current_page - 1) * page_size
+        end_idx = start_idx + page_size
+        patients = all_patients[start_idx:end_idx]
 
         status_summary: Dict[str, int] = {}
         for patient in patients:
@@ -1507,7 +1584,11 @@ async def root(
                 "patients": patients,
                 "location_id": normalized_location_id,
                 "selected_statuses": normalized_statuses,
-                "limit": limit,
+                "search": search_query or "",
+                "page": current_page,
+                "page_size": page_size,
+                "total_count": total_count,
+                "total_pages": total_pages,
                 "locations": locations,
                 "default_statuses": DEFAULT_STATUSES,
                 "status_summary": status_summary,
