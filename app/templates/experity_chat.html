@@ -898,32 +898,50 @@
                 "emr_id": "EMR-2025-001234",
                 "status": "PENDING",
                 "raw_payload": {
-                    "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
-                    "encounter_id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
-                    "client_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-                    "patient_id": "d1e2f3a4-b5c6-7890-1234-567890123456",
-                    "trauma_type": "BURN",
-                    "chief_complaints": [
+                    "encounterId": "123...",
+                    "attributes": {
+                        "gender": "male",
+                        "pulseOx": 99,
+                        "ageYears": 69,
+                        "heightCm": 167.64,
+                        "weightKg": 63.50,
+                        "ageMonths": 838,
+                        "weightClass": "normal",
+                        "pulseRateBpm": 20,
+                        "bodyMassIndex": 22.59,
+                        "respirationBpm": 18,
+                        "bodyTemperatureCelsius": 37,
+                        "bloodPressureSystolicMm": 180,
+                        "bloodPressureDiastolicMm": 100
+                    },
+                    "guardianAssistedInterview": {
+                        "present": true,
+                        "guardianName": "John Doe",
+                        "relationship": "Father",
+                        "notes": "Guardian assisted with history."
+                    },
+                    "labOrders": [
+                        { "id": "lab1", "name": "CBC", "status": "ordered", "reason": "fatigue" },
+                        { "id": "lab2", "name": "CMP", "status": "ordered" }
+                    ],
+                    "traumaType": "CUT",
+                    "chiefComplaints": [
                         {
-                            "id": "09b5349d-d7c2-4506-9705-b5cc12947b6b",
-                            "description": "Chemical burn on head",
+                            "id": "00f9...",
+                            "description": "cut on hand",
                             "type": "trauma",
-                            "part": "head",
-                            "bodyParts": ["head", "forehead"]
-                        },
-                        {
-                            "id": "726c47ab-a7d9-4836-a7a0-b5e99fc13ac7",
-                            "description": "Burn injury to face",
-                            "type": "trauma",
-                            "part": "head",
-                            "bodyParts": ["face", "forehead"]
+                            "part": "hand",
+                            "symptom": {
+                                "root": {
+                                    "reviewOfSystemsCategory": "INTEGUMENTARY"
+                                }
+                            }
                         }
                     ],
-                    "status": "COMPLETE",
-                    "created_by": "randall.meeker@intellivisit.com",
-                    "started_at": "2025-11-12T22:19:01.432Z",
-                    "created_at": "2025-11-12T22:19:01.432Z",
-                    "updated_at": "2025-11-12T22:19:01.432Z"
+                    "conditions": [
+                        { "name": "Hypertension" },
+                        { "name": "Diabetes" }
+                    ]
                 }
             }
         };
