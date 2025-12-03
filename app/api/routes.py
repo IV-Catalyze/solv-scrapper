@@ -121,8 +121,6 @@ app = FastAPI(
     ),
     version="1.0.0",
     openapi_tags=[
-        {"name": "Authentication", "description": "HMAC signature authentication (X-Timestamp and X-Signature headers required)."},
-        {"name": "Dashboard", "description": "Server-rendered views for the patient queue."},
         {"name": "Patients", "description": "JSON APIs for querying patient records and queue data."},
         {"name": "Encounters", "description": "JSON APIs for creating and managing encounter records."},
         {"name": "Queue", "description": "JSON APIs for creating and managing queue records."},
@@ -1478,9 +1476,9 @@ class SummaryResponse(BaseModel):
 
 @app.get(
     "/",
-    tags=["Dashboard"],
     summary="Render the patient dashboard",
     response_class=HTMLResponse,
+    include_in_schema=False,
     responses={
         200: {
             "content": {"text/html": {"example": "<!-- HTML dashboard rendered via Jinja template -->"}},
@@ -1633,9 +1631,9 @@ async def root(
 
 @app.get(
     "/experity/chat",
-    tags=["Dashboard"],
     summary="Experity Mapper Chat UI",
     response_class=HTMLResponse,
+    include_in_schema=False,
     responses={
         200: {
             "content": {"text/html": {"example": "<!-- Experity Mapper Chat UI -->"}},

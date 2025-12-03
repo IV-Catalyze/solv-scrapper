@@ -80,7 +80,7 @@ async def require_auth(request: Request) -> dict:
     return user
 
 
-@router.get("/login", response_class=HTMLResponse, tags=["Authentication"])
+@router.get("/login", response_class=HTMLResponse, include_in_schema=False)
 async def login_page(request: Request):
     """Render the login page."""
     # Check if user is authenticated
@@ -112,7 +112,7 @@ async def login_page(request: Request):
     return response
 
 
-@router.post("/login", tags=["Authentication"])
+@router.post("/login", include_in_schema=False)
 async def login(
     request: Request,
     username: str = Form(...),
@@ -165,7 +165,7 @@ async def login(
     return response
 
 
-@router.post("/logout", tags=["Authentication"])
+@router.post("/logout", include_in_schema=False)
 async def logout(request: Request):
     """Handle logout. Clears session cookie."""
     response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
@@ -181,7 +181,7 @@ async def logout(request: Request):
     return response
 
 
-@router.get("/auth/me", tags=["Authentication"])
+@router.get("/auth/me", include_in_schema=False)
 async def get_current_user_info(current_user: dict = Depends(require_auth)):
     """Get current authenticated user information."""
     return current_user
