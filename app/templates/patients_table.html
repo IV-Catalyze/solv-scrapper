@@ -55,9 +55,46 @@
             z-index: 1000;
             display: flex;
             align-items: center;
-            justify-content: flex-end;
+            justify-content: space-between;
             padding: 0 2rem;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .header-bar-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .header-bar-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .chat-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            text-decoration: none;
+        }
+
+        .chat-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .chat-button:active {
+            transform: translateY(0);
         }
 
         .user-menu {
@@ -635,21 +672,29 @@
     <!-- User Avatar Menu -->
     {% if current_user %}
     <div class="header-bar">
-        <div class="user-menu">
-            <div class="user-avatar" id="userAvatar" onclick="toggleUserMenu()">
-                {% set initials = current_user.username[0:2] | upper %}
-                {{ initials }}
-            </div>
-            <div class="user-dropdown" id="userDropdown">
-                <div class="user-dropdown-header">
-                    <div class="username">{{ current_user.username }}</div>
-                    {% if current_user.email %}
-                    <div class="email">{{ current_user.email }}</div>
-                    {% endif %}
+        <div class="header-bar-left">
+            <a href="/experity/chat" class="chat-button">
+                <span>💬</span>
+                <span>Experity Chat</span>
+            </a>
+        </div>
+        <div class="header-bar-right">
+            <div class="user-menu">
+                <div class="user-avatar" id="userAvatar" onclick="toggleUserMenu()">
+                    {% set initials = current_user.username[0:2] | upper %}
+                    {{ initials }}
                 </div>
-                <form method="post" action="/logout" style="margin: 0;">
-                    <button type="submit" class="user-dropdown-item logout">Logout</button>
-                </form>
+                <div class="user-dropdown" id="userDropdown">
+                    <div class="user-dropdown-header">
+                        <div class="username">{{ current_user.username }}</div>
+                        {% if current_user.email %}
+                        <div class="email">{{ current_user.email }}</div>
+                        {% endif %}
+                    </div>
+                    <form method="post" action="/logout" style="margin: 0;">
+                        <button type="submit" class="user-dropdown-item logout">Logout</button>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
