@@ -117,27 +117,17 @@ app = FastAPI(
         "Endpoints for retrieving patient queue data rendered in the dashboard UI or consumed as JSON. "
         "Filters and response fields mirror the helpers defined in `api.py`, such as "
         "`prepare_dashboard_patients`, `build_patient_payload`, and `decorate_patient_payload`. "
-        "\n\n"
-        "## Authentication\n\n"
-        "**All API endpoints require HMAC signature authentication.**\n\n"
-        "### Using HMAC in Swagger UI (Try it out)\n\n"
-        "To test endpoints with HMAC authentication in Swagger UI:\n\n"
-        "1. **Generate HMAC headers** using your HMAC secret key:\n"
-        "   - Use the `/auth/hmac/example` endpoint (no auth required) to see examples\n"
-        "   - Or use your own tool/script to generate headers\n\n"
-        "2. **Add headers manually** in Swagger UI:\n"
-        "   - Click \"Try it out\" on any endpoint\n"
-        "   - Scroll to the \"Request headers\" section (if visible)\n"
-        "   - Or add headers directly in the request by editing the generated curl command\n"
-        "   - Required headers:\n"
-        "     * `X-Timestamp`: ISO 8601 UTC timestamp (e.g., `2025-11-21T13:49:04Z`)\n"
-        "     * `X-Signature`: Base64-encoded HMAC-SHA256 signature\n\n"
-        "3. **Generate signature** using this canonical format:\n"
-        "   ```
-        "   METHOD + \"\\n\" + PATH + \"\\n\" + TIMESTAMP + \"\\n\" + BODY_HASH
-        "   ```\n"
-        "   Where BODY_HASH is SHA256(hex) of the request body (empty string for GET requests)\n\n"
-        "For detailed instructions, see: https://app-97926.on-aptible.com/docs#/HMAC%20Authentication"
+        "All API endpoints require HMAC signature authentication via X-Timestamp and X-Signature headers.\n\n"
+        "## Testing in Swagger UI (Manual Header Input)\n\n"
+        "To test endpoints using HMAC authentication:\n\n"
+        "1. **Generate HMAC headers** using the helper script: `python generate_hmac_headers.py`\n"
+        "2. **Click 'Try it out'** on any endpoint\n"
+        "3. **Add custom headers** by clicking the 'Add custom header' button (if available) or manually editing the request\n"
+        "4. **Add these headers:**\n"
+        "   - `X-Timestamp`: ISO 8601 UTC timestamp (e.g., `2025-11-21T13:49:04Z`)\n"
+        "   - `X-Signature`: Base64-encoded HMAC-SHA256 signature\n\n"
+        "**Note:** You can also add headers directly in the request body section or use browser developer tools to modify the request.\n\n"
+        "See `docs/HMAC_AUTHENTICATION_GUIDE.md` for detailed HMAC signature generation instructions."
     ),
     version="1.0.0",
     openapi_tags=[
@@ -145,11 +135,85 @@ app = FastAPI(
         {"name": "Encounters", "description": "JSON APIs for creating and managing encounter records."},
         {"name": "Queue", "description": "JSON APIs for creating and managing queue records."},
         {"name": "Summaries", "description": "JSON APIs for creating and managing summary records."},
-        {"name": "Authentication", "description": "Authentication helpers and examples."},
     ],
 )
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+
+# Customize OpenAPI schema to document HMAC authentication headers
+def custom_openapi():
+    """
+    Customize OpenAPI schema to document HMAC authentication headers.
+    This makes the required headers visible in Swagger UI for manual testing.
+    """
+    if app.openapi_schema:
+        return app.openapi_schema
+    
+    from fastapi.openapi.utils import get_openapi
+    
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    
+    # Ensure components exist
+    if "components" not in openapi_schema:
+        openapi_schema["components"] = {}
+    
+    # Add HMAC security scheme to components for documentation
+    if "securitySchemes" not in openapi_schema["components"]:
+        openapi_schema["components"]["securitySchemes"] = {}
+    
+    openapi_schema["components"]["securitySchemes"].update({
+        "HMACSignature": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-Signature",
+            "description": (
+                "Base64-encoded HMAC-SHA256 signature. "
+                "To generate: compute HMAC-SHA256 over the canonical string "
+                "(METHOD + '\\n' + PATH + '\\n' + TIMESTAMP + '\\n' + BODY_HASH) "
+                "using your secret key, then Base64 encode the result. "
+                "See docs/HMAC_AUTHENTICATION_GUIDE.md for detailed instructions."
+            ),
+        },
+        "HMACTimestamp": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-Timestamp",
+            "description": (
+                "ISO 8601 UTC timestamp (e.g., 2025-11-21T13:49:04Z). "
+                "Must be within ±5 minutes of server time. Generate just before making the request."
+            ),
+        },
+    })
+    
+    # Add security requirement to all protected endpoints via global security
+    # Individual endpoints can override if needed
+    if "security" not in openapi_schema:
+        openapi_schema["security"] = []
+    
+    # Add example info for manual header input
+    if "info" not in openapi_schema:
+        openapi_schema["info"] = {}
+    
+    # Add contact/extra info
+    openapi_schema["info"]["x-hmac-testing"] = {
+        "note": (
+            "To test endpoints manually:\n"
+            "1. Use the helper script to generate headers: python generate_hmac_headers.py\n"
+            "2. Click 'Try it out' on any endpoint\n"
+            "3. Use browser DevTools Network tab to add X-Timestamp and X-Signature headers\n"
+            "4. Or use curl/Postman with the generated headers"
+        )
+    }
+    
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
 
 # Include authentication routes
 if SESSION_AUTH_ENABLED and auth_router:
