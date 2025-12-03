@@ -163,12 +163,16 @@
         // Immediately check if user is already authenticated and redirect
         // This prevents showing the login page if user has a valid session
         (function() {
+            let redirectChecked = false; // Prevent multiple checks
+            
             // Check for session cookie
             const hasSessionCookie = document.cookie.split(';').some(cookie => {
                 return cookie.trim().startsWith('session=');
             });
 
-            if (hasSessionCookie) {
+            if (hasSessionCookie && !redirectChecked) {
+                redirectChecked = true;
+                
                 // Verify session is valid by checking /auth/me
                 fetch('/auth/me', {
                     method: 'GET',
@@ -180,10 +184,11 @@
                         // Session is valid, redirect to dashboard immediately
                         window.location.replace('/');
                     }
-                    // If response is not ok, stay on login page
+                    // If response is not ok, stay on login page (session invalid)
                 })
                 .catch(() => {
                     // Error checking auth, stay on login page
+                    // Don't redirect on network errors
                 });
             }
         })();

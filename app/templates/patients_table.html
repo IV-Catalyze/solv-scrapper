@@ -1141,8 +1141,26 @@
     // Prevent back button from showing cached page after logout
     // Verify authentication on page load and handle browser back/forward navigation
     (function() {
+        let isCheckingAuth = false; // Prevent multiple simultaneous checks
+        let lastCheckTime = 0;
+        const CHECK_THROTTLE = 5000; // Only check once every 5 seconds max
+
         // Function to check if user is authenticated
-        function checkAuthentication() {
+        function checkAuthentication(forceCheck = false) {
+            // Prevent multiple simultaneous checks
+            if (isCheckingAuth) {
+                return;
+            }
+
+            // Throttle checks to prevent continuous loading
+            const now = Date.now();
+            if (!forceCheck && (now - lastCheckTime) < CHECK_THROTTLE) {
+                return;
+            }
+
+            isCheckingAuth = true;
+            lastCheckTime = now;
+
             // Check for session cookie
             const hasSessionCookie = document.cookie.split(';').some(cookie => {
                 return cookie.trim().startsWith('session=');
@@ -1150,6 +1168,7 @@
 
             if (!hasSessionCookie) {
                 // No session cookie, redirect to login immediately
+                isCheckingAuth = false;
                 window.location.replace('/login');
                 return false;
             }
@@ -1161,35 +1180,35 @@
                 cache: 'no-store'
             })
             .then(response => {
+                isCheckingAuth = false;
                 if (!response.ok) {
                     // Session invalid, redirect to login
                     window.location.replace('/login');
                 }
             })
             .catch(() => {
-                // Error checking auth, redirect to login to be safe
-                window.location.replace('/login');
+                isCheckingAuth = false;
+                // Don't redirect on network errors - might be temporary
+                // Only redirect if we're sure the session is invalid
             });
 
             return true;
         }
 
-        // Check authentication on page load
-        checkAuthentication();
+        // Check authentication on page load (only once)
+        checkAuthentication(true);
 
         // Handle browser back/forward button (pageshow event)
         window.addEventListener('pageshow', function(event) {
             // If page was loaded from cache (back/forward button)
             if (event.persisted) {
-                // Always verify authentication when page is restored from cache
-                checkAuthentication();
+                // Verify authentication when page is restored from cache
+                checkAuthentication(true);
             }
         });
 
-        // Also check on focus (user switching tabs/windows)
-        window.addEventListener('focus', function() {
-            checkAuthentication();
-        });
+        // Removed focus event listener - it was causing too many checks
+        // The server-side authentication check is sufficient for normal usage
     })();
 </script>
 </body>
