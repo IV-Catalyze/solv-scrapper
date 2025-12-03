@@ -1139,27 +1139,19 @@
     });
 
     // Prevent back button from showing cached page after logout
-    // Verify authentication on page load and handle browser back/forward navigation
+    // Only check authentication when page is restored from cache (back/forward button)
+    // Server-side authentication is the primary check - this is just a safety net
     (function() {
         let isCheckingAuth = false; // Prevent multiple simultaneous checks
-        let lastCheckTime = 0;
-        const CHECK_THROTTLE = 5000; // Only check once every 5 seconds max
 
-        // Function to check if user is authenticated
-        function checkAuthentication(forceCheck = false) {
+        // Function to check if user is authenticated (only for cached pages)
+        function checkAuthentication() {
             // Prevent multiple simultaneous checks
             if (isCheckingAuth) {
                 return;
             }
 
-            // Throttle checks to prevent continuous loading
-            const now = Date.now();
-            if (!forceCheck && (now - lastCheckTime) < CHECK_THROTTLE) {
-                return;
-            }
-
             isCheckingAuth = true;
-            lastCheckTime = now;
 
             // Check for session cookie
             const hasSessionCookie = document.cookie.split(';').some(cookie => {
@@ -1174,6 +1166,7 @@
             }
 
             // Verify session is still valid by making a request to /auth/me
+            // Only redirect on clear authentication errors
             fetch('/auth/me', {
                 method: 'GET',
                 credentials: 'same-origin',
@@ -1181,40 +1174,35 @@
             })
             .then(response => {
                 isCheckingAuth = false;
-                // Only redirect if we get a 401/403 (unauthorized) or 303 (redirect)
-                // Don't redirect on other errors (500, network issues, etc.)
-                if (response.status === 401 || response.status === 403 || response.status === 303) {
+                // Only redirect on clear authentication errors (401, 403)
+                // Don't redirect on 303 (that's a redirect response, not an error)
+                if (response.status === 401 || response.status === 403) {
                     // Session invalid, redirect to login
                     window.location.replace('/login');
                 }
-                // For other status codes, assume session is valid or error is temporary
+                // For all other cases, assume session is valid
             })
             .catch(() => {
                 isCheckingAuth = false;
-                // Don't redirect on network errors - might be temporary
-                // Server-side authentication check is the source of truth
+                // Don't redirect on network errors - server-side auth is the source of truth
+                // If server-side auth fails, the server will redirect
             });
 
             return true;
         }
 
-        // Check authentication on page load (only once, with delay to avoid race conditions)
-        // Small delay ensures server-side auth has completed first
-        setTimeout(() => {
-            checkAuthentication(true);
-        }, 100);
-
-        // Handle browser back/forward button (pageshow event)
+        // Only check authentication when page is restored from cache (back/forward button)
+        // Don't check on normal page loads - server-side auth handles that
         window.addEventListener('pageshow', function(event) {
             // If page was loaded from cache (back/forward button)
             if (event.persisted) {
                 // Verify authentication when page is restored from cache
-                checkAuthentication(true);
+                checkAuthentication();
             }
         });
 
-        // Removed focus event listener - it was causing too many checks
-        // The server-side authentication check is sufficient for normal usage
+        // Server-side authentication check is sufficient for normal page loads
+        // Client-side check only needed for cached pages (back button scenario)
     })();
 </script>
 </body>
