@@ -342,7 +342,18 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                 
                 # Handle rate limiting
                 if response.status_code == 429:
-                    wait_time = RETRY_BACKOFF_BASE ** attempt
+                    # Check for Retry-After header from Azure AI
+                    retry_after = response.headers.get("Retry-After")
+                    if retry_after:
+                        try:
+                            wait_time = int(retry_after)
+                            logger.info(f"Azure AI provided Retry-After: {wait_time} seconds")
+                        except ValueError:
+                            wait_time = RETRY_BACKOFF_BASE ** attempt
+                    else:
+                        # Exponential backoff: 2^attempt (1s, 2s, 4s, 8s...)
+                        wait_time = RETRY_BACKOFF_BASE ** attempt
+                    
                     logger.warning(
                         f"Rate limited (429). Waiting {wait_time} seconds before retry "
                         f"{attempt + 1}/{MAX_RETRIES}..."
@@ -351,8 +362,11 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                         await asyncio.sleep(wait_time)
                         continue
                     else:
+                        # Provide helpful error message
                         raise AzureAIRateLimitError(
-                            f"Rate limit exceeded after {MAX_RETRIES} retries"
+                            f"Rate limit exceeded after {MAX_RETRIES} retries. "
+                            f"Azure AI is throttling requests. Please wait a few minutes before trying again. "
+                            f"Consider reducing request frequency or checking your Azure AI quota limits."
                         )
                 
                 # Handle authentication errors
