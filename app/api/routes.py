@@ -117,17 +117,7 @@ app = FastAPI(
         "Endpoints for retrieving patient queue data rendered in the dashboard UI or consumed as JSON. "
         "Filters and response fields mirror the helpers defined in `api.py`, such as "
         "`prepare_dashboard_patients`, `build_patient_payload`, and `decorate_patient_payload`. "
-        "All API endpoints require HMAC signature authentication via X-Timestamp and X-Signature headers.\n\n"
-        "## Testing in Swagger UI (Manual Header Input)\n\n"
-        "To test endpoints using HMAC authentication:\n\n"
-        "1. **Generate HMAC headers** using the helper script: `python generate_hmac_headers.py`\n"
-        "2. **Click 'Try it out'** on any endpoint\n"
-        "3. **Add custom headers** by clicking the 'Add custom header' button (if available) or manually editing the request\n"
-        "4. **Add these headers:**\n"
-        "   - `X-Timestamp`: ISO 8601 UTC timestamp (e.g., `2025-11-21T13:49:04Z`)\n"
-        "   - `X-Signature`: Base64-encoded HMAC-SHA256 signature\n\n"
-        "**Note:** You can also add headers directly in the request body section or use browser developer tools to modify the request.\n\n"
-        "See `docs/HMAC_AUTHENTICATION_GUIDE.md` for detailed HMAC signature generation instructions."
+        "All API endpoints require HMAC signature authentication via X-Timestamp and X-Signature headers."
     ),
     version="1.0.0",
     openapi_tags=[
