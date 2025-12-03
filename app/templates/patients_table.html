@@ -1181,22 +1181,28 @@
             })
             .then(response => {
                 isCheckingAuth = false;
-                if (!response.ok) {
+                // Only redirect if we get a 401/403 (unauthorized) or 303 (redirect)
+                // Don't redirect on other errors (500, network issues, etc.)
+                if (response.status === 401 || response.status === 403 || response.status === 303) {
                     // Session invalid, redirect to login
                     window.location.replace('/login');
                 }
+                // For other status codes, assume session is valid or error is temporary
             })
             .catch(() => {
                 isCheckingAuth = false;
                 // Don't redirect on network errors - might be temporary
-                // Only redirect if we're sure the session is invalid
+                // Server-side authentication check is the source of truth
             });
 
             return true;
         }
 
-        // Check authentication on page load (only once)
-        checkAuthentication(true);
+        // Check authentication on page load (only once, with delay to avoid race conditions)
+        // Small delay ensures server-side auth has completed first
+        setTimeout(() => {
+            checkAuthentication(true);
+        }, 100);
 
         // Handle browser back/forward button (pageshow event)
         window.addEventListener('pageshow', function(event) {
