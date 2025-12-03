@@ -79,9 +79,16 @@ async def login_page(request: Request):
     # If already logged in, redirect to dashboard
     user = await get_current_user(request)
     if user:
-        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+        response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        return response
     
-    return templates.TemplateResponse("login.html", {"request": request})
+    # Create response with no-cache headers
+    response = templates.TemplateResponse("login.html", {"request": request})
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @router.post("/login", tags=["Authentication"])
@@ -146,6 +153,10 @@ async def logout(request: Request):
         path="/",
         samesite="lax",
     )
+    # Add cache-control headers to prevent browser caching
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     return response
 
 

@@ -1596,7 +1596,8 @@ async def root(
             status = patient.get("status_class") or "unknown"
             status_summary[status] = status_summary.get(status, 0) + 1
 
-        return templates.TemplateResponse(
+        # Create response with no-cache headers to prevent back button showing cached page
+        response = templates.TemplateResponse(
             "patients_table.html",
             {
                 "request": request,
@@ -1614,6 +1615,13 @@ async def root(
                 "current_user": current_user,
             },
         )
+        
+        # Add cache-control headers to prevent browser caching
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        
+        return response
     except HTTPException:
         raise
     except Exception as e:
