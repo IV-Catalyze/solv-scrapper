@@ -2784,9 +2784,9 @@ async def map_queue_to_experity(
     
     This endpoint:
     1. Validates the queue entry structure
-    2. Calls the Azure AI agent to generate Experity actions
+    2. Calls the Azure AI agent to generate Experity mapping
     3. Optionally updates the queue entry in the database with the results
-    4. Returns the Experity actions array
+    4. Returns the full Experity mapping object
     
     **Request Body:**
     - `queue_entry`: Dictionary containing:
@@ -2798,7 +2798,13 @@ async def map_queue_to_experity(
     **Response:**
     - `success`: Boolean indicating success
     - `data`: Dictionary containing:
-      - `experity_actions`: Array of Experity action objects
+      - `experity_actions`: Full Experity mapping object (JSON) with:
+        - `emrId`: EMR identifier
+        - `vitals`: Vitals object
+        - `guardianAssistedInterview`: Guardian info object
+        - `labOrders`: Array of lab orders
+        - `icdUpdates`: Array of ICD-10 updates
+        - `complaints`: Array of complaint objects
       - `queue_id`: Queue identifier (if available)
       - `encounter_id`: Encounter identifier
       - `processed_at`: ISO 8601 timestamp
@@ -2897,7 +2903,7 @@ async def map_queue_to_experity(
         
         # Call Azure AI agent
         try:
-            experity_actions = await call_azure_ai_agent(queue_entry)
+            experity_mapping = await call_azure_ai_agent(queue_entry)
         except AzureAIAuthenticationError as e:
             error_response = ExperityMapResponse(
                 success=False,
@@ -2990,14 +2996,14 @@ async def map_queue_to_experity(
                     pass
             raise HTTPException(status_code=502, detail=error_response.dict())
         
-        # Update queue status to DONE and store experity_actions
+        # Update queue status to DONE and store experity_actions (now a full JSON object)
         if queue_id and conn:
             try:
                 update_queue_status_and_experity_action(
                     conn=conn,
                     queue_id=queue_id,
                     status='DONE',
-                    experity_actions=experity_actions,
+                    experity_actions=experity_mapping,
                     increment_attempts=False
                 )
             except Exception as e:
@@ -3005,8 +3011,9 @@ async def map_queue_to_experity(
                 # Continue even if database update fails
         
         # Build success response
+        # experity_actions now contains the full LLM response object
         response_data = {
-            "experity_actions": experity_actions,
+            "experity_actions": experity_mapping,
             "encounter_id": encounter_id,
             "processed_at": datetime.now().isoformat() + "Z"
         }
