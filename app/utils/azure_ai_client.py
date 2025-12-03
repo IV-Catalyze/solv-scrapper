@@ -247,9 +247,22 @@ def extract_experity_actions(response_json: Dict[str, Any]) -> Dict[str, Any]:
                 f"Output text preview: {output_text_clean[:200]}"
             ) from e
         
-        # Validate it's a dictionary
-        if not isinstance(experity_mapping, dict):
-            raise AzureAIResponseError("Parsed response is not a JSON object")
+        # Validate it's a dictionary (not an array or other type)
+        if isinstance(experity_mapping, list):
+            logger.error(f"LLM returned an array instead of object. Array length: {len(experity_mapping)}")
+            raise AzureAIResponseError(
+                f"Parsed response is a JSON array, but expected a JSON object. "
+                f"The LLM should return a single object with emrId, vitals, complaints, etc. "
+                f"Array length: {len(experity_mapping)}. "
+                f"First item preview: {json.dumps(experity_mapping[0] if experity_mapping else {}, indent=2)[:200]}"
+            )
+        elif not isinstance(experity_mapping, dict):
+            logger.error(f"LLM returned unexpected type: {type(experity_mapping)}. Value: {str(experity_mapping)[:200]}")
+            raise AzureAIResponseError(
+                f"Parsed response is not a JSON object (got {type(experity_mapping).__name__}). "
+                f"The LLM should return a JSON object with emrId, vitals, complaints, etc. "
+                f"Response preview: {str(experity_mapping)[:200]}"
+            )
         
         # Basic validation - check for expected top-level fields
         expected_fields = ["vitals", "complaints"]
