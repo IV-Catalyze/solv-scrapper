@@ -41,7 +41,7 @@ AGENT_VERSION = os.getenv("AZURE_AI_AGENT_VERSION", "IV-Experity-Mapper-Agent:8"
 API_VERSION = os.getenv("AZURE_AI_API_VERSION", "2025-11-15-preview")
 
 # Timeout configuration
-REQUEST_TIMEOUT = int(os.getenv("AZURE_AI_REQUEST_TIMEOUT", "60"))
+REQUEST_TIMEOUT = int(os.getenv("AZURE_AI_REQUEST_TIMEOUT", "120"))  # 2 minutes for file search operations
 CONNECTION_TIMEOUT = int(os.getenv("AZURE_AI_CONNECTION_TIMEOUT", "10"))
 
 # Retry configuration
