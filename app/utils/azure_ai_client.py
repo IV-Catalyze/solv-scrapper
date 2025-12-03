@@ -168,10 +168,33 @@ def extract_experity_actions(response_json: Dict[str, Any]) -> Dict[str, Any]:
         # Check if output_text is empty or just whitespace
         if not output_text or not output_text.strip():
             # Log the full response structure for debugging
-            logger.error(f"Empty output_text. Full response structure: {json.dumps(response_json, indent=2)[:1000]}")
+            response_summary = json.dumps(response_json, indent=2)[:2000]  # Increased limit
+            logger.error(f"Empty output_text. Full response structure: {response_summary}")
+            
+            # Try to find any useful information in the response
+            response_info = []
+            if "error" in response_json:
+                response_info.append(f"Error field: {response_json.get('error')}")
+            if "message" in response_json:
+                response_info.append(f"Message: {response_json.get('message')}")
+            if "status" in response_json:
+                response_info.append(f"Status: {response_json.get('status')}")
+            
+            # Check for alternative response structures
+            for item in output_items:
+                item_type = item.get("type", "unknown")
+                if item_type != "message":
+                    response_info.append(f"Found non-message item type: {item_type}")
+                if "error" in item:
+                    response_info.append(f"Item error: {item.get('error')}")
+            
+            error_details = ". ".join(response_info) if response_info else "No additional error details found"
+            
             raise AzureAIResponseError(
-                "No output_text found in response or output_text is empty. "
-                "The Azure AI agent may have failed to generate a response."
+                f"No output_text found in response or output_text is empty. "
+                f"The Azure AI agent may have failed to generate a response. "
+                f"Response details: {error_details}. "
+                f"Full response (first 500 chars): {response_summary[:500]}"
             )
         
         # Try to extract JSON - the LLM might return JSON wrapped in markdown code blocks
@@ -321,7 +344,15 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                     )
                 
                 # Parse response
-                response_json = response.json()
+                try:
+                    response_json = response.json()
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse Azure AI response as JSON. Response text (first 500 chars): {response.text[:500]}")
+                    raise AzureAIResponseError(f"Azure AI returned invalid JSON: {str(e)}")
+                
+                # Log response structure for debugging (first attempt only)
+                if attempt == 0:
+                    logger.debug(f"Azure AI response structure: {json.dumps(response_json, indent=2)[:500]}")
                 
                 # Extract Experity mapping response
                 experity_mapping = extract_experity_actions(response_json)
