@@ -185,21 +185,6 @@ def custom_openapi():
     if "security" not in openapi_schema:
         openapi_schema["security"] = []
     
-    # Add example info for manual header input
-    if "info" not in openapi_schema:
-        openapi_schema["info"] = {}
-    
-    # Add contact/extra info
-    openapi_schema["info"]["x-hmac-testing"] = {
-        "note": (
-            "To test endpoints manually:\n"
-            "1. Use the helper script to generate headers: python generate_hmac_headers.py\n"
-            "2. Click 'Try it out' on any endpoint\n"
-            "3. Use browser DevTools Network tab to add X-Timestamp and X-Signature headers\n"
-            "4. Or use curl/Postman with the generated headers"
-        )
-    }
-    
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
