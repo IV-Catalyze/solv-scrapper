@@ -76,15 +76,29 @@ async def require_auth(request: Request) -> dict:
 @router.get("/login", response_class=HTMLResponse, tags=["Authentication"])
 async def login_page(request: Request):
     """Render the login page."""
-    # If already logged in, redirect to dashboard
+    # Check if user is authenticated
     user = await get_current_user(request)
+    
+    # If valid session exists, redirect to dashboard
     if user:
         response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
         return response
     
-    # Create response with no-cache headers
+    # If session cookie exists but is invalid/expired, clear it
+    # This prevents redirect loops with invalid cookies
+    session_token = request.cookies.get(SESSION_COOKIE_NAME)
     response = templates.TemplateResponse("login.html", {"request": request})
+    
+    # Clear invalid/expired session cookie if it exists
+    if session_token:
+        response.delete_cookie(
+            key=SESSION_COOKIE_NAME,
+            path="/",
+            samesite="lax",
+        )
+    
+    # Add cache-control headers
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
