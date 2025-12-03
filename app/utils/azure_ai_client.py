@@ -101,9 +101,13 @@ def get_azure_token() -> str:
         raise AzureAIAuthenticationError(f"Failed to authenticate with Azure: {str(e)}") from e
 
 
-def extract_experity_actions(response_json: Dict[str, Any]) -> Dict[str, Any]:
+def extract_experity_actions(response_json: Dict[str, Any], encounter_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Extract Experity mapping response from Azure AI response format.
+    
+    Args:
+        response_json: Full Azure AI response JSON
+        encounter_data: Optional encounter data for backward compatibility conversion
     
     The Azure AI response has this structure:
     {
@@ -247,15 +251,147 @@ def extract_experity_actions(response_json: Dict[str, Any]) -> Dict[str, Any]:
                 f"Output text preview: {output_text_clean[:200]}"
             ) from e
         
-        # Validate it's a dictionary (not an array or other type)
+        # Handle backward compatibility: convert old array format to new object format
         if isinstance(experity_mapping, list):
-            logger.error(f"LLM returned an array instead of object. Array length: {len(experity_mapping)}")
-            raise AzureAIResponseError(
-                f"Parsed response is a JSON array, but expected a JSON object. "
-                f"The LLM should return a single object with emrId, vitals, complaints, etc. "
-                f"Array length: {len(experity_mapping)}. "
-                f"First item preview: {json.dumps(experity_mapping[0] if experity_mapping else {}, indent=2)[:200]}"
+            logger.warning(
+                f"LLM returned old array format (legacy). Converting to new object format. "
+                f"Array length: {len(experity_mapping)}"
             )
+            # Convert old array format to new object format
+            # Old format: [{template, bodyAreaKey, mainProblem, ...}]
+            # New format: {emrId, vitals, complaints: [{...}]}
+            
+            # Extract emrId and vitals from encounter_data if available
+            emr_id = None
+            vitals_data = {
+                "gender": "unknown",
+                "ageYears": None,
+                "ageMonths": None,
+                "heightCm": None,
+                "weightKg": None,
+                "bodyMassIndex": None,
+                "weightClass": "unknown",
+                "pulseRateBpm": None,
+                "respirationBpm": None,
+                "bodyTemperatureCelsius": None,
+                "bloodPressureSystolicMm": None,
+                "bloodPressureDiastolicMm": None,
+                "pulseOx": None
+            }
+            
+            if encounter_data:
+                # Extract emrId
+                emr_id = encounter_data.get("emrId") or encounter_data.get("emr_id")
+                
+                # Extract vitals from attributes
+                attributes = encounter_data.get("attributes", {})
+                if attributes:
+                    vitals_data["gender"] = attributes.get("gender", "unknown")
+                    vitals_data["ageYears"] = attributes.get("ageYears")
+                    vitals_data["ageMonths"] = attributes.get("ageMonths")
+                    vitals_data["heightCm"] = attributes.get("heightCm")
+                    vitals_data["weightKg"] = attributes.get("weightKg")
+                    vitals_data["bodyMassIndex"] = attributes.get("bodyMassIndex")
+                    vitals_data["weightClass"] = attributes.get("weightClass", "unknown")
+                    vitals_data["pulseRateBpm"] = attributes.get("pulseRateBpm")
+                    vitals_data["respirationBpm"] = attributes.get("respirationBpm")
+                    vitals_data["bodyTemperatureCelsius"] = attributes.get("bodyTemperatureCelsius")
+                    vitals_data["bloodPressureSystolicMm"] = attributes.get("bloodPressureSystolicMm")
+                    vitals_data["bloodPressureDiastolicMm"] = attributes.get("bloodPressureDiastolicMm")
+                    vitals_data["pulseOx"] = attributes.get("pulseOx")
+            
+            # Extract guardianAssistedInterview
+            guardian_data = {
+                "present": False,
+                "guardianName": None,
+                "relationship": None,
+                "notes": None
+            }
+            if encounter_data:
+                guardian_info = encounter_data.get("guardianAssistedInterview") or encounter_data.get("guardian")
+                if guardian_info:
+                    guardian_data["present"] = guardian_info.get("present", True)
+                    guardian_data["guardianName"] = guardian_info.get("guardianName") or guardian_info.get("name")
+                    guardian_data["relationship"] = guardian_info.get("relationship")
+                    guardian_data["notes"] = guardian_info.get("notes")
+            
+            # Extract labOrders
+            lab_orders = []
+            if encounter_data:
+                labs = encounter_data.get("labOrders") or encounter_data.get("labs") or []
+                for lab in labs:
+                    if isinstance(lab, dict):
+                        lab_orders.append({
+                            "orderId": lab.get("id") or lab.get("orderId"),
+                            "name": lab.get("name", ""),
+                            "status": lab.get("status"),
+                            "priority": lab.get("priority"),
+                            "reason": lab.get("reason")
+                        })
+            
+            # Extract icdUpdates from conditions
+            icd_updates = []
+            if encounter_data:
+                conditions = encounter_data.get("conditions") or encounter_data.get("chronicConditions") or []
+                icd_mapping = {
+                    "Anxiety": "F41.9",
+                    "Asthma": "J45.909",
+                    "Cancer": "C80.1",
+                    "Cardiac Arrhythmia": "I49.9",
+                    "Congestive Heart Failure": "I50.9",
+                    "COPD": "J44.9",
+                    "Diabetes": "E11.9",
+                    "GERD": "K21.9",
+                    "Hypertension": "I10"
+                }
+                for condition in conditions:
+                    condition_name = condition.get("name") if isinstance(condition, dict) else str(condition)
+                    if condition_name in icd_mapping:
+                        icd_updates.append({
+                            "conditionName": condition_name,
+                            "icd10Code": icd_mapping[condition_name],
+                            "presentInEncounter": True,
+                            "source": "conditions"
+                        })
+            
+            converted_response = {
+                "emrId": emr_id,
+                "vitals": vitals_data,
+                "guardianAssistedInterview": guardian_data,
+                "labOrders": lab_orders,
+                "icdUpdates": icd_updates,
+                "complaints": []
+            }
+            
+            # Convert each action in the array to a complaint object
+            for action in experity_mapping:
+                if not isinstance(action, dict):
+                    continue
+                
+                complaint = {
+                    "encounterId": action.get("encounterId"),
+                    "complaintId": action.get("complaintId"),
+                    "description": action.get("description", ""),
+                    "traumaType": action.get("traumaType", ""),
+                    "bodyPartRaw": action.get("bodyPartRaw"),
+                    "reviewOfSystemsCategory": action.get("reviewOfSystemsCategory"),
+                    "gender": action.get("gender", "unknown"),
+                    "bodyAreaKey": action.get("bodyAreaKey", ""),
+                    "subLocationLabel": action.get("subLocationLabel"),
+                    "experityTemplate": action.get("template", action.get("experityTemplate", "")),
+                    "coordKey": action.get("coordKey", ""),
+                    "bodyMapSide": action.get("bodyMapSide", "front"),
+                    "ui": action.get("ui", {}),
+                    "mainProblem": action.get("mainProblem", ""),
+                    "notesTemplateKey": action.get("notesTemplateKey", ""),
+                    "notesPayload": action.get("notesPayload", {}),
+                    "notesFreeText": action.get("notesFreeText", action.get("notes", "")),
+                    "reasoning": action.get("reasoning", "")
+                }
+                converted_response["complaints"].append(complaint)
+            
+            experity_mapping = converted_response
+            logger.info(f"Converted {len(converted_response['complaints'])} legacy actions to new format")
         elif not isinstance(experity_mapping, dict):
             logger.error(f"LLM returned unexpected type: {type(experity_mapping)}. Value: {str(experity_mapping)[:200]}")
             raise AzureAIResponseError(
@@ -407,7 +543,8 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                     logger.debug(f"Azure AI response structure: {json.dumps(response_json, indent=2)[:500]}")
                 
                 # Extract Experity mapping response
-                experity_mapping = extract_experity_actions(response_json)
+                # Pass encounter_data for backward compatibility conversion
+                experity_mapping = extract_experity_actions(response_json, encounter_data=encounter_data)
                 
                 # Log summary info
                 complaints_count = len(experity_mapping.get("complaints", []))
