@@ -142,24 +142,62 @@ def extract_experity_actions(response_json: Dict[str, Any]) -> Dict[str, Any]:
         if not output_items:
             raise AzureAIResponseError("Response contains no output items")
         
-        # Extract text from output
+        # Extract text from output - check all content types
         output_text = ""
+        error_messages = []
+        
         for item in output_items:
             if item.get("type") == "message":
                 content_blocks = item.get("content", [])
                 for block in content_blocks:
-                    if block.get("type") == "output_text":
+                    block_type = block.get("type")
+                    if block_type == "output_text":
+                        output_text += block.get("text", "")
+                    elif block_type == "error":
+                        error_messages.append(block.get("text", str(block)))
+                    # Also check for other potential text fields
+                    elif "text" in block:
                         output_text += block.get("text", "")
         
-        if not output_text:
-            raise AzureAIResponseError("No output_text found in response")
+        # If we have error messages, include them in the error
+        if error_messages:
+            error_msg = "; ".join(error_messages)
+            logger.error(f"Azure AI returned errors: {error_msg}")
+            raise AzureAIResponseError(f"Azure AI agent returned errors: {error_msg}")
+        
+        # Check if output_text is empty or just whitespace
+        if not output_text or not output_text.strip():
+            # Log the full response structure for debugging
+            logger.error(f"Empty output_text. Full response structure: {json.dumps(response_json, indent=2)[:1000]}")
+            raise AzureAIResponseError(
+                "No output_text found in response or output_text is empty. "
+                "The Azure AI agent may have failed to generate a response."
+            )
+        
+        # Try to extract JSON - the LLM might return JSON wrapped in markdown code blocks
+        output_text_clean = output_text.strip()
+        
+        # Remove markdown code blocks if present
+        if output_text_clean.startswith("```json"):
+            output_text_clean = output_text_clean[7:]  # Remove ```json
+        elif output_text_clean.startswith("```"):
+            output_text_clean = output_text_clean[3:]  # Remove ```
+        
+        if output_text_clean.endswith("```"):
+            output_text_clean = output_text_clean[:-3]  # Remove trailing ```
+        
+        output_text_clean = output_text_clean.strip()
         
         # Parse JSON string to object
         try:
-            experity_mapping = json.loads(output_text)
+            experity_mapping = json.loads(output_text_clean)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from output text: {output_text[:200]}")
-            raise AzureAIResponseError(f"Response text is not valid JSON: {str(e)}") from e
+            logger.error(f"Failed to parse JSON from output text. First 500 chars: {output_text[:500]}")
+            logger.error(f"Cleaned text first 500 chars: {output_text_clean[:500]}")
+            raise AzureAIResponseError(
+                f"Response text is not valid JSON: {str(e)}. "
+                f"Output text preview: {output_text_clean[:200]}"
+            ) from e
         
         # Validate it's a dictionary
         if not isinstance(experity_mapping, dict):
