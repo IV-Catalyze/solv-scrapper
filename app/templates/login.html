@@ -158,6 +158,36 @@
             Contact your administrator for access
         </div>
     </div>
+    
+    <script>
+        // Immediately check if user is already authenticated and redirect
+        // This prevents showing the login page if user has a valid session
+        (function() {
+            // Check for session cookie
+            const hasSessionCookie = document.cookie.split(';').some(cookie => {
+                return cookie.trim().startsWith('session=');
+            });
+
+            if (hasSessionCookie) {
+                // Verify session is valid by checking /auth/me
+                fetch('/auth/me', {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    cache: 'no-store'
+                })
+                .then(response => {
+                    if (response.ok) {
+                        // Session is valid, redirect to dashboard immediately
+                        window.location.replace('/');
+                    }
+                    // If response is not ok, stay on login page
+                })
+                .catch(() => {
+                    // Error checking auth, stay on login page
+                });
+            }
+        })();
+    </script>
 </body>
 </html>
 

@@ -39,7 +39,14 @@ def verify_session_token(token: str) -> Optional[dict]:
         max_age = SESSION_MAX_AGE
         user_data = serializer.loads(token, max_age=max_age)
         return user_data
-    except (BadSignature, SignatureExpired):
+    except BadSignature:
+        # Invalid signature - token was tampered with or wrong secret key
+        return None
+    except SignatureExpired:
+        # Token expired - session is too old
+        return None
+    except Exception:
+        # Any other error (malformed token, etc.)
         return None
 
 
