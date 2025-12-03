@@ -40,6 +40,123 @@
             padding: 0 1.5rem 3rem;
         }
 
+        .header-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: var(--panel);
+            border-bottom: 1px solid var(--panel-border);
+            backdrop-filter: blur(24px);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 0 2rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .user-menu {
+            position: relative;
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .user-avatar:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .user-avatar:active {
+            transform: scale(0.98);
+        }
+
+        .user-dropdown {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: white;
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius-md);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            min-width: 200px;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
+            z-index: 1001;
+        }
+
+        .user-dropdown.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .user-dropdown-header {
+            padding: 1rem;
+            border-bottom: 1px solid var(--panel-border);
+        }
+
+        .user-dropdown-header .username {
+            font-weight: 600;
+            color: var(--text);
+            font-size: 0.95rem;
+        }
+
+        .user-dropdown-header .email {
+            font-size: 0.85rem;
+            color: var(--muted);
+            margin-top: 0.25rem;
+        }
+
+        .user-dropdown-item {
+            display: block;
+            width: 100%;
+            padding: 0.75rem 1rem;
+            text-align: left;
+            background: none;
+            border: none;
+            color: var(--text);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            text-decoration: none;
+        }
+
+        .user-dropdown-item:hover {
+            background: var(--accent-soft);
+        }
+
+        .user-dropdown-item.logout {
+            color: #dc2626;
+            border-top: 1px solid var(--panel-border);
+        }
+
+        .user-dropdown-item.logout:hover {
+            background: #fee;
+            color: #b91c1c;
+        }
+
+        .page {
+            padding-top: 80px;
+        }
+
         .page {
             max-width: 100%;
             margin: 0 auto;
@@ -512,6 +629,29 @@
     </style>
 </head>
 <body>
+    <!-- User Avatar Menu -->
+    {% if current_user %}
+    <div class="header-bar">
+        <div class="user-menu">
+            <div class="user-avatar" id="userAvatar" onclick="toggleUserMenu()">
+                {% set initials = current_user.username[0:2] | upper %}
+                {{ initials }}
+            </div>
+            <div class="user-dropdown" id="userDropdown">
+                <div class="user-dropdown-header">
+                    <div class="username">{{ current_user.username }}</div>
+                    {% if current_user.email %}
+                    <div class="email">{{ current_user.email }}</div>
+                    {% endif %}
+                </div>
+                <form method="post" action="/logout" style="margin: 0;">
+                    <button type="submit" class="user-dropdown-item logout">Logout</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
 <div class="page">
     {% set location_label = "All Locations" %}
     {% if location_id %}
@@ -967,6 +1107,33 @@
             }
         });
     })();
+
+    // User menu dropdown toggle
+    function toggleUserMenu() {
+        const dropdown = document.getElementById('userDropdown');
+        if (dropdown) {
+            dropdown.classList.toggle('show');
+        }
+    }
+
+    // Close user menu when clicking outside
+    document.addEventListener('click', function(event) {
+        const userMenu = document.querySelector('.user-menu');
+        const dropdown = document.getElementById('userDropdown');
+        if (userMenu && dropdown && !userMenu.contains(event.target)) {
+            dropdown.classList.remove('show');
+        }
+    });
+
+    // Close user menu on escape key
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+            const dropdown = document.getElementById('userDropdown');
+            if (dropdown) {
+                dropdown.classList.remove('show');
+            }
+        }
+    });
 </script>
 </body>
 </html>

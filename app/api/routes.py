@@ -35,6 +35,19 @@ except ImportError:
     TokenData = None
     AUTH_ENABLED = False
 
+# Import session-based authentication for web UI
+try:
+    from app.api.auth_routes import router as auth_router, require_auth
+    SESSION_AUTH_ENABLED = True
+except ImportError:
+    print("Warning: auth_routes.py not found. Session authentication will be disabled.")
+    auth_router = None
+    # Create a no-op dependency for when auth is disabled
+    async def require_auth_noop(request: Request):
+        return None
+    require_auth = require_auth_noop
+    SESSION_AUTH_ENABLED = False
+
 # Create a dependency that works whether auth is enabled or not
 def get_auth_dependency():
     """Return the authentication dependency if auth is enabled, otherwise return a no-op."""
@@ -118,6 +131,10 @@ app = FastAPI(
 )
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+
+# Include authentication routes
+if SESSION_AUTH_ENABLED and auth_router:
+    app.include_router(auth_router)
 
 def normalize_status(value: Optional[str]) -> Optional[str]:
     if not value:
@@ -1469,6 +1486,7 @@ class SummaryResponse(BaseModel):
             "content": {"text/html": {"example": "<!-- HTML dashboard rendered via Jinja template -->"}},
             "description": "HTML table view of the patient queue filtered by the supplied query parameters.",
         },
+        303: {"description": "Redirect to login page if not authenticated."},
         500: {"description": "Server error while fetching patient data from remote API."},
     },
 )
@@ -1504,6 +1522,7 @@ async def root(
         alias="page_size",
         description="Number of records per page (1-100)."
     ),
+    current_user: dict = Depends(require_auth),
 ):
     """
     Render the patient queue dashboard as HTML.
@@ -1592,6 +1611,7 @@ async def root(
                 "locations": locations,
                 "default_statuses": DEFAULT_STATUSES,
                 "status_summary": status_summary,
+                "current_user": current_user,
             },
         )
     except HTTPException:

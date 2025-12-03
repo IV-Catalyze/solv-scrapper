@@ -316,3 +316,53 @@ CREATE TRIGGER update_summaries_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+-- Create users table for authentication
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(255) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indexes for users table
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+-- Ensure new columns exist (for legacy tables)
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS username VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS email VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+-- Add NOT NULL constraints if they don't exist
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name = 'users' AND column_name = 'username' 
+               AND is_nullable = 'YES') THEN
+        ALTER TABLE users ALTER COLUMN username SET NOT NULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name = 'users' AND column_name = 'password_hash' 
+               AND is_nullable = 'YES') THEN
+        ALTER TABLE users ALTER COLUMN password_hash SET NOT NULL;
+    END IF;
+END $$;
+
+-- Ensure uniqueness on username and email
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(username);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email) WHERE email IS NOT NULL;
+
+-- Create trigger to automatically update updated_at for users
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
+CREATE TRIGGER update_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
