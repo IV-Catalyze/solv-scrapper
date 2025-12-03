@@ -1195,9 +1195,12 @@
         // Don't check on normal page loads - server-side auth handles that
         window.addEventListener('pageshow', function(event) {
             // If page was loaded from cache (back/forward button)
-            if (event.persisted) {
-                // Verify authentication when page is restored from cache
-                checkAuthentication();
+            // Only check if we're not already checking and page was actually cached
+            if (event.persisted && !isCheckingAuth) {
+                // Small delay to avoid race conditions
+                setTimeout(() => {
+                    checkAuthentication();
+                }, 200);
             }
         });
 
