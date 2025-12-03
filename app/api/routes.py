@@ -1393,7 +1393,7 @@ class EncounterCreateRequest(BaseModel):
     id: str = Field(..., description="Unique identifier for the encounter (UUID).")
     clientId: Optional[str] = Field(None, description="Client identifier (optional - will use authenticated client if not provided).")
     encounterId: str = Field(..., description="Encounter identifier (UUID).")
-    emrId: Optional[str] = Field(None, description="EMR identifier for the patient (links encounter to patient EMR record).")
+    emrId: str = Field(..., description="EMR identifier for the patient (links encounter to patient EMR record).")
     traumaType: Optional[str] = Field(None, description="Type of trauma (e.g., 'BURN').")
     chiefComplaints: List[ChiefComplaint] = Field(..., min_length=1, description="List of chief complaints. At least one complaint is required.")
     status: Optional[str] = Field(None, description="Status of the encounter (e.g., 'COMPLETE').")
@@ -2110,19 +2110,31 @@ async def create_encounter(
     If an encounter with the same `encounterId` already exists, it will be updated.
     
     **Required fields:**
-    - `id` or `encounter_id`: Unique identifier for the encounter (UUID)
-    - `encounterId` or `encounter_id`: Encounter identifier (UUID)
-    - `chiefComplaints` or `chief_complaints`: List of chief complaint objects - **REQUIRED (at least one complaint)**
+    - `encounterId` or `encounter_id`: Encounter identifier (UUID) - **REQUIRED**
+    - `emrId` or `emr_id`: EMR identifier for the patient (links encounter to patient EMR record) - **REQUIRED**
+    - `chiefComplaints` or `chief_complaints`: List of chief complaint objects - **REQUIRED (must be non-empty array with at least one complaint)**
+    
+    **Conditionally required:**
+    - `clientId` or `client_id`: Client identifier - **OPTIONAL in payload** if HMAC authentication provides the client_id. 
+      If not provided in payload and HMAC authentication doesn't provide it, this field becomes **REQUIRED**.
+      If provided in payload, it must match the authenticated client from HMAC signature.
     
     **Optional fields:**
-    - `clientId` or `client_id`: Client identifier (optional - will use authenticated client from HMAC signature)
-    - `emrId` or `emr_id`: EMR identifier for the patient (links encounter to patient EMR record)
+    - `id`: Unique identifier for the encounter (UUID). If not provided, `encounter_id` will be used as the `id`.
     - `traumaType` or `trauma_type`: Type of trauma (e.g., "BURN")
     - `status`: Status of the encounter (e.g., "COMPLETE")
     - `createdBy` or `created_by`: Email or identifier of the user who created the encounter
     - `startedAt` or `started_at`: ISO 8601 timestamp when the encounter started
     
-    The endpoint supports both camelCase and snake_case field names.
+    **Field name conventions:**
+    The endpoint supports both camelCase (e.g., `encounterId`, `chiefComplaints`) and snake_case (e.g., `encounter_id`, `chief_complaints`) field names.
+    
+    **Chief Complaints structure:**
+    Each complaint object in the `chiefComplaints` array should contain:
+    - `mainProblem`: Main problem description (string)
+    - `bodyParts`: List of affected body parts (array of strings, optional)
+    - Other complaint-related fields as needed
+    
     Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
     conn = None
@@ -2160,6 +2172,7 @@ async def create_encounter(
         # Extract required fields from parsed_payload
         encounter_id = parsed_payload.get('encounter_id')
         client_id = parsed_payload.get('client_id')
+        emr_id = parsed_payload.get('emr_id')
         id_value = parsed_payload.get('id') or encounter_id
         
         # Ensure we have all required fields
@@ -2167,6 +2180,12 @@ async def create_encounter(
             raise HTTPException(
                 status_code=400,
                 detail="encounter_id is required. Please provide an encounter identifier."
+            )
+        
+        if not emr_id:
+            raise HTTPException(
+                status_code=400,
+                detail="emr_id is required. Please provide an EMR identifier for the patient."
             )
         
         # Use authenticated client_id if not provided in payload
@@ -2199,7 +2218,7 @@ async def create_encounter(
             'id': id_value,
             'encounter_id': encounter_id,
             'client_id': client_id,
-            'emr_id': parsed_payload.get('emr_id'),
+            'emr_id': emr_id,
             'trauma_type': parsed_payload.get('trauma_type'),
             'chief_complaints': chief_complaints,
             'status': parsed_payload.get('status'),

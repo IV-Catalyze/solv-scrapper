@@ -23,7 +23,7 @@ def parse_encounter_payload(raw_json: Dict[str, Any]) -> Dict[str, Any]:
             "id": str,
             "encounter_id": str,
             "client_id": str,
-            "emr_id": Optional[str],
+            "emr_id": str,
             "trauma_type": Optional[str],
             "chief_complaints": List[Dict],
             "status": Optional[str],
@@ -131,6 +131,7 @@ def validate_encounter_payload(parsed_payload: Dict[str, Any]) -> Tuple[bool, Op
     # Note: client_id is optional - can be provided via HMAC authentication
     required_fields = {
         'encounter_id': 'encounter_id',
+        'emr_id': 'emr_id',
         # 'client_id': 'client_id',  # Optional - can come from authenticated client
     }
     
