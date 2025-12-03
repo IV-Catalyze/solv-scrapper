@@ -223,7 +223,7 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
     Call Azure AI Experity Mapper Agent with a queue entry.
     
     Args:
-        queue_entry: Queue entry dictionary to send to the agent
+        queue_entry: Queue entry dictionary containing raw_payload
         
     Returns:
         Full Experity mapping object (dict) containing emrId, vitals, 
@@ -246,12 +246,27 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
     except AzureAIAuthenticationError:
         raise
     
-    # Prepare request payload
+    # Extract raw_payload from queue_entry - the LLM prompt expects encounter data directly
+    # If queue_entry has raw_payload, use that; otherwise use queue_entry itself
+    if "raw_payload" in queue_entry and queue_entry["raw_payload"]:
+        # Create a copy to avoid modifying the original
+        encounter_data = dict(queue_entry["raw_payload"])
+        # Also include encounter_id and emr_id from queue_entry if not in raw_payload
+        if "encounterId" not in encounter_data and "encounter_id" in queue_entry:
+            encounter_data["encounterId"] = queue_entry["encounter_id"]
+        if "emrId" not in encounter_data and "emr_id" in queue_entry:
+            encounter_data["emrId"] = queue_entry["emr_id"]
+    else:
+        # Fallback: use queue_entry directly if no raw_payload
+        encounter_data = queue_entry
+        logger.warning("No raw_payload found in queue_entry, using queue_entry directly")
+    
+    # Prepare request payload - send encounter data directly (not the queue_entry wrapper)
     payload = {
         "input": [
             {
                 "role": "user",
-                "content": json.dumps(queue_entry)
+                "content": json.dumps(encounter_data)
             }
         ],
         "metadata": {
