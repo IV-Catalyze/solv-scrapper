@@ -1674,8 +1674,9 @@ async def root(
             },
         )
         
-        # Add cache-control headers to prevent browser caching
-        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        # Add cache-control headers to prevent browser caching after logout
+        # Use no-cache instead of no-store to allow history navigation while preventing stale cache
+        response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         
@@ -1723,7 +1724,8 @@ async def experity_chat_ui(
             "current_user": current_user,
         },
     )
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    # Use no-cache instead of no-store to allow history navigation while preventing stale cache
+    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
