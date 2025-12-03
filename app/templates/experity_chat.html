@@ -1154,13 +1154,6 @@
         // Server-side authentication is the primary check - this is just a safety net
         (function() {
             let isCheckingAuth = false; // Prevent multiple simultaneous checks
-            let lastNavigationType = null; // Track navigation type
-
-            // Track navigation type to distinguish back from forward
-            window.addEventListener('pageshow', function(event) {
-                // Store navigation type for this page load
-                lastNavigationType = event.persisted ? 'back' : 'normal';
-            });
 
             // Function to check if user is authenticated (only for cached pages from back button)
             function checkAuthentication() {
@@ -1215,16 +1208,13 @@
             // Don't check on forward navigation or normal page loads
             window.addEventListener('pageshow', function(event) {
                 // Only check if:
-                // 1. Page was loaded from cache (event.persisted)
+                // 1. Page was loaded from cache (event.persisted) - indicates back navigation
                 // 2. We're not already checking
-                // 3. This is likely a back navigation (not forward)
-                // We detect back navigation by checking if we came from a cached page
+                // Forward navigation typically doesn't persist, so we only check persisted pages
                 if (event.persisted && !isCheckingAuth) {
                     // Only check on back navigation - forward navigation should work normally
                     // We use a small delay to avoid race conditions and let the page fully load
                     setTimeout(() => {
-                        // Double-check that we still have a persisted page (not a forward nav)
-                        // Forward navigation typically doesn't persist, but we're being extra careful
                         checkAuthentication();
                     }, 100);
                 }
