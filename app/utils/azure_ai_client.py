@@ -138,6 +138,31 @@ def extract_experity_actions(response_json: Dict[str, Any]) -> Dict[str, Any]:
         AzureAIResponseError: If response format is invalid or JSON parsing fails
     """
     try:
+        # Check if response is incomplete
+        status = response_json.get("status", "complete")
+        if status == "incomplete":
+            # Check for file_search_call or other tool calls
+            output_items = response_json.get("output", [])
+            file_search_calls = []
+            for item in output_items:
+                if item.get("type") == "file_search_call":
+                    file_search_calls.append(item)
+            
+            if file_search_calls:
+                raise AzureAIResponseError(
+                    f"Azure AI agent response is incomplete. The agent is searching for configuration files "
+                    f"(file_search_call detected). This may indicate: "
+                    f"1) Configuration files are missing from the vector store, "
+                    f"2) The agent is still processing (may need longer timeout), "
+                    f"3) Agent configuration issue. "
+                    f"File search calls found: {len(file_search_calls)}"
+                )
+            else:
+                raise AzureAIResponseError(
+                    "Azure AI agent response is incomplete. The agent may still be processing. "
+                    "Try increasing the request timeout or check agent configuration."
+                )
+        
         output_items = response_json.get("output", [])
         if not output_items:
             raise AzureAIResponseError("Response contains no output items")
