@@ -117,7 +117,27 @@ app = FastAPI(
         "Endpoints for retrieving patient queue data rendered in the dashboard UI or consumed as JSON. "
         "Filters and response fields mirror the helpers defined in `api.py`, such as "
         "`prepare_dashboard_patients`, `build_patient_payload`, and `decorate_patient_payload`. "
-        "All API endpoints require HMAC signature authentication via X-Timestamp and X-Signature headers."
+        "\n\n"
+        "## Authentication\n\n"
+        "**All API endpoints require HMAC signature authentication.**\n\n"
+        "### Using HMAC in Swagger UI (Try it out)\n\n"
+        "To test endpoints with HMAC authentication in Swagger UI:\n\n"
+        "1. **Generate HMAC headers** using your HMAC secret key:\n"
+        "   - Use the `/auth/hmac/example` endpoint (no auth required) to see examples\n"
+        "   - Or use your own tool/script to generate headers\n\n"
+        "2. **Add headers manually** in Swagger UI:\n"
+        "   - Click \"Try it out\" on any endpoint\n"
+        "   - Scroll to the \"Request headers\" section (if visible)\n"
+        "   - Or add headers directly in the request by editing the generated curl command\n"
+        "   - Required headers:\n"
+        "     * `X-Timestamp`: ISO 8601 UTC timestamp (e.g., `2025-11-21T13:49:04Z`)\n"
+        "     * `X-Signature`: Base64-encoded HMAC-SHA256 signature\n\n"
+        "3. **Generate signature** using this canonical format:\n"
+        "   ```
+        "   METHOD + \"\\n\" + PATH + \"\\n\" + TIMESTAMP + \"\\n\" + BODY_HASH
+        "   ```\n"
+        "   Where BODY_HASH is SHA256(hex) of the request body (empty string for GET requests)\n\n"
+        "For detailed instructions, see: https://app-97926.on-aptible.com/docs#/HMAC%20Authentication"
     ),
     version="1.0.0",
     openapi_tags=[
@@ -125,6 +145,7 @@ app = FastAPI(
         {"name": "Encounters", "description": "JSON APIs for creating and managing encounter records."},
         {"name": "Queue", "description": "JSON APIs for creating and managing queue records."},
         {"name": "Summaries", "description": "JSON APIs for creating and managing summary records."},
+        {"name": "Authentication", "description": "Authentication helpers and examples."},
     ],
 )
 
@@ -1663,7 +1684,7 @@ async def experity_chat_ui(request: Request):
     response_model=PatientPayload,
     responses={
         200: {"description": "Most recent patient record normalized by `build_patient_payload()`."},
-        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         404: {"description": "No patient found for the supplied EMR ID."},
         500: {"description": "Database or server error while fetching the record."},
     },
@@ -1677,7 +1698,7 @@ async def get_patient_by_emr_id(
 
     The query orders rows by `captured_at DESC` and uses `build_patient_payload()` to normalize the result.
     
-    Requires authentication via Bearer token or API key.
+    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
     conn = None
     cursor = None
@@ -1751,12 +1772,12 @@ async def get_patient_by_emr_id(
 @app.post(
     "/patients/create",
     tags=["Patients"],
-    summary="Create patient record(s)",
+    summary="Create patient record",
     response_model=Dict[str, Any],
     responses={
         201: {"description": "Patient record(s) created successfully."},
         400: {"description": "Invalid request data."},
-        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         500: {"description": "Database or server error while saving the record(s)."},
     },
 )
@@ -1770,7 +1791,21 @@ async def create_patient(
     This endpoint accepts patient data in JSON format and saves it to the database.
     The data will be normalized and validated before insertion.
     
-    Requires authentication via Bearer token or API key.
+    **Required fields:**
+    - `emr_id`: EMR identifier for the patient (required)
+    
+    **Optional fields:**
+    - `location_id`: Location identifier (required for new patients; can be inferred from existing records for updates)
+    - `booking_id`, `booking_number`, `patient_number`: Booking and patient identifiers
+    - `legalFirstName`, `legalLastName`: Patient name fields
+    - `dob`, `mobilePhone`, `sexAtBirth`: Patient demographic information
+    - `status`: Current queue status
+    - `reasonForVisit`: Reason for the visit
+    
+    If a patient with the same `emr_id` already exists, the record will be updated.
+    If `location_id` is missing, the endpoint will attempt to reuse the location from an existing record.
+    
+    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
     if not normalize_patient_record or not insert_patients:
         raise HTTPException(
@@ -1899,7 +1934,7 @@ async def create_patient(
     responses={
         200: {"description": "Patient status updated successfully."},
         400: {"description": "Invalid request data."},
-        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         404: {"description": "Patient with the specified EMR ID not found."},
         500: {"description": "Database or server error while updating the status."},
     },
@@ -1915,7 +1950,16 @@ async def update_patient_status(
     This endpoint accepts a status update and applies it to the patient record
     in the database. Only the status field is updated.
     
-    Requires authentication via Bearer token or API key.
+    **Request Body:**
+    - `status`: New queue status for the patient (required)
+    
+    **Path Parameters:**
+    - `emr_id`: EMR identifier for the patient (required in URL path)
+    
+    The status value will be normalized (lowercased and trimmed) before being saved.
+    Common status values include: `confirmed`, `checked_in`, `pending`, etc.
+    
+    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
     if not emr_id or not emr_id.strip():
         raise HTTPException(
@@ -2009,7 +2053,7 @@ async def update_patient_status(
     responses={
         201: {"description": "Encounter record created or updated successfully."},
         400: {"description": "Invalid request data or missing required fields."},
-        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         500: {"description": "Database or server error while saving the encounter."},
     },
 )
@@ -2180,7 +2224,7 @@ async def create_encounter(
     responses={
         200: {"description": "Queue entry updated successfully."},
         400: {"description": "Invalid request data or missing required fields."},
-        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         404: {"description": "Queue entry not found."},
         500: {"description": "Database or server error while updating the queue."},
     },
@@ -2204,7 +2248,7 @@ async def update_queue_experity_action(
     The experityAction field accepts an array of action objects. If a single object is provided,
     it will be automatically converted to an array.
     
-    Requires authentication via Bearer token or API key.
+    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
     conn = None
     cursor = None
@@ -2322,7 +2366,7 @@ async def update_queue_experity_action(
     responses={
         200: {"description": "List of queue entries matching the filters."},
         400: {"description": "Invalid query parameters."},
-        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         500: {"description": "Database or server error while fetching queue entries."},
     },
 )
@@ -2367,7 +2411,7 @@ async def list_queue(
     
     Results are ordered by `created_at` descending (newest first).
     
-    Requires authentication via Bearer token or API key.
+    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
     conn = None
     cursor = None
@@ -2455,7 +2499,7 @@ if __name__ == "__main__":
     responses={
         200: {"description": "Ordered list of patient payloads fetched from remote API."},
         400: {"description": "Missing or invalid query parameters."},
-        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         500: {"description": "Server error while fetching patient data from remote API."},
     },
 )
@@ -2484,9 +2528,19 @@ async def list_patients(
     """
     Return the patient queue as JSON, mirroring the data rendered in the dashboard view.
     
-    Reads from the remote production API when a location filter is provided;
+    This endpoint retrieves patient records filtered by location and status.
+    It reads from the remote production API when a location filter is provided;
     otherwise falls back to the local database.
-    Requires authentication via Bearer token or API key.
+    
+    **Query Parameters:**
+    - `locationId` (optional): Location identifier to filter patients by. Required unless DEFAULT_LOCATION_ID env var is set.
+    - `statuses` (optional): Filter patients by status. Provide multiple values by repeating the query parameter.
+      If not provided, defaults to: `confirmed`, `checked_in`, `pending`.
+    - `limit` (optional): Maximum number of records to return (must be >= 1).
+    
+    Results are ordered by `captured_at` descending (newest first).
+    
+    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
     if statuses is None:
         normalized_statuses = DEFAULT_STATUSES.copy()
@@ -2534,7 +2588,7 @@ async def list_patients(
     responses={
         201: {"description": "Summary record created successfully."},
         400: {"description": "Invalid request data or missing required fields."},
-        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         500: {"description": "Database or server error while saving the summary."},
     },
 )
@@ -2622,7 +2676,7 @@ async def create_summary(
     response_model=SummaryResponse,
     responses={
         200: {"description": "Summary record retrieved successfully."},
-        401: {"description": "Authentication required. Provide a Bearer token or API key."},
+        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         404: {"description": "Summary not found for the specified EMR ID."},
         500: {"description": "Database or server error while fetching the summary."},
     },
@@ -2634,7 +2688,11 @@ async def get_summary(
     """
     Retrieve the most recent summary record for a patient by EMR ID.
     
+    **Query Parameters:**
+    - `emr_id` (required): EMR identifier for the patient
+    
     The query orders rows by `updated_at DESC` and returns the most recent summary.
+    If no summary exists for the given EMR ID, a 404 error is returned.
     
     Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
