@@ -1699,9 +1699,13 @@ async def root(
             "content": {"text/html": {"example": "<!-- Experity Mapper Chat UI -->"}},
             "description": "Interactive chat UI for mapping queue entries to Experity actions.",
         },
+        303: {"description": "Redirect to login page if not authenticated."},
     },
 )
-async def experity_chat_ui(request: Request):
+async def experity_chat_ui(
+    request: Request,
+    current_user: dict = Depends(require_auth),
+):
     """
     Render the Experity Mapper Chat UI.
     
@@ -1709,11 +1713,20 @@ async def experity_chat_ui(request: Request):
     - Upload JSON queue entries
     - Send requests to the /experity/map endpoint
     - View responses with Experity actions
+    
+    Requires authentication - users must be logged in to access this page.
     """
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         "experity_chat.html",
-        {"request": request},
+        {
+            "request": request,
+            "current_user": current_user,
+        },
     )
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.get(

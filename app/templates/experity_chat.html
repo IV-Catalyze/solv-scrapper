@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Experity Mapper - Chat UI</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
     <style>
         * {
@@ -49,6 +52,103 @@
             font-size: 14px;
             opacity: 0.9;
             margin-top: 4px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .user-menu {
+            position: relative;
+            display: inline-block;
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.2s ease, background 0.2s ease;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .user-avatar:hover {
+            transform: scale(1.05);
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .user-dropdown {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            min-width: 200px;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
+            z-index: 1001;
+        }
+
+        .user-dropdown.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .user-dropdown-header {
+            padding: 1rem;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .user-dropdown-header .username {
+            font-weight: 600;
+            color: #212529;
+            margin-bottom: 0.25rem;
+        }
+
+        .user-dropdown-header .email {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+
+        .user-dropdown-item {
+            display: block;
+            width: 100%;
+            padding: 0.75rem 1rem;
+            text-align: left;
+            background: none;
+            border: none;
+            color: #212529;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .user-dropdown-item:hover {
+            background-color: #f8f9fa;
+        }
+
+        .user-dropdown-item.logout {
+            color: #dc3545;
+            font-weight: 600;
+        }
+
+        .user-dropdown-item.logout:hover {
+            background-color: rgba(220, 53, 69, 0.1);
         }
 
         .config-section {
@@ -568,8 +668,26 @@
                 <h1>Experity Mapper</h1>
                 <div class="subtitle">Convert Intellivisit queue entries to Experity actions via Azure AI</div>
             </div>
-            <div class="status-indicator idle" id="statusIndicator">
-                <span>Ready</span>
+            <div class="header-right">
+                <div class="status-indicator idle" id="statusIndicator">
+                    <span>Ready</span>
+                </div>
+                <div class="user-menu">
+                    <div class="user-avatar" id="userAvatar" onclick="toggleUserMenu()">
+                        {{ current_user.username[:2].upper() if current_user and current_user.username else '??' }}
+                    </div>
+                    <div class="user-dropdown" id="userDropdown">
+                        <div class="user-dropdown-header">
+                            <div class="username">{{ current_user.username if current_user else 'Guest' }}</div>
+                            {% if current_user and current_user.email %}
+                                <div class="email">{{ current_user.email }}</div>
+                            {% endif %}
+                        </div>
+                        <form action="/logout" method="post">
+                            <button type="submit" class="user-dropdown-item logout">Logout</button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1003,11 +1121,103 @@
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 const modal = document.getElementById('exampleModal');
-                if (modal.classList.contains('show')) {
+                if (modal && modal.classList.contains('show')) {
                     closeExampleModal();
+                }
+                // Also close user menu if open
+                const dropdown = document.getElementById('userDropdown');
+                if (dropdown && dropdown.classList.contains('show')) {
+                    dropdown.classList.remove('show');
                 }
             }
         });
+
+        // User menu dropdown toggle
+        function toggleUserMenu() {
+            const dropdown = document.getElementById('userDropdown');
+            if (dropdown) {
+                dropdown.classList.toggle('show');
+            }
+        }
+
+        // Close user menu when clicking outside
+        document.addEventListener('click', function(event) {
+            const userMenu = document.querySelector('.user-menu');
+            const dropdown = document.getElementById('userDropdown');
+            if (userMenu && dropdown && !userMenu.contains(event.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
+
+        // Prevent back button from showing cached page after logout
+        // Only check authentication when page is restored from cache (back/forward button)
+        // Server-side authentication is the primary check - this is just a safety net
+        (function() {
+            let isCheckingAuth = false; // Prevent multiple simultaneous checks
+
+            // Function to check if user is authenticated (only for cached pages)
+            function checkAuthentication() {
+                // Prevent multiple simultaneous checks
+                if (isCheckingAuth) {
+                    return;
+                }
+
+                isCheckingAuth = true;
+
+                // Check for session cookie
+                const hasSessionCookie = document.cookie.split(';').some(cookie => {
+                    return cookie.trim().startsWith('session=');
+                });
+
+                if (!hasSessionCookie) {
+                    // No session cookie, redirect to login immediately
+                    isCheckingAuth = false;
+                    window.location.replace('/login');
+                    return false;
+                }
+
+                // Verify session is still valid by making a request to /auth/me
+                // Only redirect on clear authentication errors
+                fetch('/auth/me', {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    cache: 'no-store'
+                })
+                .then(response => {
+                    isCheckingAuth = false;
+                    // Only redirect on clear authentication errors (401, 403)
+                    // Don't redirect on 303 (that's a redirect response, not an error)
+                    if (response.status === 401 || response.status === 403) {
+                        // Session invalid, redirect to login
+                        window.location.replace('/login');
+                    }
+                    // For all other cases, assume session is valid
+                })
+                .catch(() => {
+                    isCheckingAuth = false;
+                    // Don't redirect on network errors - server-side auth is the source of truth
+                    // If server-side auth fails, the server will redirect
+                });
+
+                return true;
+            }
+
+            // Only check authentication when page is restored from cache (back/forward button)
+            // Don't check on normal page loads - server-side auth handles that
+            window.addEventListener('pageshow', function(event) {
+                // If page was loaded from cache (back/forward button)
+                // Only check if we're not already checking and page was actually cached
+                if (event.persisted && !isCheckingAuth) {
+                    // Small delay to avoid race conditions
+                    setTimeout(() => {
+                        checkAuthentication();
+                    }, 200);
+                }
+            });
+
+            // Server-side authentication check is sufficient for normal page loads
+            // Client-side check only needed for cached pages (back button scenario)
+        })();
     </script>
 </body>
 </html>
