@@ -123,9 +123,9 @@ All API endpoints require **HMAC-SHA256 authentication** via `X-Timestamp` and `
 **Base URL:** `https://app-97926.on-aptible.com`
 
 **Documentation:**
-- [Complete Integration Guide](/docs/complete-guide) - Full API documentation with examples
-- [Quick Reference](/docs/quick-reference) - Quick lookup for endpoints and parameters
-- [HMAC Authentication Guide](/docs/hmac-authentication) - Detailed authentication instructions
+- [Complete Integration Guide](https://app-97926.on-aptible.com/docs/complete-guide) - Full API documentation with examples
+- [Quick Reference](https://app-97926.on-aptible.com/docs/quick-reference) - Quick lookup for endpoints and parameters
+- [HMAC Authentication Guide](https://app-97926.on-aptible.com/docs/hmac-authentication) - Detailed authentication instructions
     """,
     version="1.0.0",
     openapi_tags=[
