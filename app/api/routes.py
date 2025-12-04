@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any, List
 
 try:
     from fastapi import FastAPI, HTTPException, Query, Request, Depends
-    from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
+    from fastapi.responses import HTMLResponse, JSONResponse
     from fastapi.templating import Jinja2Templates
     from pydantic import BaseModel, Field, field_validator, model_validator
     import psycopg2
