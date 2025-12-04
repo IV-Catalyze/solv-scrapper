@@ -251,6 +251,25 @@ def extract_experity_actions(response_json: Dict[str, Any], encounter_data: Opti
                 f"Output text preview: {output_text_clean[:200]}"
             ) from e
         
+        # Handle new prompt format: full wrapper structure {success, data: {experity_actions: {...}, ...}, error}
+        if isinstance(experity_mapping, dict) and "success" in experity_mapping:
+            # LLM returned full wrapper structure from new prompt
+            if experity_mapping.get("success") is True and "data" in experity_mapping:
+                data = experity_mapping["data"]
+                # Extract experity_actions from data
+                if "experity_actions" in data:
+                    experity_mapping = data["experity_actions"]
+                    logger.info("Extracted experity_actions from full wrapper structure")
+                else:
+                    # If experity_actions not in data, use data itself (backward compatibility)
+                    logger.warning("Full wrapper structure found but experity_actions not in data, using data directly")
+                    experity_mapping = data
+            elif experity_mapping.get("success") is False:
+                # LLM returned error structure
+                error_info = experity_mapping.get("error", {})
+                error_msg = error_info.get("message", "Unknown error") if isinstance(error_info, dict) else str(error_info)
+                raise AzureAIResponseError(f"LLM returned error structure: {error_msg}")
+        
         # Handle backward compatibility: convert old array format to new object format
         if isinstance(experity_mapping, list):
             logger.warning(

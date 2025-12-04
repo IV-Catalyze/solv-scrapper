@@ -5,6 +5,7 @@ FastAPI application to expose patient data via REST API.
 
 import os
 import sys
+import asyncio
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
@@ -3480,95 +3481,157 @@ async def map_queue_to_experity(
                 logger.warning(f"Failed to update queue status to PROCESSING: {str(e)}")
                 # Continue even if database update fails
         
-        # Call Azure AI agent
-        try:
-            experity_mapping = await call_azure_ai_agent(queue_entry)
-        except AzureAIAuthenticationError as e:
-            error_response = ExperityMapResponse(
-                success=False,
-                error={
-                    "code": "AZURE_AI_AUTH_ERROR",
-                    "message": "Failed to authenticate with Azure AI",
-                    "details": {"azure_message": str(e)}
-                }
-            )
-            # Update queue status to ERROR
-            if queue_id and conn:
-                try:
-                    update_queue_status_and_experity_action(
-                        conn=conn,
-                        queue_id=queue_id,
-                        status='ERROR',
-                        error_message=str(e),
-                        increment_attempts=True
-                    )
-                except Exception:
-                    pass
-            raise HTTPException(status_code=502, detail=error_response.dict())
+        # Call Azure AI agent with retry logic at endpoint level
+        # This provides additional retries for transient errors beyond the client-level retries
+        endpoint_max_retries = 3
+        endpoint_retry_delay = 2  # seconds
+        
+        experity_mapping = None
+        last_endpoint_error = None
+        
+        for endpoint_attempt in range(endpoint_max_retries):
+            try:
+                logger.info(
+                    f"Endpoint-level attempt {endpoint_attempt + 1}/{endpoint_max_retries} "
+                    f"for encounter_id: {encounter_id}"
+                )
+                experity_mapping = await call_azure_ai_agent(queue_entry)
+                # Success - break out of retry loop
+                break
+            except AzureAIAuthenticationError as e:
+                # Authentication errors should not be retried
+                error_response = ExperityMapResponse(
+                    success=False,
+                    error={
+                        "code": "AZURE_AI_AUTH_ERROR",
+                        "message": "Failed to authenticate with Azure AI",
+                        "details": {"azure_message": str(e)}
+                    }
+                )
+                # Update queue status to ERROR
+                if queue_id and conn:
+                    try:
+                        update_queue_status_and_experity_action(
+                            conn=conn,
+                            queue_id=queue_id,
+                            status='ERROR',
+                            error_message=str(e),
+                            increment_attempts=True
+                        )
+                    except Exception:
+                        pass
+                raise HTTPException(status_code=502, detail=error_response.dict())
             
-        except AzureAIRateLimitError as e:
-            error_response = ExperityMapResponse(
-                success=False,
-                error={
-                    "code": "AZURE_AI_RATE_LIMIT",
-                    "message": "Azure AI rate limit exceeded",
-                    "details": {"azure_message": str(e)}
-                }
-            )
-            # Update queue status to ERROR
-            if queue_id and conn:
-                try:
-                    update_queue_status_and_experity_action(
-                        conn=conn,
-                        queue_id=queue_id,
-                        status='ERROR',
-                        error_message=str(e),
-                        increment_attempts=True
-                    )
-                except Exception:
-                    pass
-            raise HTTPException(status_code=502, detail=error_response.dict())
+            except AzureAIRateLimitError as e:
+                # Rate limit errors should not be retried immediately
+                error_response = ExperityMapResponse(
+                    success=False,
+                    error={
+                        "code": "AZURE_AI_RATE_LIMIT",
+                        "message": "Azure AI rate limit exceeded",
+                        "details": {"azure_message": str(e)}
+                    }
+                )
+                # Update queue status to ERROR
+                if queue_id and conn:
+                    try:
+                        update_queue_status_and_experity_action(
+                            conn=conn,
+                            queue_id=queue_id,
+                            status='ERROR',
+                            error_message=str(e),
+                            increment_attempts=True
+                        )
+                    except Exception:
+                        pass
+                raise HTTPException(status_code=502, detail=error_response.dict())
             
-        except AzureAITimeoutError as e:
-            error_response = ExperityMapResponse(
-                success=False,
-                error={
-                    "code": "AZURE_AI_TIMEOUT",
-                    "message": "Request to Azure AI agent timed out",
-                    "details": {"azure_message": str(e)}
-                }
-            )
-            # Update queue status to ERROR
-            if queue_id and conn:
-                try:
-                    update_queue_status_and_experity_action(
-                        conn=conn,
-                        queue_id=queue_id,
-                        status='ERROR',
-                        error_message=str(e),
-                        increment_attempts=True
+            except AzureAITimeoutError as e:
+                # Timeout errors can be retried
+                last_endpoint_error = e
+                if endpoint_attempt < endpoint_max_retries - 1:
+                    wait_time = endpoint_retry_delay * (endpoint_attempt + 1)
+                    logger.warning(
+                        f"Timeout error on attempt {endpoint_attempt + 1}/{endpoint_max_retries}. "
+                        f"Retrying in {wait_time} seconds..."
                     )
-                except Exception:
-                    pass
-            raise HTTPException(status_code=504, detail=error_response.dict())
+                    await asyncio.sleep(wait_time)
+                    continue
+                # Exhausted retries
+                error_response = ExperityMapResponse(
+                    success=False,
+                    error={
+                        "code": "AZURE_AI_TIMEOUT",
+                        "message": f"Request to Azure AI agent timed out after {endpoint_max_retries} attempts",
+                        "details": {"azure_message": str(e), "attempts": endpoint_max_retries}
+                    }
+                )
+                # Update queue status to ERROR
+                if queue_id and conn:
+                    try:
+                        update_queue_status_and_experity_action(
+                            conn=conn,
+                            queue_id=queue_id,
+                            status='ERROR',
+                            error_message=str(e),
+                            increment_attempts=True
+                        )
+                    except Exception:
+                        pass
+                raise HTTPException(status_code=504, detail=error_response.dict())
             
-        except (AzureAIResponseError, AzureAIClientError) as e:
+            except (AzureAIResponseError, AzureAIClientError) as e:
+                # Response/Client errors can be retried (e.g., JSON parsing errors, incomplete responses)
+                last_endpoint_error = e
+                if endpoint_attempt < endpoint_max_retries - 1:
+                    wait_time = endpoint_retry_delay * (endpoint_attempt + 1)
+                    logger.warning(
+                        f"Azure AI error on attempt {endpoint_attempt + 1}/{endpoint_max_retries}: {str(e)}. "
+                        f"Retrying in {wait_time} seconds..."
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                # Exhausted retries
+                error_response = ExperityMapResponse(
+                    success=False,
+                    error={
+                        "code": "AZURE_AI_ERROR",
+                        "message": f"Azure AI agent returned an error after {endpoint_max_retries} attempts",
+                        "details": {"azure_message": str(e), "attempts": endpoint_max_retries}
+                    }
+                )
+                # Update queue status to ERROR
+                if queue_id and conn:
+                    try:
+                        update_queue_status_and_experity_action(
+                            conn=conn,
+                            queue_id=queue_id,
+                            status='ERROR',
+                            error_message=str(e),
+                            increment_attempts=True
+                        )
+                    except Exception:
+                        pass
+                raise HTTPException(status_code=502, detail=error_response.dict())
+        
+        # Check if we got a successful response
+        if experity_mapping is None:
+            # This should not happen, but handle it gracefully
             error_response = ExperityMapResponse(
                 success=False,
                 error={
                     "code": "AZURE_AI_ERROR",
-                    "message": "Azure AI agent returned an error",
-                    "details": {"azure_message": str(e)}
+                    "message": f"Failed to get response from Azure AI after {endpoint_max_retries} attempts",
+                    "details": {"last_error": str(last_endpoint_error) if last_endpoint_error else "Unknown error"}
                 }
             )
-            # Update queue status to ERROR
             if queue_id and conn:
                 try:
                     update_queue_status_and_experity_action(
                         conn=conn,
                         queue_id=queue_id,
                         status='ERROR',
-                        error_message=str(e),
+                        error_message="No response from Azure AI after retries",
                         increment_attempts=True
                     )
                 except Exception:
