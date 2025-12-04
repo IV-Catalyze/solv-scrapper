@@ -64,7 +64,9 @@ class AzureAIAuthenticationError(AzureAIClientError):
 
 class AzureAIRateLimitError(AzureAIClientError):
     """Rate limit error from Azure AI."""
-    pass
+    def __init__(self, message: str, retry_after: Optional[int] = None):
+        super().__init__(message)
+        self.retry_after = retry_after  # Retry-After header value in seconds
 
 
 class AzureAITimeoutError(AzureAIClientError):
@@ -530,11 +532,13 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                         await asyncio.sleep(wait_time)
                         continue
                     else:
-                        # Provide helpful error message
+                        # Provide helpful error message with retry_after info
+                        retry_after_seconds = int(retry_after) if retry_after and retry_after.isdigit() else None
                         raise AzureAIRateLimitError(
                             f"Rate limit exceeded after {MAX_RETRIES} retries. "
                             f"Azure AI is throttling requests. Please wait a few minutes before trying again. "
-                            f"Consider reducing request frequency or checking your Azure AI quota limits."
+                            f"Consider reducing request frequency or checking your Azure AI quota limits.",
+                            retry_after=retry_after_seconds
                         )
                 
                 # Handle authentication errors

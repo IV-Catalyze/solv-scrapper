@@ -6,6 +6,7 @@ FastAPI application to expose patient data via REST API.
 import os
 import sys
 import asyncio
+import random
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
@@ -3523,13 +3524,40 @@ async def map_queue_to_experity(
                 raise HTTPException(status_code=502, detail=error_response.dict())
             
             except AzureAIRateLimitError as e:
-                # Rate limit errors should not be retried immediately
+                # Rate limit errors: retry with longer delays, respecting Retry-After header
+                last_endpoint_error = e
+                if endpoint_attempt < endpoint_max_retries - 1:
+                    # Determine wait time: use Retry-After if available, otherwise use progressive delays
+                    if hasattr(e, 'retry_after') and e.retry_after:
+                        wait_time = e.retry_after
+                        logger.info(f"Using Retry-After header value: {wait_time} seconds")
+                    else:
+                        # Progressive delays for rate limits: 60s, 120s, 180s
+                        rate_limit_delays = [60, 120, 180]
+                        wait_time = rate_limit_delays[min(endpoint_attempt, len(rate_limit_delays) - 1)]
+                    
+                    # Add jitter (±5 seconds) to avoid synchronized retries
+                    jitter = random.uniform(-5, 5)
+                    wait_time = max(30, wait_time + jitter)  # Minimum 30 seconds
+                    
+                    logger.warning(
+                        f"Rate limit error on attempt {endpoint_attempt + 1}/{endpoint_max_retries}. "
+                        f"Waiting {wait_time:.1f} seconds before retry to allow rate limit to reset..."
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                
+                # Exhausted retries for rate limit
                 error_response = ExperityMapResponse(
                     success=False,
                     error={
                         "code": "AZURE_AI_RATE_LIMIT",
-                        "message": "Azure AI rate limit exceeded",
-                        "details": {"azure_message": str(e)}
+                        "message": f"Azure AI rate limit exceeded after {endpoint_max_retries} attempts with extended waits",
+                        "details": {
+                            "azure_message": str(e),
+                            "attempts": endpoint_max_retries,
+                            "suggestion": "Please wait a few minutes before trying again, or check your Azure AI quota limits"
+                        }
                     }
                 )
                 # Update queue status to ERROR
