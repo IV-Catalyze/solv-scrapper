@@ -112,33 +112,20 @@ except ImportError:
         insert_patients = None
 
 app = FastAPI(
-    title="Solv Health API",
+    title="Patient Queue API",
     description="""
-# Solv Health API
-
 RESTful API for managing patient data, encounters, queue entries, and summaries.
 
-## 🔐 Authentication
+## Authentication
 
-All API endpoints require **HMAC-SHA256 authentication** via `X-Timestamp` and `X-Signature` headers.
-
-**Required Headers:**
-- `X-Timestamp`: ISO 8601 UTC timestamp (e.g., `2025-11-21T13:49:04Z`)
-- `X-Signature`: Base64-encoded HMAC-SHA256 signature
-- `Content-Type`: `application/json` (for POST/PATCH requests)
-
-**How it works:**
-1. Create canonical string: `METHOD\\nPATH\\nTIMESTAMP\\nBODY_HASH`
-2. Hash request body using SHA256 (empty string for GET requests)
-3. Compute HMAC-SHA256 using your secret key
-4. Base64 encode the result
-
-**📖 Documentation:**
-- [Complete Integration Guide](../docs/API_COMPLETE_GUIDE.md) - Full API documentation with examples
-- [Quick Reference](../docs/API_QUICK_REFERENCE.md) - Quick lookup for endpoints and parameters
-- [HMAC Authentication Guide](../docs/HMAC_AUTHENTICATION_GUIDE.md) - Detailed authentication instructions
+All API endpoints require **HMAC-SHA256 authentication** via `X-Timestamp` and `X-Signature` headers. See the security schemes below for detailed authentication instructions.
 
 **Base URL:** `https://app-97926.on-aptible.com`
+
+**Documentation Files:**
+- `docs/API_COMPLETE_GUIDE.md` - Complete integration guide with examples
+- `docs/API_QUICK_REFERENCE.md` - Quick reference for endpoints and parameters
+- `docs/HMAC_AUTHENTICATION_GUIDE.md` - Detailed HMAC authentication instructions
     """,
     version="1.0.0",
     openapi_tags=[
@@ -181,13 +168,6 @@ def custom_openapi():
         routes=app.routes,
     )
     
-    # Add external documentation links
-    if "externalDocs" not in openapi_schema:
-        openapi_schema["externalDocs"] = {
-            "description": "Complete API Documentation",
-            "url": "https://github.com/your-org/solv-scrapper-clone/blob/main/docs/API_COMPLETE_GUIDE.md"
-        }
-    
     # Ensure components exist
     if "components" not in openapi_schema:
         openapi_schema["components"] = {}
@@ -216,7 +196,7 @@ def custom_openapi():
                 "2025-11-21T13:49:04Z\n"
                 "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456\n"
                 "```\n\n"
-                "📖 See [HMAC Authentication Guide](../docs/HMAC_AUTHENTICATION_GUIDE.md) for detailed instructions and code examples."
+                "📖 See `docs/HMAC_AUTHENTICATION_GUIDE.md` for detailed instructions and code examples."
             ),
         },
         "HMACTimestamp": {
