@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any, List
 
 try:
     from fastapi import FastAPI, HTTPException, Query, Request, Depends
-    from fastapi.responses import HTMLResponse, JSONResponse
+    from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
     from fastapi.templating import Jinja2Templates
     from pydantic import BaseModel, Field, field_validator, model_validator
     import psycopg2
@@ -123,9 +123,9 @@ All API endpoints require **HMAC-SHA256 authentication** via `X-Timestamp` and `
 **Base URL:** `https://app-97926.on-aptible.com`
 
 **Documentation:**
-- [Complete Integration Guide](https://github.com/IV-Catalyze/solv-scrapper/blob/main/docs/API_COMPLETE_GUIDE.md) - Full API documentation with examples
-- [Quick Reference](https://github.com/IV-Catalyze/solv-scrapper/blob/main/docs/API_QUICK_REFERENCE.md) - Quick lookup for endpoints and parameters
-- [HMAC Authentication Guide](https://github.com/IV-Catalyze/solv-scrapper/blob/main/docs/HMAC_AUTHENTICATION_GUIDE.md) - Detailed authentication instructions
+- [Complete Integration Guide](/docs/complete-guide) - Full API documentation with examples
+- [Quick Reference](/docs/quick-reference) - Quick lookup for endpoints and parameters
+- [HMAC Authentication Guide](/docs/hmac-authentication) - Detailed authentication instructions
     """,
     version="1.0.0",
     openapi_tags=[
@@ -167,12 +167,6 @@ def custom_openapi():
         description=app.description,
         routes=app.routes,
     )
-    
-    # Add external documentation link (OpenAPI supports one externalDocs object)
-    openapi_schema["externalDocs"] = {
-        "description": "Complete Integration Guide",
-        "url": "https://github.com/IV-Catalyze/solv-scrapper/blob/main/docs/API_COMPLETE_GUIDE.md"
-    }
     
     # Ensure components exist
     if "components" not in openapi_schema:
@@ -1814,6 +1808,75 @@ async def experity_chat_ui(
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+
+@app.get(
+    "/docs/complete-guide",
+    summary="API Complete Guide",
+    response_class=Response,
+    include_in_schema=False,
+    responses={
+        200: {
+            "description": "Complete API integration guide in Markdown format.",
+            "content": {"text/markdown": {}},
+        },
+        404: {"description": "Documentation file not found."},
+    },
+)
+async def get_complete_guide():
+    """Serve the complete API integration guide."""
+    docs_path = Path(__file__).parent.parent / "docs" / "API_COMPLETE_GUIDE.md"
+    if not docs_path.exists():
+        raise HTTPException(status_code=404, detail="Documentation file not found")
+    with open(docs_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return Response(content=content, media_type="text/markdown")
+
+
+@app.get(
+    "/docs/quick-reference",
+    summary="API Quick Reference",
+    response_class=Response,
+    include_in_schema=False,
+    responses={
+        200: {
+            "description": "Quick reference guide in Markdown format.",
+            "content": {"text/markdown": {}},
+        },
+        404: {"description": "Documentation file not found."},
+    },
+)
+async def get_quick_reference():
+    """Serve the API quick reference guide."""
+    docs_path = Path(__file__).parent.parent / "docs" / "API_QUICK_REFERENCE.md"
+    if not docs_path.exists():
+        raise HTTPException(status_code=404, detail="Documentation file not found")
+    with open(docs_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return Response(content=content, media_type="text/markdown")
+
+
+@app.get(
+    "/docs/hmac-authentication",
+    summary="HMAC Authentication Guide",
+    response_class=Response,
+    include_in_schema=False,
+    responses={
+        200: {
+            "description": "HMAC authentication guide in Markdown format.",
+            "content": {"text/markdown": {}},
+        },
+        404: {"description": "Documentation file not found."},
+    },
+)
+async def get_hmac_guide():
+    """Serve the HMAC authentication guide."""
+    docs_path = Path(__file__).parent.parent / "docs" / "HMAC_AUTHENTICATION_GUIDE.md"
+    if not docs_path.exists():
+        raise HTTPException(status_code=404, detail="Documentation file not found")
+    with open(docs_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return Response(content=content, media_type="text/markdown")
 
 
 @app.get(
