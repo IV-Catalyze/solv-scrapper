@@ -121,11 +121,6 @@ RESTful API for managing patient data, encounters, queue entries, and summaries.
 All API endpoints require **HMAC-SHA256 authentication** via `X-Timestamp` and `X-Signature` headers. See the security schemes below for detailed authentication instructions.
 
 **Base URL:** `https://app-97926.on-aptible.com`
-
-**Documentation:**
-- [Complete Integration Guide](https://app-97926.on-aptible.com/docs/complete-guide) - Full API documentation with examples
-- [Quick Reference](https://app-97926.on-aptible.com/docs/quick-reference) - Quick lookup for endpoints and parameters
-- [HMAC Authentication Guide](https://app-97926.on-aptible.com/docs/hmac-authentication) - Detailed authentication instructions
     """,
     version="1.0.0",
     openapi_tags=[
@@ -1811,75 +1806,6 @@ async def experity_chat_ui(
 
 
 @app.get(
-    "/docs/complete-guide",
-    summary="API Complete Guide",
-    response_class=Response,
-    include_in_schema=False,
-    responses={
-        200: {
-            "description": "Complete API integration guide in Markdown format.",
-            "content": {"text/markdown": {}},
-        },
-        404: {"description": "Documentation file not found."},
-    },
-)
-async def get_complete_guide():
-    """Serve the complete API integration guide."""
-    docs_path = Path(__file__).parent.parent / "docs" / "API_COMPLETE_GUIDE.md"
-    if not docs_path.exists():
-        raise HTTPException(status_code=404, detail="Documentation file not found")
-    with open(docs_path, "r", encoding="utf-8") as f:
-        content = f.read()
-    return Response(content=content, media_type="text/markdown")
-
-
-@app.get(
-    "/docs/quick-reference",
-    summary="API Quick Reference",
-    response_class=Response,
-    include_in_schema=False,
-    responses={
-        200: {
-            "description": "Quick reference guide in Markdown format.",
-            "content": {"text/markdown": {}},
-        },
-        404: {"description": "Documentation file not found."},
-    },
-)
-async def get_quick_reference():
-    """Serve the API quick reference guide."""
-    docs_path = Path(__file__).parent.parent / "docs" / "API_QUICK_REFERENCE.md"
-    if not docs_path.exists():
-        raise HTTPException(status_code=404, detail="Documentation file not found")
-    with open(docs_path, "r", encoding="utf-8") as f:
-        content = f.read()
-    return Response(content=content, media_type="text/markdown")
-
-
-@app.get(
-    "/docs/hmac-authentication",
-    summary="HMAC Authentication Guide",
-    response_class=Response,
-    include_in_schema=False,
-    responses={
-        200: {
-            "description": "HMAC authentication guide in Markdown format.",
-            "content": {"text/markdown": {}},
-        },
-        404: {"description": "Documentation file not found."},
-    },
-)
-async def get_hmac_guide():
-    """Serve the HMAC authentication guide."""
-    docs_path = Path(__file__).parent.parent / "docs" / "HMAC_AUTHENTICATION_GUIDE.md"
-    if not docs_path.exists():
-        raise HTTPException(status_code=404, detail="Documentation file not found")
-    with open(docs_path, "r", encoding="utf-8") as f:
-        content = f.read()
-    return Response(content=content, media_type="text/markdown")
-
-
-@app.get(
     "/patient/{emr_id}",
     tags=["Patients"],
     summary="Get patient by EMR ID",
@@ -1918,7 +1844,7 @@ async def get_patient_by_emr_id(
 ) -> PatientPayload:
     """
     Retrieve the most recent patient record for a specific EMR ID.
-    
+
     This endpoint queries the database for the patient record with the latest `captured_at` timestamp 
     matching the provided EMR ID. The result is normalized using `build_patient_payload()` to ensure 
     consistent field names and formatting.
