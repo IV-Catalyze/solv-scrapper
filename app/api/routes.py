@@ -122,10 +122,10 @@ All API endpoints require **HMAC-SHA256 authentication** via `X-Timestamp` and `
 
 **Base URL:** `https://app-97926.on-aptible.com`
 
-**Documentation Files:**
-- `docs/API_COMPLETE_GUIDE.md` - Complete integration guide with examples
-- `docs/API_QUICK_REFERENCE.md` - Quick reference for endpoints and parameters
-- `docs/HMAC_AUTHENTICATION_GUIDE.md` - Detailed HMAC authentication instructions
+**Documentation:**
+- [Complete Integration Guide](https://github.com/IV-Catalyze/solv-scrapper/blob/main/docs/API_COMPLETE_GUIDE.md) - Full API documentation with examples
+- [Quick Reference](https://github.com/IV-Catalyze/solv-scrapper/blob/main/docs/API_QUICK_REFERENCE.md) - Quick lookup for endpoints and parameters
+- [HMAC Authentication Guide](https://github.com/IV-Catalyze/solv-scrapper/blob/main/docs/HMAC_AUTHENTICATION_GUIDE.md) - Detailed authentication instructions
     """,
     version="1.0.0",
     openapi_tags=[
@@ -167,6 +167,12 @@ def custom_openapi():
         description=app.description,
         routes=app.routes,
     )
+    
+    # Add external documentation link (OpenAPI supports one externalDocs object)
+    openapi_schema["externalDocs"] = {
+        "description": "Complete Integration Guide",
+        "url": "https://github.com/IV-Catalyze/solv-scrapper/blob/main/docs/API_COMPLETE_GUIDE.md"
+    }
     
     # Ensure components exist
     if "components" not in openapi_schema:
