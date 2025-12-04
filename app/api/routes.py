@@ -112,19 +112,52 @@ except ImportError:
         insert_patients = None
 
 app = FastAPI(
-    title="Patient Data API",
-    description=(
-        "Endpoints for retrieving patient queue data rendered in the dashboard UI or consumed as JSON. "
-        "Filters and response fields mirror the helpers defined in `api.py`, such as "
-        "`prepare_dashboard_patients`, `build_patient_payload`, and `decorate_patient_payload`. "
-        "All API endpoints require HMAC signature authentication via X-Timestamp and X-Signature headers."
-    ),
+    title="Solv Health API",
+    description="""
+# Solv Health API
+
+RESTful API for managing patient data, encounters, queue entries, and summaries.
+
+## 🔐 Authentication
+
+All API endpoints require **HMAC-SHA256 authentication** via `X-Timestamp` and `X-Signature` headers.
+
+**Required Headers:**
+- `X-Timestamp`: ISO 8601 UTC timestamp (e.g., `2025-11-21T13:49:04Z`)
+- `X-Signature`: Base64-encoded HMAC-SHA256 signature
+- `Content-Type`: `application/json` (for POST/PATCH requests)
+
+**How it works:**
+1. Create canonical string: `METHOD\\nPATH\\nTIMESTAMP\\nBODY_HASH`
+2. Hash request body using SHA256 (empty string for GET requests)
+3. Compute HMAC-SHA256 using your secret key
+4. Base64 encode the result
+
+**📖 Documentation:**
+- [Complete Integration Guide](../docs/API_COMPLETE_GUIDE.md) - Full API documentation with examples
+- [Quick Reference](../docs/API_QUICK_REFERENCE.md) - Quick lookup for endpoints and parameters
+- [HMAC Authentication Guide](../docs/HMAC_AUTHENTICATION_GUIDE.md) - Detailed authentication instructions
+
+**Base URL:** `https://app-97926.on-aptible.com`
+    """,
     version="1.0.0",
     openapi_tags=[
-        {"name": "Patients", "description": "JSON APIs for querying patient records and queue data."},
-        {"name": "Encounters", "description": "JSON APIs for creating and managing encounter records."},
-        {"name": "Queue", "description": "JSON APIs for creating and managing queue records."},
-        {"name": "Summaries", "description": "JSON APIs for creating and managing summary records."},
+        {
+            "name": "Patients",
+            "description": "Manage patient records and queue data. Create, update, and query patient information by location and status."
+        },
+        {
+            "name": "Encounters",
+            "description": "Create and manage encounter records. Encounters link to patients via EMR ID and contain chief complaints and trauma information."
+        },
+        {
+            "name": "Queue",
+            "description": "Manage queue entries for processing encounters. Queue entries track processing status and Experity action mappings."
+        },
+        {
+            "name": "Summaries",
+            "description": "Create and retrieve patient summaries. Summaries contain clinical notes linked to patients via EMR ID."
+        },
     ],
 )
 
@@ -148,6 +181,13 @@ def custom_openapi():
         routes=app.routes,
     )
     
+    # Add external documentation links
+    if "externalDocs" not in openapi_schema:
+        openapi_schema["externalDocs"] = {
+            "description": "Complete API Documentation",
+            "url": "https://github.com/your-org/solv-scrapper-clone/blob/main/docs/API_COMPLETE_GUIDE.md"
+        }
+    
     # Ensure components exist
     if "components" not in openapi_schema:
         openapi_schema["components"] = {}
@@ -162,11 +202,21 @@ def custom_openapi():
             "in": "header",
             "name": "X-Signature",
             "description": (
-                "Base64-encoded HMAC-SHA256 signature. "
-                "To generate: compute HMAC-SHA256 over the canonical string "
-                "(METHOD + '\\n' + PATH + '\\n' + TIMESTAMP + '\\n' + BODY_HASH) "
-                "using your secret key, then Base64 encode the result. "
-                "See docs/HMAC_AUTHENTICATION_GUIDE.md for detailed instructions."
+                "**Base64-encoded HMAC-SHA256 signature**\n\n"
+                "**Step-by-step generation:**\n"
+                "1. Get current UTC timestamp in ISO 8601 format\n"
+                "2. Hash request body using SHA256 (empty string for GET requests)\n"
+                "3. Create canonical string: `METHOD\\nPATH\\nTIMESTAMP\\nBODY_HASH`\n"
+                "4. Compute HMAC-SHA256 using your secret key\n"
+                "5. Base64 encode the result\n\n"
+                "**Example canonical string:**\n"
+                "```\n"
+                "POST\n"
+                "/patients/create\n"
+                "2025-11-21T13:49:04Z\n"
+                "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456\n"
+                "```\n\n"
+                "📖 See [HMAC Authentication Guide](../docs/HMAC_AUTHENTICATION_GUIDE.md) for detailed instructions and code examples."
             ),
         },
         "HMACTimestamp": {
@@ -174,8 +224,13 @@ def custom_openapi():
             "in": "header",
             "name": "X-Timestamp",
             "description": (
-                "ISO 8601 UTC timestamp (e.g., 2025-11-21T13:49:04Z). "
-                "Must be within ±5 minutes of server time. Generate just before making the request."
+                "**ISO 8601 UTC timestamp** (e.g., `2025-11-21T13:49:04Z`)\n\n"
+                "**Requirements:**\n"
+                "- Must be within ±5 minutes of server time\n"
+                "- Generate timestamp just before making the request\n"
+                "- Always use UTC timezone\n"
+                "- Format: `YYYY-MM-DDTHH:MM:SSZ`\n\n"
+                "**Example:** `2025-11-21T13:49:04Z`"
             ),
         },
     })
@@ -1349,23 +1404,36 @@ def decorate_patient_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 # Patient data submission models
 class PatientCreateRequest(BaseModel):
     """Request model for creating a single patient record."""
-    emr_id: Optional[str] = Field(None, description="EMR identifier for the patient.")
-    booking_id: Optional[str] = Field(None, description="Internal booking identifier.")
-    booking_number: Optional[str] = Field(None, description="Human-readable booking number.")
-    patient_number: Optional[str] = Field(None, description="Clinic-specific patient number.")
-    location_id: Optional[str] = Field(None, description="Unique identifier for the clinic location.")
-    location_name: Optional[str] = Field(None, description="Display name of the clinic location.")
-    legalFirstName: Optional[str] = Field(None, description="Patient legal first name.")
-    legalLastName: Optional[str] = Field(None, description="Patient legal last name.")
-    dob: Optional[str] = Field(None, description="Date of birth.")
-    mobilePhone: Optional[str] = Field(None, description="Primary phone number on file.")
-    sexAtBirth: Optional[str] = Field(None, description="Sex at birth or recorded gender marker.")
-    reasonForVisit: Optional[str] = Field(None, description="Reason provided for the visit.")
-    status: Optional[str] = Field(None, description="Current queue status for the patient.")
-    captured_at: Optional[str] = Field(None, description="Timestamp indicating when the record was captured.")
+    emr_id: Optional[str] = Field(None, description="EMR identifier for the patient.", example="EMR12345")
+    booking_id: Optional[str] = Field(None, description="Internal booking identifier.", example="booking-123")
+    booking_number: Optional[str] = Field(None, description="Human-readable booking number.", example="BK-001")
+    patient_number: Optional[str] = Field(None, description="Clinic-specific patient number.", example="PN-456")
+    location_id: Optional[str] = Field(None, description="Unique identifier for the clinic location.", example="AXjwbE")
+    location_name: Optional[str] = Field(None, description="Display name of the clinic location.", example="Demo Clinic")
+    legalFirstName: Optional[str] = Field(None, description="Patient legal first name.", example="John")
+    legalLastName: Optional[str] = Field(None, description="Patient legal last name.", example="Doe")
+    dob: Optional[str] = Field(None, description="Date of birth in ISO 8601 format.", example="1990-01-15")
+    mobilePhone: Optional[str] = Field(None, description="Primary phone number on file.", example="+1234567890")
+    sexAtBirth: Optional[str] = Field(None, description="Sex at birth or recorded gender marker.", example="M")
+    reasonForVisit: Optional[str] = Field(None, description="Reason provided for the visit.", example="Annual checkup")
+    status: Optional[str] = Field(None, description="Current queue status for the patient.", example="confirmed")
+    captured_at: Optional[str] = Field(None, description="Timestamp indicating when the record was captured in ISO 8601 format.", example="2025-11-21T10:30:00Z")
     
     class Config:
         extra = "allow"
+        json_schema_extra = {
+            "example": {
+                "emr_id": "EMR12345",
+                "location_id": "AXjwbE",
+                "legalFirstName": "John",
+                "legalLastName": "Doe",
+                "dob": "1990-01-15",
+                "mobilePhone": "+1234567890",
+                "sexAtBirth": "M",
+                "status": "confirmed",
+                "reasonForVisit": "Annual checkup"
+            }
+        }
 
 
 class PatientBatchRequest(BaseModel):
@@ -1375,7 +1443,14 @@ class PatientBatchRequest(BaseModel):
 
 class StatusUpdateRequest(BaseModel):
     """Request model for updating patient status."""
-    status: str = Field(..., description="New queue status for the patient.")
+    status: str = Field(..., description="New queue status for the patient. Common values: confirmed, checked_in, pending, completed, cancelled.", example="checked_in")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "status": "checked_in"
+            }
+        }
 
 
 # Encounter data submission models
@@ -1433,8 +1508,8 @@ class EncounterResponse(BaseModel):
 # Queue data submission models
 class QueueUpdateRequest(BaseModel):
     """Request model for updating queue experityAction."""
-    queue_id: Optional[str] = Field(None, description="Queue identifier (UUID). Either queue_id or encounter_id is required.")
-    encounter_id: Optional[str] = Field(None, description="Encounter identifier (UUID). Either queue_id or encounter_id is required.")
+    queue_id: Optional[str] = Field(None, description="Queue identifier (UUID). Either queue_id or encounter_id is required.", example="660e8400-e29b-41d4-a716-446655440000")
+    encounter_id: Optional[str] = Field(None, description="Encounter identifier (UUID). Either queue_id or encounter_id is required.", example="550e8400-e29b-41d4-a716-446655440000")
     experityAction: Optional[List[Dict[str, Any]]] = Field(None, description="Experity action objects array to update in parsed_payload.")
     
     @model_validator(mode='after')
@@ -1443,6 +1518,22 @@ class QueueUpdateRequest(BaseModel):
         if not self.queue_id and not self.encounter_id:
             raise ValueError('Either queue_id or encounter_id must be provided.')
         return self
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
+                "experityAction": [
+                    {
+                        "action": "UPDATE_VITALS",
+                        "data": {
+                            "temperature": 98.6,
+                            "bloodPressure": "120/80"
+                        }
+                    }
+                ]
+            }
+        }
 
 
 class QueueResponse(BaseModel):
@@ -1514,8 +1605,16 @@ class ExperityMapResponse(BaseModel):
 # Summary data submission models
 class SummaryRequest(BaseModel):
     """Request model for creating or updating a summary record."""
-    emr_id: str = Field(..., description="EMR identifier for the patient.")
-    note: str = Field(..., description="Summary note text.")
+    emr_id: str = Field(..., description="EMR identifier for the patient.", example="EMR12345")
+    note: str = Field(..., description="Summary note text containing clinical information.", example="Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "emr_id": "EMR12345",
+                "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days."
+            }
+        }
 
 
 class SummaryResponse(BaseModel):
@@ -1734,10 +1833,31 @@ async def experity_chat_ui(
 @app.get(
     "/patient/{emr_id}",
     tags=["Patients"],
-    summary="Get latest patient record by EMR ID",
+    summary="Get patient by EMR ID",
     response_model=PatientPayload,
     responses={
-        200: {"description": "Most recent patient record normalized by `build_patient_payload()`."},
+        200: {
+            "description": "Most recent patient record for the specified EMR ID. Returns the record with the latest `captured_at` timestamp.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "emr_id": "EMR12345",
+                        "location_id": "AXjwbE",
+                        "location_name": "Demo Clinic",
+                        "legalFirstName": "John",
+                        "legalLastName": "Doe",
+                        "dob": "1990-01-15",
+                        "mobilePhone": "+1234567890",
+                        "sexAtBirth": "M",
+                        "status": "confirmed",
+                        "reasonForVisit": "Annual checkup",
+                        "captured_at": "2025-11-21T10:30:00Z",
+                        "created_at": "2025-11-21T10:30:00Z",
+                        "updated_at": "2025-11-21T10:30:00Z"
+                    }
+                }
+            }
+        },
         401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         404: {"description": "No patient found for the supplied EMR ID."},
         500: {"description": "Database or server error while fetching the record."},
@@ -1748,9 +1868,23 @@ async def get_patient_by_emr_id(
     current_client: TokenData = get_auth_dependency()
 ) -> PatientPayload:
     """
-    Return the most recent patient record matching the supplied EMR ID.
-
-    The query orders rows by `captured_at DESC` and uses `build_patient_payload()` to normalize the result.
+    Retrieve the most recent patient record for a specific EMR ID.
+    
+    This endpoint queries the database for the patient record with the latest `captured_at` timestamp 
+    matching the provided EMR ID. The result is normalized using `build_patient_payload()` to ensure 
+    consistent field names and formatting.
+    
+    **Path Parameters:**
+    - **emr_id** (required): EMR identifier for the patient. Example: `EMR12345`
+    
+    **Response:**
+    Returns a single patient object with all normalized fields. If multiple records exist for the 
+    same EMR ID, only the most recent one (by `captured_at`) is returned.
+    
+    **Example Request:**
+    ```
+    GET /patient/EMR12345
+    ```
     
     Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
@@ -1826,13 +1960,27 @@ async def get_patient_by_emr_id(
 @app.post(
     "/patients/create",
     tags=["Patients"],
-    summary="Create patient record",
+    summary="Create or update patient record",
     response_model=Dict[str, Any],
     responses={
-        201: {"description": "Patient record(s) created successfully."},
-        400: {"description": "Invalid request data."},
+        201: {
+            "description": "Patient record created or updated successfully.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "Patient record created successfully",
+                        "emr_id": "EMR12345",
+                        "status": "created",
+                        "inserted_count": 1
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "Invalid request data. Common errors: missing `emr_id`, missing `location_id` for new patients."
+        },
         401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        500: {"description": "Database or server error while saving the record(s)."},
+        500: {"description": "Database or server error while saving the record."},
     },
 )
 async def create_patient(
@@ -1840,24 +1988,50 @@ async def create_patient(
     current_client: TokenData = get_auth_dependency()
 ) -> Dict[str, Any]:
     """
-    Create a single patient record from the provided data.
+    Create a new patient record or update an existing one.
     
     This endpoint accepts patient data in JSON format and saves it to the database.
-    The data will be normalized and validated before insertion.
+    The data is normalized and validated before insertion. If a patient with the same 
+    `emr_id` already exists, the record will be updated with the new data.
     
-    **Required fields:**
-    - `emr_id`: EMR identifier for the patient (required)
+    **Required Fields:**
+    - **emr_id** (required): EMR identifier for the patient
     
-    **Optional fields:**
-    - `location_id`: Location identifier (required for new patients; can be inferred from existing records for updates)
+    **Conditionally Required:**
+    - **location_id** (required for new patients): Location identifier. For existing patients, 
+      if `location_id` is missing, the endpoint will attempt to reuse the location from the 
+      most recent existing record.
+    
+    **Optional Fields:**
     - `booking_id`, `booking_number`, `patient_number`: Booking and patient identifiers
-    - `legalFirstName`, `legalLastName`: Patient name fields
-    - `dob`, `mobilePhone`, `sexAtBirth`: Patient demographic information
-    - `status`: Current queue status
-    - `reasonForVisit`: Reason for the visit
+    - `location_name`: Display name of the clinic location
+    - `legalFirstName`, `legalLastName`: Patient legal name
+    - `dob`: Date of birth (ISO 8601 format)
+    - `mobilePhone`: Primary phone number
+    - `sexAtBirth`: Sex at birth or recorded gender marker
+    - `status`: Current queue status (e.g., "confirmed", "checked_in", "pending")
+    - `reasonForVisit`: Reason provided for the visit
+    - `captured_at`: Timestamp when the record was captured (ISO 8601 format)
     
-    If a patient with the same `emr_id` already exists, the record will be updated.
-    If `location_id` is missing, the endpoint will attempt to reuse the location from an existing record.
+    **Behavior:**
+    - If patient exists: Updates the existing record with new data
+    - If patient is new: Creates a new record (requires `location_id`)
+    - Response includes `status` field indicating "created" or "updated"
+    
+    **Example Request:**
+    ```json
+    {
+      "emr_id": "EMR12345",
+      "location_id": "AXjwbE",
+      "legalFirstName": "John",
+      "legalLastName": "Doe",
+      "dob": "1990-01-15",
+      "mobilePhone": "+1234567890",
+      "sexAtBirth": "M",
+      "status": "confirmed",
+      "reasonForVisit": "Annual checkup"
+    }
+    ```
     
     Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
@@ -1986,8 +2160,19 @@ async def create_patient(
     summary="Update patient status",
     response_model=Dict[str, Any],
     responses={
-        200: {"description": "Patient status updated successfully."},
-        400: {"description": "Invalid request data."},
+        200: {
+            "description": "Patient status updated successfully.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "Patient status updated successfully",
+                        "emr_id": "EMR12345",
+                        "status": "checked_in"
+                    }
+                }
+            }
+        },
+        400: {"description": "Invalid request data. Missing or invalid status field."},
         401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         404: {"description": "Patient with the specified EMR ID not found."},
         500: {"description": "Database or server error while updating the status."},
@@ -2001,17 +2186,29 @@ async def update_patient_status(
     """
     Update the queue status for a patient by EMR ID.
     
-    This endpoint accepts a status update and applies it to the patient record
-    in the database. Only the status field is updated.
-    
-    **Request Body:**
-    - `status`: New queue status for the patient (required)
+    This endpoint updates only the `status` field of the patient record. The status value 
+    is normalized (lowercased and trimmed) before being saved. All other patient fields 
+    remain unchanged.
     
     **Path Parameters:**
-    - `emr_id`: EMR identifier for the patient (required in URL path)
+    - **emr_id** (required): EMR identifier for the patient. Example: `EMR12345`
     
-    The status value will be normalized (lowercased and trimmed) before being saved.
-    Common status values include: `confirmed`, `checked_in`, `pending`, etc.
+    **Request Body:**
+    - **status** (required): New queue status for the patient. Common values: 
+      `confirmed`, `checked_in`, `pending`, `completed`, `cancelled`
+    
+    **Behavior:**
+    - Status is normalized: converted to lowercase and trimmed
+    - Only the status field is updated; other fields remain unchanged
+    - Updates the most recent patient record matching the EMR ID
+    
+    **Example Request:**
+    ```json
+    PATCH /patients/EMR12345
+    {
+      "status": "checked_in"
+    }
+    ```
     
     Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
@@ -2105,9 +2302,35 @@ async def update_patient_status(
     response_model=EncounterResponse,
     status_code=201,
     responses={
-        201: {"description": "Encounter record created or updated successfully."},
-        400: {"description": "Invalid request data or missing required fields."},
+        201: {
+            "description": "Encounter record created or updated successfully. The full raw JSON is stored as `raw_payload`, and a parsed structure is stored as `parsed_payload`.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": "550e8400-e29b-41d4-a716-446655440000",
+                        "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
+                        "client_id": "Stage-1c3dca8d-730f-4a32-9221-4e4277903505",
+                        "emr_id": "EMR12345",
+                        "trauma_type": "BURN",
+                        "chief_complaints": [
+                            {
+                                "mainProblem": "Fever and cough",
+                                "bodyParts": ["chest", "throat"]
+                            }
+                        ],
+                        "status": "COMPLETE",
+                        "started_at": "2025-11-21T10:30:00Z",
+                        "created_at": "2025-11-21T10:30:00Z",
+                        "updated_at": "2025-11-21T10:30:00Z"
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "Invalid request data or missing required fields. Common errors: missing `encounterId`, missing `emrId`, empty `chiefComplaints` array, or `client_id` mismatch."
+        },
         401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
+        403: {"description": "Forbidden. The `client_id` in payload does not match the authenticated client."},
         500: {"description": "Database or server error while saving the encounter."},
     },
 )
@@ -2116,39 +2339,64 @@ async def create_encounter(
     current_client: TokenData = get_auth_dependency()
 ) -> EncounterResponse:
     """
-    Create or update an encounter record from the provided data.
+    Create or update an encounter record from the provided JSON data.
     
-    This endpoint accepts encounter data in JSON format and saves it to the database.
-    The full raw JSON payload is stored as `raw_payload`, and a simplified parsed
-    structure is stored as `parsed_payload` for processing in the queue and UI.
+    This endpoint accepts flexible JSON and stores both the raw payload and a parsed structure.
+    The full raw JSON is stored as `raw_payload`, and a simplified parsed structure is stored 
+    as `parsed_payload` for processing in the queue and UI.
     
-    If an encounter with the same `encounterId` already exists, it will be updated.
+    **Important:** This endpoint accepts flexible JSON structure. Field names can be in either 
+    camelCase or snake_case format. The endpoint will parse and normalize the data.
     
-    **Required fields:**
-    - `encounterId` or `encounter_id`: Encounter identifier (UUID) - **REQUIRED**
-    - `emrId` or `emr_id`: EMR identifier for the patient (links encounter to patient EMR record) - **REQUIRED**
-    - `chiefComplaints` or `chief_complaints`: List of chief complaint objects - **REQUIRED (must be non-empty array with at least one complaint)**
+    **Required Fields:**
+    - **encounterId** or **encounter_id** (required): Encounter identifier (UUID)
+    - **emrId** or **emr_id** (required): EMR identifier for the patient (links encounter to patient record)
+    - **chiefComplaints** or **chief_complaints** (required): List of chief complaint objects. 
+      Must be a non-empty array with at least one complaint.
     
-    **Conditionally required:**
-    - `clientId` or `client_id`: Client identifier - **OPTIONAL in payload** if HMAC authentication provides the client_id. 
-      If not provided in payload and HMAC authentication doesn't provide it, this field becomes **REQUIRED**.
-      If provided in payload, it must match the authenticated client from HMAC signature.
+    **Conditionally Required:**
+    - **clientId** or **client_id** (optional): Client identifier. If not provided in payload, 
+      the authenticated client from HMAC signature will be used. If provided, it must match 
+      the authenticated client.
     
-    **Optional fields:**
-    - `id`: Unique identifier for the encounter (UUID). If not provided, `encounter_id` will be used as the `id`.
-    - `traumaType` or `trauma_type`: Type of trauma (e.g., "BURN")
-    - `status`: Status of the encounter (e.g., "COMPLETE")
-    - `createdBy` or `created_by`: Email or identifier of the user who created the encounter
-    - `startedAt` or `started_at`: ISO 8601 timestamp when the encounter started
+    **Optional Fields:**
+    - **id** (optional): Unique identifier for the encounter (UUID). If not provided, `encounterId` will be used.
+    - **traumaType** or **trauma_type** (optional): Type of trauma (e.g., "BURN")
+    - **status** (optional): Status of the encounter (e.g., "COMPLETE")
+    - **createdBy** or **created_by** (optional): Email or identifier of the user who created the encounter
+    - **startedAt** or **started_at** (optional): ISO 8601 timestamp when the encounter started
     
-    **Field name conventions:**
-    The endpoint supports both camelCase (e.g., `encounterId`, `chiefComplaints`) and snake_case (e.g., `encounter_id`, `chief_complaints`) field names.
-    
-    **Chief Complaints structure:**
+    **Chief Complaints Structure:**
     Each complaint object in the `chiefComplaints` array should contain:
-    - `mainProblem`: Main problem description (string)
-    - `bodyParts`: List of affected body parts (array of strings, optional)
+    - `mainProblem` or `main_problem` (string): Main problem description
+    - `bodyParts` or `body_parts` (array of strings, optional): List of affected body parts
     - Other complaint-related fields as needed
+    
+    **Field Name Conventions:**
+    The endpoint supports both camelCase (e.g., `encounterId`, `chiefComplaints`) and 
+    snake_case (e.g., `encounter_id`, `chief_complaints`) field names. Both formats are accepted.
+    
+    **Behavior:**
+    - If an encounter with the same `encounterId` already exists, it will be updated
+    - Raw JSON is stored as-is in `raw_payload`
+    - Parsed and normalized data is stored in `parsed_payload`
+    
+    **Example Request:**
+    ```json
+    {
+      "encounterId": "550e8400-e29b-41d4-a716-446655440000",
+      "emrId": "EMR12345",
+      "chiefComplaints": [
+        {
+          "mainProblem": "Fever and cough",
+          "bodyParts": ["chest", "throat"]
+        }
+      ],
+      "traumaType": "BURN",
+      "status": "COMPLETE",
+      "startedAt": "2025-11-21T10:30:00Z"
+    }
+    ```
     
     Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
@@ -2295,10 +2543,36 @@ async def create_encounter(
     summary="Update queue experityAction",
     response_model=QueueResponse,
     responses={
-        200: {"description": "Queue entry updated successfully."},
-        400: {"description": "Invalid request data or missing required fields."},
+        200: {
+            "description": "Queue entry updated successfully. The `experityAction` field in `parsed_payload` has been updated.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "queue_id": "660e8400-e29b-41d4-a716-446655440000",
+                        "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
+                        "emr_id": "EMR12345",
+                        "status": "PENDING",
+                        "parsed_payload": {
+                            "experityAction": [
+                                {
+                                    "action": "UPDATE_VITALS",
+                                    "data": {
+                                        "temperature": 98.6,
+                                        "bloodPressure": "120/80"
+                                    }
+                                }
+                            ]
+                        },
+                        "updated_at": "2025-11-21T10:35:00Z"
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "Invalid request data or missing required fields. Either `queue_id` or `encounter_id` must be provided."
+        },
         401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        404: {"description": "Queue entry not found."},
+        404: {"description": "Queue entry not found. Provide a valid `queue_id` or `encounter_id`."},
         500: {"description": "Database or server error while updating the queue."},
     },
 )
@@ -2307,19 +2581,38 @@ async def update_queue_experity_action(
     current_client: TokenData = get_auth_dependency()
 ) -> QueueResponse:
     """
-    Update the experityAction in a queue entry's parsed_payload.
+    Update the `experityAction` field in a queue entry's `parsed_payload`.
     
-    This endpoint allows updating the experityAction field within the parsed_payload
-    of a queue entry. The queue entry can be identified by either queue_id or encounter_id.
+    This endpoint allows updating the `experityAction` array within the `parsed_payload` 
+    of a queue entry. The queue entry can be identified by either `queue_id` or `encounter_id`.
     
     **Request Body:**
-    - `queue_id` (optional): Queue identifier (UUID)
-    - `encounter_id` (optional): Encounter identifier (UUID)
-    - `experityAction` (optional): Array of Experity action objects to set in parsed_payload
+    - **queue_id** (optional): Queue identifier (UUID). Either `queue_id` or `encounter_id` must be provided.
+    - **encounter_id** (optional): Encounter identifier (UUID). Either `queue_id` or `encounter_id` must be provided.
+    - **experityAction** (optional): Array of Experity action objects to set in `parsed_payload`. 
+      If a single object is provided, it will be automatically converted to an array.
     
-    **Note:** Either `queue_id` or `encounter_id` must be provided.
-    The experityAction field accepts an array of action objects. If a single object is provided,
-    it will be automatically converted to an array.
+    **Behavior:**
+    - Updates the `experityAction` field in the queue entry's `parsed_payload`
+    - If `experityAction` is not provided, the field remains unchanged
+    - If `experityAction` is `null` or an empty array, it will be set to an empty array
+    - Single objects are automatically converted to arrays for backward compatibility
+    
+    **Example Request:**
+    ```json
+    {
+      "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
+      "experityAction": [
+        {
+          "action": "UPDATE_VITALS",
+          "data": {
+            "temperature": 98.6,
+            "bloodPressure": "120/80"
+          }
+        }
+      ]
+    }
+    ```
     
     Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
@@ -2434,10 +2727,30 @@ async def update_queue_experity_action(
 @app.get(
     "/queue",
     tags=["Queue"],
-    summary="List queue entries with filters",
+    summary="List queue entries with optional filters",
     response_model=List[QueueResponse],
     responses={
-        200: {"description": "List of queue entries matching the filters."},
+        200: {
+            "description": "List of queue entries matching the filters. Results are ordered by `created_at` descending (newest first).",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "queue_id": "660e8400-e29b-41d4-a716-446655440000",
+                            "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
+                            "emr_id": "EMR12345",
+                            "status": "PENDING",
+                            "parsed_payload": {
+                                "experityAction": []
+                            },
+                            "attempts": 0,
+                            "created_at": "2025-11-21T10:30:00Z",
+                            "updated_at": "2025-11-21T10:30:00Z"
+                        }
+                    ]
+                }
+            }
+        },
         400: {"description": "Invalid query parameters."},
         401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         500: {"description": "Database or server error while fetching queue entries."},
@@ -2447,40 +2760,60 @@ async def list_queue(
     queue_id: Optional[str] = Query(
         default=None,
         alias="queue_id",
-        description="Filter by queue identifier (UUID)."
+        description="Filter by queue identifier (UUID). Example: `660e8400-e29b-41d4-a716-446655440000`"
     ),
     encounter_id: Optional[str] = Query(
         default=None,
         alias="encounter_id",
-        description="Filter by encounter identifier (UUID)."
+        description="Filter by encounter identifier (UUID). Example: `550e8400-e29b-41d4-a716-446655440000`"
     ),
     status: Optional[str] = Query(
         default=None,
         alias="status",
-        description="Filter by status: PENDING, PROCESSING, DONE, or ERROR."
+        description="Filter by status. Valid values: `PENDING`, `PROCESSING`, `DONE`, `ERROR`. Example: `PENDING`"
     ),
     emr_id: Optional[str] = Query(
         default=None,
         alias="emr_id",
-        description="Filter by EMR identifier."
+        description="Filter by EMR identifier. Example: `EMR12345`"
     ),
     limit: Optional[int] = Query(
         default=None,
         ge=1,
         alias="limit",
-        description="Maximum number of records to return."
+        description="Maximum number of records to return. Must be >= 1. Example: `50`"
     ),
     current_client: TokenData = get_auth_dependency()
 ) -> List[QueueResponse]:
     """
     Retrieve queue entries with optional filters.
     
-    This endpoint allows querying queue entries by various filters:
-    - `queue_id`: Get specific queue entry by UUID
-    - `encounter_id`: Get queue entry by encounter UUID
-    - `status`: Filter by status (PENDING, PROCESSING, DONE, ERROR)
-    - `emr_id`: Filter by EMR identifier
-    - `limit`: Limit the number of results
+    This endpoint allows querying queue entries by various filters. Queue entries track 
+    the processing status of encounters and contain both raw and parsed payloads.
+    
+    **Query Parameters (all optional):**
+    - **queue_id**: Get specific queue entry by UUID
+    - **encounter_id**: Get queue entry by encounter UUID
+    - **status**: Filter by status. Valid values: `PENDING`, `PROCESSING`, `DONE`, `ERROR`
+    - **emr_id**: Filter by EMR identifier
+    - **limit**: Limit the number of results (must be >= 1)
+    
+    **Response:**
+    Returns an array of queue entry objects. Each entry includes:
+    - `queue_id`: Unique queue identifier
+    - `encounter_id`: Associated encounter identifier
+    - `emr_id`: Patient EMR identifier
+    - `status`: Processing status
+    - `raw_payload`: Original encounter JSON
+    - `parsed_payload`: Parsed structure with `experityAction` array
+    - `attempts`: Number of processing attempts
+    - Timestamps: `created_at`, `updated_at`
+    
+    **Example Request:**
+    ```
+    GET /queue?status=PENDING&limit=10
+    GET /queue?encounter_id=550e8400-e29b-41d4-a716-446655440000
+    ```
     
     Results are ordered by `created_at` descending (newest first).
     
@@ -2567,13 +2900,32 @@ if __name__ == "__main__":
 @app.get(
     "/patients",
     tags=["Patients"],
-    summary="List patient queue data for a location",
+    summary="List patients by location and status",
     response_model=List[PatientPayload],
     responses={
-        200: {"description": "Ordered list of patient payloads fetched from remote API."},
-        400: {"description": "Missing or invalid query parameters."},
+        200: {
+            "description": "List of patient records matching the filters. Results are ordered by `captured_at` descending (newest first).",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "emr_id": "EMR12345",
+                            "location_id": "AXjwbE",
+                            "location_name": "Demo Clinic",
+                            "legalFirstName": "John",
+                            "legalLastName": "Doe",
+                            "status": "confirmed",
+                            "status_class": "confirmed",
+                            "status_label": "Confirmed",
+                            "captured_at": "2025-11-21T10:30:00Z"
+                        }
+                    ]
+                }
+            }
+        },
+        400: {"description": "Missing or invalid query parameters. At least one valid status must be provided if statuses parameter is used."},
         401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        500: {"description": "Server error while fetching patient data from remote API."},
+        500: {"description": "Server error while fetching patient data."},
     },
 )
 async def list_patients(
@@ -2582,36 +2934,52 @@ async def list_patients(
         default=None,
         alias="locationId",
         description=(
-            "Location identifier to filter patients by. Required unless DEFAULT_LOCATION_ID env var is set."
+            "Location identifier to filter patients by. "
+            "**Required** unless `DEFAULT_LOCATION_ID` environment variable is set. "
+            "Example: `AXjwbE`"
         ),
     ),
     limit: Optional[int] = Query(
         default=None,
         ge=1,
         alias="limit",
-        description="Maximum number of records to return."
+        description="Maximum number of records to return. Must be >= 1. Example: `50`"
     ),
     statuses: Optional[List[str]] = Query(
         default=None,
         alias="statuses",
-        description="Filter patients by status. Provide multiple values by repeating the query parameter."
+        description=(
+            "Filter patients by status. Provide multiple values by repeating the query parameter. "
+            "If not provided, defaults to: `checked_in`, `confirmed`. "
+            "Valid statuses are case-insensitive and will be normalized. "
+            "Example: `?statuses=confirmed&statuses=checked_in`"
+        )
     ),
     current_client: TokenData = get_auth_dependency()
 ):
     """
-    Return the patient queue as JSON, mirroring the data rendered in the dashboard view.
+    Retrieve a list of patient records filtered by location and status.
     
-    This endpoint retrieves patient records filtered by location and status.
-    It reads from the remote production API when a location filter is provided;
+    This endpoint returns patient queue data as JSON. It reads from the remote production API 
+    when `USE_REMOTE_API_FOR_READS` is enabled and a location filter is provided; 
     otherwise falls back to the local database.
     
     **Query Parameters:**
-    - `locationId` (optional): Location identifier to filter patients by. Required unless DEFAULT_LOCATION_ID env var is set.
-    - `statuses` (optional): Filter patients by status. Provide multiple values by repeating the query parameter.
-      If not provided, defaults to: `confirmed`, `checked_in`, `pending`.
-    - `limit` (optional): Maximum number of records to return (must be >= 1).
+    - **locationId** (optional): Location identifier to filter patients by. Required unless `DEFAULT_LOCATION_ID` env var is set.
+    - **statuses** (optional): Filter by status. Provide multiple values by repeating the parameter. 
+      If not provided, defaults to: `checked_in`, `confirmed`.
+    - **limit** (optional): Maximum number of records to return (must be >= 1).
     
-    Results are ordered by `captured_at` descending (newest first).
+    **Response:**
+    Returns an array of patient objects ordered by `captured_at` descending (newest first).
+    Each patient object includes normalized fields like `emr_id`, `location_id`, `status`, 
+    `legalFirstName`, `legalLastName`, and presentation fields like `status_class`, `status_label`, 
+    and `captured_display`.
+    
+    **Example Request:**
+    ```
+    GET /patients?locationId=AXjwbE&statuses=confirmed&statuses=checked_in&limit=50
+    ```
     
     Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
@@ -2659,8 +3027,23 @@ async def list_patients(
     response_model=SummaryResponse,
     status_code=201,
     responses={
-        201: {"description": "Summary record created successfully."},
-        400: {"description": "Invalid request data or missing required fields."},
+        201: {
+            "description": "Summary record created successfully.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": 123,
+                        "emr_id": "EMR12345",
+                        "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.",
+                        "created_at": "2025-11-21T10:30:00Z",
+                        "updated_at": "2025-11-21T10:30:00Z"
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "Invalid request data or missing required fields. Both `emr_id` and `note` are required."
+        },
         401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         500: {"description": "Database or server error while saving the summary."},
     },
@@ -2673,11 +3056,22 @@ async def create_summary(
     Create a summary record for a patient.
     
     This endpoint accepts summary data in JSON format and saves it to the database.
-    The summary is linked to a patient via the EMR ID.
+    The summary is linked to a patient via the EMR ID and contains clinical notes.
     
-    **Required fields:**
-    - `emr_id`: EMR identifier for the patient (required)
-    - `note`: Summary note text (required)
+    **Required Fields:**
+    - **emr_id** (required): EMR identifier for the patient. Example: `EMR12345`
+    - **note** (required): Summary note text containing clinical information. Example: `"Patient is a 69 year old male presenting with fever and cough."`
+    
+    **Response:**
+    Returns the created summary record with an auto-generated `id`, timestamps, and the provided data.
+    
+    **Example Request:**
+    ```json
+    {
+      "emr_id": "EMR12345",
+      "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days."
+    }
+    ```
     
     Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
@@ -2745,24 +3139,49 @@ async def create_summary(
 @app.get(
     "/summary",
     tags=["Summaries"],
-    summary="Get summary record by EMR ID",
+    summary="Get summary by EMR ID",
     response_model=SummaryResponse,
     responses={
-        200: {"description": "Summary record retrieved successfully."},
+        200: {
+            "description": "Most recent summary record for the specified EMR ID. Returns the summary with the latest `updated_at` timestamp.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": 123,
+                        "emr_id": "EMR12345",
+                        "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.",
+                        "created_at": "2025-11-21T10:30:00Z",
+                        "updated_at": "2025-11-21T10:30:00Z"
+                    }
+                }
+            }
+        },
         401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         404: {"description": "Summary not found for the specified EMR ID."},
         500: {"description": "Database or server error while fetching the summary."},
     },
 )
 async def get_summary(
-    emr_id: str = Query(..., alias="emr_id", description="EMR identifier for the patient."),
+    emr_id: str = Query(..., alias="emr_id", description="EMR identifier for the patient. Example: `EMR12345`"),
     current_client: TokenData = get_auth_dependency()
 ) -> SummaryResponse:
     """
     Retrieve the most recent summary record for a patient by EMR ID.
     
+    This endpoint queries the database for the summary record with the latest `updated_at` 
+    timestamp matching the provided EMR ID.
+    
     **Query Parameters:**
-    - `emr_id` (required): EMR identifier for the patient
+    - **emr_id** (required): EMR identifier for the patient. Example: `EMR12345`
+    
+    **Response:**
+    Returns a single summary object. If multiple summaries exist for the same EMR ID, 
+    only the most recent one (by `updated_at`) is returned.
+    
+    **Example Request:**
+    ```
+    GET /summary?emr_id=EMR12345
+    ```
     
     The query orders rows by `updated_at DESC` and returns the most recent summary.
     If no summary exists for the given EMR ID, a 404 error is returned.
@@ -2895,13 +3314,45 @@ def update_queue_status_and_experity_action(
     summary="Map queue entry to Experity actions via Azure AI",
     response_model=ExperityMapResponse,
     responses={
-        200: {"description": "Successfully mapped queue entry to Experity actions."},
-        400: {"description": "Invalid request data or missing required fields."},
+        200: {
+            "description": "Successfully mapped queue entry to Experity actions. The queue entry status is updated to PROCESSING during the request and DONE or ERROR based on the result.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "data": {
+                            "experity_actions": {
+                                "emrId": "EMR12345",
+                                "vitals": {
+                                    "temperature": 98.6,
+                                    "bloodPressure": "120/80"
+                                },
+                                "guardianAssistedInterview": None,
+                                "labOrders": [],
+                                "icdUpdates": [],
+                                "complaints": [
+                                    {
+                                        "mainProblem": "Fever and cough",
+                                        "bodyParts": ["chest", "throat"]
+                                    }
+                                ]
+                            },
+                            "queue_id": "660e8400-e29b-41d4-a716-446655440000",
+                            "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
+                            "processed_at": "2025-11-21T10:30:00Z"
+                        }
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "Invalid request data or missing required fields. `queue_entry` must contain `encounter_id` and `raw_payload`."
+        },
         401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         404: {"description": "Queue entry not found in database."},
-        502: {"description": "Azure AI agent returned an error."},
-        504: {"description": "Request to Azure AI agent timed out."},
-        500: {"description": "Database or server error."},
+        502: {"description": "Azure AI agent returned an error. The queue entry status is updated to ERROR."},
+        504: {"description": "Request to Azure AI agent timed out. The queue entry status is updated to ERROR."},
+        500: {"description": "Database or server error. Azure AI client may not be available."},
     },
 )
 async def map_queue_to_experity(
@@ -2911,33 +3362,57 @@ async def map_queue_to_experity(
     """
     Map a queue entry to Experity actions using Azure AI Experity Mapper Agent.
     
-    This endpoint:
-    1. Validates the queue entry structure
-    2. Calls the Azure AI agent to generate Experity mapping
-    3. Optionally updates the queue entry in the database with the results
-    4. Returns the full Experity mapping object
+    This endpoint processes a queue entry through Azure AI to generate Experity mapping actions.
+    The queue entry status is automatically updated during processing:
+    - Set to `PROCESSING` when the request starts
+    - Set to `DONE` on successful mapping
+    - Set to `ERROR` on failure (with error message stored)
     
     **Request Body:**
-    - `queue_entry`: Dictionary containing:
-      - `queue_id`: Optional UUID (used for database updates)
-      - `encounter_id`: Required UUID
-      - `raw_payload`: Required dictionary with encounter data
-      - `parsed_payload`: Optional dictionary
+    - **queue_entry** (required): Dictionary containing:
+      - **encounter_id** (required): Encounter identifier (UUID)
+      - **raw_payload** (required): Dictionary with encounter data
+      - **queue_id** (optional): Queue identifier (UUID, used for database updates)
+      - **parsed_payload** (optional): Parsed payload dictionary
     
     **Response:**
-    - `success`: Boolean indicating success
-    - `data`: Dictionary containing:
-      - `experity_actions`: Full Experity mapping object (JSON) with:
+    - **success** (boolean): Whether the mapping was successful
+    - **data** (object, if success is true): Contains:
+      - **experity_actions**: Full Experity mapping object (JSON) with:
         - `emrId`: EMR identifier
         - `vitals`: Vitals object
         - `guardianAssistedInterview`: Guardian info object
         - `labOrders`: Array of lab orders
         - `icdUpdates`: Array of ICD-10 updates
         - `complaints`: Array of complaint objects
-      - `queue_id`: Queue identifier (if available)
-      - `encounter_id`: Encounter identifier
-      - `processed_at`: ISO 8601 timestamp
-    - `error`: Error details if success is false
+      - **queue_id**: Queue identifier (if available)
+      - **encounter_id**: Encounter identifier
+      - **processed_at**: ISO 8601 timestamp
+    - **error** (object, if success is false): Error details with code and message
+    
+    **Behavior:**
+    - If `queue_id` is not provided, the endpoint attempts to find it by `encounter_id`
+    - Queue entry status is automatically managed during processing
+    - On error, the queue entry status is set to `ERROR` and attempts counter is incremented
+    
+    **Example Request:**
+    ```json
+    {
+      "queue_entry": {
+        "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
+        "raw_payload": {
+          "encounterId": "550e8400-e29b-41d4-a716-446655440000",
+          "emrId": "EMR12345",
+          "chiefComplaints": [
+            {
+              "mainProblem": "Fever and cough",
+              "bodyParts": ["chest", "throat"]
+            }
+          ]
+        }
+      }
+    }
+    ```
     
     Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
