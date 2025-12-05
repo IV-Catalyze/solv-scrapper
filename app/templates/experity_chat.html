@@ -714,10 +714,11 @@
                     class="json-editor" 
                     placeholder='Paste or upload JSON here. Example format:
 {
-  "queue_entry": {
-    "encounter_id": "uuid-here",
-    "raw_payload": { ... }
-  }
+  "id": "encounter-uuid-here",
+  "clientId": "client-uuid-here",
+  "attributes": { ... },
+  "chiefComplaints": [ ... ],
+  ...
 }'
                 ></textarea>
                 <div class="button-group">
@@ -1010,58 +1011,803 @@
 
         // Example JSON modal functions
         const exampleJson = {
-            "queue_entry": {
-                "queue_id": "a1b2c3d4-e5f6-4789-a012-345678901234",
-                "encounter_id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
-                "emr_id": "EMR-2025-001234",
-                "status": "PENDING",
-                "raw_payload": {
-                    "encounterId": "123...",
-                    "attributes": {
-                        "gender": "male",
-                        "pulseOx": 99,
-                        "ageYears": 69,
-                        "heightCm": 167.64,
-                        "weightKg": 63.50,
-                        "ageMonths": 838,
-                        "weightClass": "normal",
-                        "pulseRateBpm": 20,
-                        "bodyMassIndex": 22.59,
-                        "respirationBpm": 18,
-                        "bodyTemperatureCelsius": 37,
-                        "bloodPressureSystolicMm": 180,
-                        "bloodPressureDiastolicMm": 100
+            "id": "e170d6fc-ae47-4ecd-b648-69f074505c4d",
+            "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+            "attributes": {
+                "gender": "male",
+                "pulseOx": 99,
+                "ageYears": 69,
+                "heightCm": 167.64000000000001,
+                "weightKg": 63.50288,
+                "ageMonths": 838,
+                "weightClass": "normal",
+                "pulseRateBpm": 20,
+                "bodyMassIndex": 22.596340876795615,
+                "respirationBpm": 18,
+                "bodyTemperatureCelsius": 37,
+                "bloodPressureSystolicMm": 180,
+                "bloodPressureDiastolicMm": 100
+            },
+            "traumaType": "BURN",
+            "symptomMeta": {},
+            "selectedDiagnoses": [],
+            "status": "COMPLETE",
+            "source": "CONCIERGE",
+            "meta": {},
+            "esi": 2,
+            "createdBy": "randall.meeker@intellivisit.com",
+            "createdById": "6df7d2f0-a001-43a9-a6f8-f11ddf8b6187",
+            "startedAt": "2025-11-12T22:19:01.432Z",
+            "deletedAt": null,
+            "updatedAt": "2025-11-12T22:20:17.083Z",
+            "createdAt": "2025-11-12T22:20:17.083Z",
+            "syncedAt": null,
+            "originSymptoms": [],
+            "predictedDisposition": "Emergency Department",
+            "originLocation": null,
+            "originProviders": null,
+            "predictedProcedures": [
+                "Emergency physical exam",
+                "Head CT"
+            ],
+            "originLaunchError": null,
+            "origin": "web",
+            "additionalQuestions": {
+                "conditions": [
+                    {
+                        "name": "history of anxiety",
+                        "answer": false
                     },
-                    "guardianAssistedInterview": {
-                        "present": true,
-                        "guardianName": "John Doe",
-                        "relationship": "Father",
-                        "notes": "Guardian assisted with history."
+                    {
+                        "name": "history of asthma",
+                        "answer": false
                     },
-                    "labOrders": [
-                        { "id": "lab1", "name": "CBC", "status": "ordered", "reason": "fatigue" },
-                        { "id": "lab2", "name": "CMP", "status": "ordered" }
-                    ],
-                    "traumaType": "CUT",
-                    "chiefComplaints": [
+                    {
+                        "name": "malignancy",
+                        "answer": false
+                    },
+                    {
+                        "name": "cardiac arrhythmias",
+                        "answer": false
+                    },
+                    {
+                        "name": "congestive heart failure",
+                        "answer": false
+                    },
+                    {
+                        "name": "chronic obstructive pulmonary disease",
+                        "answer": false
+                    },
+                    {
+                        "name": "diabetes mellitus",
+                        "answer": false
+                    },
+                    {
+                        "name": "GERD",
+                        "answer": false
+                    },
+                    {
+                        "name": "history of high blood pressure",
+                        "answer": false
+                    },
+                    {
+                        "name": "pregnant",
+                        "answer": false
+                    }
+                ],
+                "hasSocialDeterminate": "No",
+                "postInterviewFreeText": "",
+                "hadTheseSymptomsBefore": null,
+                "symptomReliefAttempted": [],
+                "previousVisitLast3Years": "Unknown",
+                "guardianAssistedInterview": "No",
+                "activityWhenSymptomsStarted": null,
+                "guardianAssistedInterviewBy": [],
+                "socialDeterminateAffirmations": [],
+                "isExacerbationOfChronicConditions": false,
+                "treatedForSymptomsInTheLast30Days": false
+            },
+            "originOrders": null,
+            "originObservationLabs": null,
+            "locationId": null,
+            "originPatientId": null,
+            "originBillingCode": null,
+            "originStartedAt": null,
+            "originBillingCodeSyncedAt": null,
+            "originBillingCodeFailureCount": 0,
+            "originBillingCodeFailureMessage": null,
+            "originDiagnosticReportsSyncedAt": null,
+            "originDiagnosticReportsFailureCount": 0,
+            "originDiagnosticReportsFailureMessage": null,
+            "originCsn": null,
+            "originAppointmentType": null,
+            "originDiagnosesSyncedAt": null,
+            "originDiagnosesFailureCount": 0,
+            "originDiagnosesFailureMessage": null,
+            "originDiagnosesJobId": null,
+            "originDiagnosticReportsJobId": null,
+            "predictedMedicalDecisionMaking": {
+                "dataComplexity": {
+                    "level": "level 2",
+                    "reason": "1 or fewer point-of-care tests",
+                    "explanation": "'Head CT' had a complexity of 1"
+                },
+                "encounterComplexity": {
+                    "level": "level 4",
+                    "reason": "exacerbation or complicated",
+                    "explanation": "Exacerbated or complicated procedures: Emergency physical exam, Head CT"
+                }
+            },
+            "originCsnSyncedAt": null,
+            "originCsnFailureCount": 0,
+            "originCsnFailureMessage": null,
+            "originCsnJobId": null,
+            "location": null,
+            "patient": {
+                "firstName": "Tester",
+                "lastName": "Tester",
+                "dateOfBirth": "1956-01-01T00:00:00.000Z",
+                "encounterOriginId": null,
+                "mrn": null,
+                "emailAddress": null,
+                "phoneNumber": null
+            },
+            "orders": [
+                {
+                    "id": "b577ff78-96e5-448f-a614-f99f0f8e7d23",
+                    "type": "clinical",
+                    "label": "Notify Provider",
+                    "performed": true,
+                    "refusedReason": null,
+                    "procedureCount": 0,
+                    "explanationVersion": 0,
+                    "explanations": [
                         {
-                            "id": "00f9...",
-                            "description": "cut on hand",
-                            "type": "trauma",
-                            "part": "hand",
-                            "symptom": {
-                                "root": {
-                                    "reviewOfSystemsCategory": "INTEGUMENTARY"
-                                }
-                            }
+                            "type": "supporting",
+                            "reason": "ESI is between 2 - 2",
+                            "source": "client"
                         }
-                    ],
-                    "conditions": [
-                        { "name": "Hypertension" },
-                        { "name": "Diabetes" }
+                    ]
+                },
+                {
+                    "id": "89f8ae8f-e24b-4be7-b213-4c3a2d24ff2f",
+                    "type": "clinical",
+                    "label": "Immediately notify provider",
+                    "performed": true,
+                    "refusedReason": null,
+                    "procedureCount": 0,
+                    "explanationVersion": 0,
+                    "explanations": [
+                        {
+                            "type": "supporting",
+                            "reason": "ESI is between 2 - 2",
+                            "source": "client"
+                        }
                     ]
                 }
-            }
+            ],
+            "createdByUser": {
+                "id": "6df7d2f0-a001-43a9-a6f8-f11ddf8b6187",
+                "emailAddress": "randall.meeker@intellivisit.com",
+                "firstName": "randall",
+                "lastName": "meeker"
+            },
+            "chiefComplaints": [
+                {
+                    "id": "09b5349d-d7c2-4506-9705-b5cc12947b6b",
+                    "description": "Injury Head",
+                    "painScale": 1,
+                    "durationDays": 0,
+                    "type": "trauma",
+                    "part": "head",
+                    "query": null,
+                    "symptom": null,
+                    "position": 0,
+                    "bodyParts": []
+                },
+                {
+                    "id": "726c47ab-a7d9-4836-a7a0-b5e99fc13ac7",
+                    "description": "Chemical burn",
+                    "painScale": 1,
+                    "durationDays": 0,
+                    "type": "trauma",
+                    "part": "head",
+                    "query": null,
+                    "symptom": null,
+                    "position": 1,
+                    "bodyParts": []
+                }
+            ],
+            "originDiagnosticReports": [],
+            "originDiagnoses": [],
+            "accessLogs": [
+                {
+                    "id": "d2b61d37-b9d6-421d-8c9e-ca65d72a24b2",
+                    "action": "CREATE",
+                    "createdAt": "2025-11-12T22:20:17.083Z",
+                    "user": {
+                        "id": "6df7d2f0-a001-43a9-a6f8-f11ddf8b6187",
+                        "emailAddress": "randall.meeker@intellivisit.com",
+                        "firstName": "randall",
+                        "lastName": "meeker"
+                    }
+                },
+                {
+                    "id": "5bacf610-59b9-486a-9686-1999fb392609",
+                    "action": "VIEW",
+                    "createdAt": "2025-11-12T22:20:17.373Z",
+                    "user": {
+                        "id": "6df7d2f0-a001-43a9-a6f8-f11ddf8b6187",
+                        "emailAddress": "randall.meeker@intellivisit.com",
+                        "firstName": "randall",
+                        "lastName": "meeker"
+                    }
+                },
+                {
+                    "id": "3a902a23-fdb6-4e91-b316-d5da88b3896b",
+                    "action": "VIEW",
+                    "createdAt": "2025-11-12T22:21:34.434Z",
+                    "user": {
+                        "id": "6df7d2f0-a001-43a9-a6f8-f11ddf8b6187",
+                        "emailAddress": "randall.meeker@intellivisit.com",
+                        "firstName": "randall",
+                        "lastName": "meeker"
+                    }
+                },
+                {
+                    "id": "c90a921f-9160-465d-bf3c-4635d6db3bcd",
+                    "action": "VIEW",
+                    "createdAt": "2025-11-12T22:21:37.178Z",
+                    "user": {
+                        "id": "6df7d2f0-a001-43a9-a6f8-f11ddf8b6187",
+                        "emailAddress": "randall.meeker@intellivisit.com",
+                        "firstName": "randall",
+                        "lastName": "meeker"
+                    }
+                },
+                {
+                    "id": "7bacba1d-07d4-401b-9b5d-5d08a6c1fba2",
+                    "action": "VIEW",
+                    "createdAt": "2025-11-12T23:39:09.580Z",
+                    "user": {
+                        "id": "6df7d2f0-a001-43a9-a6f8-f11ddf8b6187",
+                        "emailAddress": "randall.meeker@intellivisit.com",
+                        "firstName": "randall",
+                        "lastName": "meeker"
+                    }
+                },
+                {
+                    "id": "9481d562-6dfd-4b35-bd67-b784637ab341",
+                    "action": "VIEW",
+                    "createdAt": "2025-11-12T23:39:12.969Z",
+                    "user": {
+                        "id": "6df7d2f0-a001-43a9-a6f8-f11ddf8b6187",
+                        "emailAddress": "randall.meeker@intellivisit.com",
+                        "firstName": "randall",
+                        "lastName": "meeker"
+                    }
+                },
+                {
+                    "id": "8bc21514-2759-4e38-9e04-135b3e702cd7",
+                    "action": "VIEW",
+                    "createdAt": "2025-11-12T23:42:27.561Z",
+                    "user": {
+                        "id": "6df7d2f0-a001-43a9-a6f8-f11ddf8b6187",
+                        "emailAddress": "randall.meeker@intellivisit.com",
+                        "firstName": "randall",
+                        "lastName": "meeker"
+                    }
+                },
+                {
+                    "id": "3f7ad2e7-a984-4fa7-b12c-37abb1cc52a3",
+                    "action": "VIEW",
+                    "createdAt": "2025-11-12T23:42:28.589Z",
+                    "user": {
+                        "id": "6df7d2f0-a001-43a9-a6f8-f11ddf8b6187",
+                        "emailAddress": "randall.meeker@intellivisit.com",
+                        "firstName": "randall",
+                        "lastName": "meeker"
+                    }
+                },
+                {
+                    "id": "7f60890d-932e-4925-b638-b31f3d46c8b9",
+                    "action": "VIEW",
+                    "createdAt": "2025-11-19T19:44:03.428Z",
+                    "user": {
+                        "id": "e31272ca-f52b-495e-8ddb-692f42b3e162",
+                        "emailAddress": "cdavis@catalyzelabs.com",
+                        "firstName": null,
+                        "lastName": null
+                    }
+                },
+                {
+                    "id": "0a32d96b-3df5-4a9d-bc67-c6f72c69f02e",
+                    "action": "VIEW",
+                    "createdAt": "2025-11-19T20:33:42.999Z",
+                    "user": {
+                        "id": "6df7d2f0-a001-43a9-a6f8-f11ddf8b6187",
+                        "emailAddress": "randall.meeker@intellivisit.com",
+                        "firstName": "randall",
+                        "lastName": "meeker"
+                    }
+                },
+                {
+                    "id": "a8f0eabd-b1fa-4d65-9fa0-4f160ca47e57",
+                    "action": "VIEW",
+                    "createdAt": "2025-11-19T20:33:46.276Z",
+                    "user": {
+                        "id": "6df7d2f0-a001-43a9-a6f8-f11ddf8b6187",
+                        "emailAddress": "randall.meeker@intellivisit.com",
+                        "firstName": "randall",
+                        "lastName": "meeker"
+                    }
+                },
+                {
+                    "id": "e3c12367-44dd-4ae5-bbef-c7c37b467076",
+                    "action": "VIEW",
+                    "createdAt": "2025-11-19T20:33:47.153Z",
+                    "user": {
+                        "id": "6df7d2f0-a001-43a9-a6f8-f11ddf8b6187",
+                        "emailAddress": "randall.meeker@intellivisit.com",
+                        "firstName": "randall",
+                        "lastName": "meeker"
+                    }
+                },
+                {
+                    "id": "4834e4d8-6475-4295-a5c3-c437b3fad677",
+                    "action": "VIEW",
+                    "createdAt": "2025-12-05T15:27:30.453Z",
+                    "user": {
+                        "id": "e31272ca-f52b-495e-8ddb-692f42b3e162",
+                        "emailAddress": "cdavis@catalyzelabs.com",
+                        "firstName": null,
+                        "lastName": null
+                    }
+                },
+                {
+                    "id": "c6092065-f5e3-4bf2-93bd-b381ca4e3e37",
+                    "action": "VIEW",
+                    "createdAt": "2025-12-05T15:27:36.656Z",
+                    "user": {
+                        "id": "e31272ca-f52b-495e-8ddb-692f42b3e162",
+                        "emailAddress": "cdavis@catalyzelabs.com",
+                        "firstName": null,
+                        "lastName": null
+                    }
+                }
+            ],
+            "traumaQuestions": [
+                {
+                    "id": "d9d269a5-0c32-4544-b75e-a7b9ee7b90b5",
+                    "name": "burned",
+                    "question": "What burned you?",
+                    "answer": "Chemicals",
+                    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                    "encounterId": "e170d6fc-ae47-4ecd-b648-69f074505c4d"
+                }
+            ],
+            "predictedDiagnoses": [
+                {
+                    "id": "03703469-e4f4-4eb4-9fd7-44c7734c5230",
+                    "name": "cerebral hemorrhage",
+                    "emergencyLevel": 1,
+                    "symptoms": [
+                        "injury head"
+                    ],
+                    "rawScore": 3.8375,
+                    "probability": 1,
+                    "reviewStatus": "included",
+                    "flagReason": null,
+                    "isCommonToUrgentCare": true,
+                    "isHighRisk": true,
+                    "displayedTop": false
+                },
+                {
+                    "id": "941ecab7-eae7-4d96-8b60-cdcc5e507981",
+                    "name": "head injury",
+                    "emergencyLevel": 4,
+                    "symptoms": [
+                        "injury head"
+                    ],
+                    "rawScore": 1.6675,
+                    "probability": 0.4345,
+                    "reviewStatus": "included",
+                    "flagReason": null,
+                    "isCommonToUrgentCare": true,
+                    "isHighRisk": false,
+                    "displayedTop": false
+                },
+                {
+                    "id": "6ca94055-bcb7-47f1-ae11-8e8e13608f3a",
+                    "name": "Subdural hematoma",
+                    "emergencyLevel": 6,
+                    "symptoms": [
+                        "injury head"
+                    ],
+                    "rawScore": 1.4771,
+                    "probability": 0.3849,
+                    "reviewStatus": "included",
+                    "flagReason": null,
+                    "isCommonToUrgentCare": true,
+                    "isHighRisk": false,
+                    "displayedTop": false
+                },
+                {
+                    "id": "04b3603c-d4b0-49ba-891b-08dfda84be8a",
+                    "name": "tinnitus",
+                    "emergencyLevel": 5,
+                    "symptoms": [
+                        "injury head"
+                    ],
+                    "rawScore": 0.923,
+                    "probability": 0.2405,
+                    "reviewStatus": "included",
+                    "flagReason": null,
+                    "isCommonToUrgentCare": true,
+                    "isHighRisk": false,
+                    "displayedTop": false
+                },
+                {
+                    "id": "b80d90ce-bbcd-4788-a396-6c7a167b69e8",
+                    "name": "fracture",
+                    "emergencyLevel": 4,
+                    "symptoms": [
+                        "injury head"
+                    ],
+                    "rawScore": 0.8905,
+                    "probability": 0.2321,
+                    "reviewStatus": "included",
+                    "flagReason": null,
+                    "isCommonToUrgentCare": true,
+                    "isHighRisk": false,
+                    "displayedTop": false
+                },
+                {
+                    "id": "22e780ab-88f1-469d-9429-35b9c8bf0660",
+                    "name": "concussion",
+                    "emergencyLevel": 4,
+                    "symptoms": [
+                        "injury head"
+                    ],
+                    "rawScore": 0.8712,
+                    "probability": 0.227,
+                    "reviewStatus": "included",
+                    "flagReason": null,
+                    "isCommonToUrgentCare": true,
+                    "isHighRisk": false,
+                    "displayedTop": false
+                },
+                {
+                    "id": "6578929d-eba8-4efc-8a08-35b0e6266c90",
+                    "name": "hematoma",
+                    "emergencyLevel": 4,
+                    "symptoms": [
+                        "injury head"
+                    ],
+                    "rawScore": 0.6918,
+                    "probability": 0.1803,
+                    "reviewStatus": "included",
+                    "flagReason": null,
+                    "isCommonToUrgentCare": true,
+                    "isHighRisk": false,
+                    "displayedTop": false
+                },
+                {
+                    "id": "9ac47743-0f87-4ac9-833e-83f15a54c507",
+                    "name": "foreign body skin",
+                    "emergencyLevel": 4,
+                    "symptoms": [
+                        "injury head"
+                    ],
+                    "rawScore": 0.6918,
+                    "probability": 0.1803,
+                    "reviewStatus": "included",
+                    "flagReason": null,
+                    "isCommonToUrgentCare": true,
+                    "isHighRisk": false,
+                    "displayedTop": false
+                },
+                {
+                    "id": "d222655b-6593-4fda-93b1-0b21c8d9c6cc",
+                    "name": "laceration",
+                    "emergencyLevel": 4,
+                    "symptoms": [
+                        "injury head"
+                    ],
+                    "rawScore": 0.5925,
+                    "probability": 0.1544,
+                    "reviewStatus": "included",
+                    "flagReason": null,
+                    "isCommonToUrgentCare": true,
+                    "isHighRisk": false,
+                    "displayedTop": false
+                },
+                {
+                    "id": "c4a5c407-ea8e-47cc-977e-60b091724e61",
+                    "name": "fracture jaw",
+                    "emergencyLevel": 4,
+                    "symptoms": [
+                        "injury head"
+                    ],
+                    "rawScore": 0.5001,
+                    "probability": 0.1303,
+                    "reviewStatus": "included",
+                    "flagReason": null,
+                    "isCommonToUrgentCare": true,
+                    "isHighRisk": false,
+                    "displayedTop": false
+                },
+                {
+                    "id": "8f8891cb-da51-4836-80bb-2cc255f15e53",
+                    "name": "puncture wound",
+                    "emergencyLevel": 4,
+                    "symptoms": [
+                        "injury head"
+                    ],
+                    "rawScore": 0.4926,
+                    "probability": 0.1284,
+                    "reviewStatus": "included",
+                    "flagReason": null,
+                    "isCommonToUrgentCare": true,
+                    "isHighRisk": false,
+                    "displayedTop": false
+                },
+                {
+                    "id": "aa2d9fe4-7a81-4e4f-8e1c-3e7758ef9459",
+                    "name": "crush injuries",
+                    "emergencyLevel": 4,
+                    "symptoms": [
+                        "injury head"
+                    ],
+                    "rawScore": 0.383,
+                    "probability": 0.0998,
+                    "reviewStatus": "excluded",
+                    "flagReason": null,
+                    "isCommonToUrgentCare": true,
+                    "isHighRisk": false,
+                    "displayedTop": false
+                }
+            ],
+            "importantQuestions": [
+                {
+                    "id": "ef4e4d55-e942-4e43-ada1-29cdea638ad3",
+                    "name": "major trauma",
+                    "fullQuestion": "Do you have an injury caused by a recent major trauma (car accident, skiing accident, fall from height, ect)",
+                    "answer": "FALSE",
+                    "type": "symptoms",
+                    "naReason": null,
+                    "naComments": null,
+                    "reviewOfSystemsCategory": "CONSTITUTIONAL-SYMPTOMS",
+                    "stars": 10,
+                    "round": 1,
+                    "relatedSymptoms": [
+                        "injury head"
+                    ],
+                    "debug": null
+                },
+                {
+                    "id": "2ab2f450-ddf0-44ef-8357-c920754bc33c",
+                    "name": "slurred speech",
+                    "fullQuestion": "Are you having difficulty speaking and slurring your speech?",
+                    "answer": "FALSE",
+                    "type": "symptoms",
+                    "naReason": null,
+                    "naComments": null,
+                    "reviewOfSystemsCategory": "NEUROLOGICAL",
+                    "stars": 10,
+                    "round": 2,
+                    "relatedSymptoms": [
+                        "injury head"
+                    ],
+                    "debug": null
+                },
+                {
+                    "id": "4cdfbc84-4fd8-46e6-83c1-c459abe0f707",
+                    "name": "bleeding from wound",
+                    "fullQuestion": "Do you have a wound that is actively bleeding?",
+                    "answer": "FALSE",
+                    "type": "symptoms",
+                    "naReason": null,
+                    "naComments": null,
+                    "reviewOfSystemsCategory": "HEMATOLOGIC-LYMPHATIC",
+                    "stars": 10,
+                    "round": 3,
+                    "relatedSymptoms": [
+                        "injury head"
+                    ],
+                    "debug": null
+                },
+                {
+                    "id": "43ce48aa-c6ed-4b97-aaaa-d3f5cb81c09e",
+                    "name": "falling from a height >3 ft off the ground",
+                    "fullQuestion": "Did you fall from a height greater than three feet off the ground?",
+                    "answer": "FALSE",
+                    "type": "symptoms",
+                    "naReason": null,
+                    "naComments": null,
+                    "reviewOfSystemsCategory": "CONSTITUTIONAL-SYMPTOMS",
+                    "stars": 10,
+                    "round": 4,
+                    "relatedSymptoms": [
+                        "injury head"
+                    ],
+                    "debug": null
+                },
+                {
+                    "id": "293188cc-15af-47b6-bc3f-86b518b7896f",
+                    "name": "impaired sensations",
+                    "fullQuestion": "Have you noticed any numbness and tingling anywhere on your body?",
+                    "answer": "FALSE",
+                    "type": "symptoms",
+                    "naReason": null,
+                    "naComments": null,
+                    "reviewOfSystemsCategory": "NEUROLOGICAL",
+                    "stars": 10,
+                    "round": 5,
+                    "relatedSymptoms": [
+                        "injury head"
+                    ],
+                    "debug": null
+                },
+                {
+                    "id": "8fe5f676-1fae-4762-a2d6-d90d460c19af",
+                    "name": "known mechanism of injury",
+                    "fullQuestion": "Do you know how the injury happened?",
+                    "answer": "FALSE",
+                    "type": "symptoms",
+                    "naReason": null,
+                    "naComments": null,
+                    "reviewOfSystemsCategory": "MUSCULOSKELETAL",
+                    "stars": 10,
+                    "round": 6,
+                    "relatedSymptoms": [
+                        "injury head"
+                    ],
+                    "debug": null
+                },
+                {
+                    "id": "b649dbef-e3a3-4b61-ac3b-a7b8a43f7a01",
+                    "name": "pain in neck",
+                    "fullQuestion": "Do you have pain in your neck?",
+                    "answer": "FALSE",
+                    "type": "symptoms",
+                    "naReason": null,
+                    "naComments": null,
+                    "reviewOfSystemsCategory": "MUSCULOSKELETAL",
+                    "stars": 10,
+                    "round": 7,
+                    "relatedSymptoms": [
+                        "injury head"
+                    ],
+                    "debug": null
+                },
+                {
+                    "id": "76d65046-a37b-4c48-a92d-4e993e8fb0d4",
+                    "name": "vision problems",
+                    "fullQuestion": "Are you experiencing new vision problems?",
+                    "answer": "FALSE",
+                    "type": "symptoms",
+                    "naReason": null,
+                    "naComments": null,
+                    "reviewOfSystemsCategory": "EYES",
+                    "stars": 10,
+                    "round": 8,
+                    "relatedSymptoms": [
+                        "injury head"
+                    ],
+                    "debug": null
+                },
+                {
+                    "id": "9dea1996-8bb3-42be-82de-a3d71d1851e3",
+                    "name": "vomiting",
+                    "fullQuestion": "Are you vomiting?",
+                    "answer": "FALSE",
+                    "type": "symptoms",
+                    "naReason": null,
+                    "naComments": null,
+                    "reviewOfSystemsCategory": "GASTROINTESTINAL",
+                    "stars": 10,
+                    "round": 9,
+                    "relatedSymptoms": [
+                        "injury head"
+                    ],
+                    "debug": null
+                },
+                {
+                    "id": "3a00e94c-86f4-45be-8605-415320868865",
+                    "name": "Working harder to breathe",
+                    "fullQuestion": "Are you working harder to breathe?",
+                    "answer": "FALSE",
+                    "type": "symptoms",
+                    "naReason": null,
+                    "naComments": null,
+                    "reviewOfSystemsCategory": "RESPIRATORY",
+                    "stars": 10,
+                    "round": 10,
+                    "relatedSymptoms": [
+                        "slow pulse rate measured"
+                    ],
+                    "debug": null
+                },
+                {
+                    "id": "c66993a7-2893-44f3-918d-00753980b9c8",
+                    "name": "chest discomfort",
+                    "fullQuestion": "Do you have chest discomfort?",
+                    "answer": "FALSE",
+                    "type": "symptoms",
+                    "naReason": null,
+                    "naComments": null,
+                    "reviewOfSystemsCategory": "CARDIOVASCULAR",
+                    "stars": 10,
+                    "round": 11,
+                    "relatedSymptoms": [
+                        "slow pulse rate measured"
+                    ],
+                    "debug": null
+                },
+                {
+                    "id": "f153bf50-4614-4004-a191-5838fac70bf8",
+                    "name": "fever",
+                    "fullQuestion": "Do you feel like you have a fever?",
+                    "answer": "FALSE",
+                    "type": "symptoms",
+                    "naReason": null,
+                    "naComments": null,
+                    "reviewOfSystemsCategory": "CONSTITUTIONAL-SYMPTOMS",
+                    "stars": 10,
+                    "round": 12,
+                    "relatedSymptoms": [
+                        "slow pulse rate measured"
+                    ],
+                    "debug": null
+                },
+                {
+                    "id": "1ab18ea6-2d03-4709-b4d6-da3f3f5c5d5e",
+                    "name": "poor coordination",
+                    "fullQuestion": "Have you recently experienced a loss of balance or coordination?",
+                    "answer": "FALSE",
+                    "type": "symptoms",
+                    "naReason": null,
+                    "naComments": null,
+                    "reviewOfSystemsCategory": "NEUROLOGICAL",
+                    "stars": 10,
+                    "round": 13,
+                    "relatedSymptoms": [
+                        "slow pulse rate measured"
+                    ],
+                    "debug": null
+                }
+            ],
+            "creationLog": [
+                {
+                    "id": "aaecbad7-4605-467e-91fc-b18aee15bcf1",
+                    "action": "VITALS",
+                    "seconds": 6.269,
+                    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                    "encounterId": "e170d6fc-ae47-4ecd-b648-69f074505c4d"
+                },
+                {
+                    "id": "cbdf676a-f887-479f-b4e2-d6a6415e433e",
+                    "action": "SYMPTOMS",
+                    "seconds": 48.376,
+                    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                    "encounterId": "e170d6fc-ae47-4ecd-b648-69f074505c4d"
+                },
+                {
+                    "id": "c34cfbd7-961c-4528-b12c-8048cb125659",
+                    "action": "INTERVIEW",
+                    "seconds": 11.11,
+                    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                    "encounterId": "e170d6fc-ae47-4ecd-b648-69f074505c4d"
+                },
+                {
+                    "id": "9af76fa2-9591-4126-ade3-23d89668994d",
+                    "action": "ORDERS",
+                    "seconds": 10.344,
+                    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                    "encounterId": "e170d6fc-ae47-4ecd-b648-69f074505c4d"
+                }
+            ]
         };
 
         function openExampleModal() {
