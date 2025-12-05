@@ -1568,7 +1568,7 @@ class ExperityAction(BaseModel):
 class ExperityMapResponse(BaseModel):
     """Response model for Experity mapping endpoint."""
     success: bool = Field(..., description="Whether the mapping was successful.")
-    data: Optional[Dict[str, Any]] = Field(None, description="Response data containing experity_actions.")
+    data: Optional[Dict[str, Any]] = Field(None, description="Response data containing experityActions.")
     error: Optional[Dict[str, Any]] = Field(None, description="Error details if success is false.")
     
     class Config:
@@ -3150,7 +3150,7 @@ def update_queue_status_and_experity_action(
                     "example": {
                         "success": True,
                         "data": {
-                            "experity_actions": {
+                            "experityActions": {
                                 "emrId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
                                 "vitals": {
                                     "gender": "male",
@@ -3659,16 +3659,16 @@ async def map_queue_to_experity(
                 logger.warning(f"Failed to update queue status to DONE: {str(e)}")
                 # Continue even if database update fails
         
-        # Build success response
-        # experity_actions now contains the full LLM response object
+        # Build success response with camelCase field names
+        # experity_mapping now contains the experityActions object from LLM
         response_data = {
-            "experity_actions": experity_mapping,
-            "encounter_id": encounter_id,
-            "processed_at": datetime.now().isoformat() + "Z"
+            "experityActions": experity_mapping,
+            "encounterId": encounter_id,
+            "processedAt": datetime.now().isoformat() + "Z"
         }
         
         if queue_id:
-            response_data["queue_id"] = queue_id
+            response_data["queueId"] = queue_id
         
         return ExperityMapResponse(
             success=True,

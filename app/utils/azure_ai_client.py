@@ -259,30 +259,48 @@ def extract_experity_actions(response_json: Dict[str, Any], encounter_data: Opti
             if experity_mapping.get("success") is True and "data" in experity_mapping:
                 data = experity_mapping["data"]
                 
-                # Remove duplicate snake_case fields if camelCase versions exist
-                if "encounterId" in data and "encounter_id" in data:
+                # Normalize snake_case to camelCase for all fields
+                # Convert experity_actions to experityActions
+                if "experity_actions" in data and "experityActions" not in data:
+                    data["experityActions"] = data.pop("experity_actions")
+                    logger.warning("Converted experity_actions to experityActions (snake_case to camelCase)")
+                elif "experity_actions" in data and "experityActions" in data:
+                    # Both exist - check for nested structure
+                    if isinstance(data["experity_actions"], dict) and "experityActions" in data["experity_actions"]:
+                        logger.warning("Found nested experity_actions.experityActions structure - using inner experityActions")
+                        data["experityActions"] = data["experity_actions"]["experityActions"]
+                    else:
+                        logger.warning("Both experity_actions and experityActions exist - using experityActions")
+                    del data["experity_actions"]
+                
+                # Convert encounter_id to encounterId
+                if "encounter_id" in data and "encounterId" not in data:
+                    data["encounterId"] = data.pop("encounter_id")
+                    logger.warning("Converted encounter_id to encounterId (snake_case to camelCase)")
+                elif "encounter_id" in data and "encounterId" in data:
                     logger.warning("Removing duplicate field: encounter_id (using encounterId)")
                     del data["encounter_id"]
-                if "processedAt" in data and "processed_at" in data:
+                
+                # Convert processed_at to processedAt
+                if "processed_at" in data and "processedAt" not in data:
+                    data["processedAt"] = data.pop("processed_at")
+                    logger.warning("Converted processed_at to processedAt (snake_case to camelCase)")
+                elif "processed_at" in data and "processedAt" in data:
                     logger.warning("Removing duplicate field: processed_at (using processedAt)")
                     del data["processed_at"]
-                if "queueId" in data and "queue_id" in data:
+                
+                # Convert queue_id to queueId
+                if "queue_id" in data and "queueId" not in data:
+                    data["queueId"] = data.pop("queue_id")
+                    logger.warning("Converted queue_id to queueId (snake_case to camelCase)")
+                elif "queue_id" in data and "queueId" in data:
                     logger.warning("Removing duplicate field: queue_id (using queueId)")
                     del data["queue_id"]
                 
                 # Extract experityActions from data (camelCase - preferred)
-                # Also check for snake_case for backward compatibility
                 if "experityActions" in data:
                     experity_mapping = data["experityActions"]
                     logger.info("Extracted experityActions from full wrapper structure (camelCase)")
-                elif "experity_actions" in data:
-                    # Check for nested experityActions inside experity_actions (wrong structure)
-                    if isinstance(data["experity_actions"], dict) and "experityActions" in data["experity_actions"]:
-                        logger.warning("Found nested experity_actions.experityActions structure - extracting inner experityActions")
-                        experity_mapping = data["experity_actions"]["experityActions"]
-                    else:
-                        experity_mapping = data["experity_actions"]
-                        logger.warning("Extracted experity_actions from full wrapper structure (snake_case - deprecated)")
                 else:
                     # If experityActions not in data, use data itself (backward compatibility)
                     logger.warning("Full wrapper structure found but experityActions not in data, using data directly")
