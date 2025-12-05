@@ -1510,21 +1510,26 @@ class ExperityMapRequest(BaseModel):
     """Request model for mapping queue entry to Experity actions via Azure AI."""
     queue_entry: Dict[str, Any] = Field(
         ...,
-        description="Queue entry containing queue_id, encounter_id, raw_payload, and parsed_payload."
+        description="Queue entry containing either encounter_id or queue_id (required), and optionally raw_payload (will be fetched from database if not provided)."
     )
     
     @field_validator("queue_entry")
     @classmethod
     def validate_queue_entry(cls, v: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate queue entry has required fields."""
+        """Validate queue entry has required fields.
+        
+        Either encounter_id or queue_id must be provided.
+        raw_payload is optional - if not provided, it will be fetched from database.
+        """
         if not isinstance(v, dict):
             raise ValueError("queue_entry must be a dictionary")
         
-        if not v.get("encounter_id"):
-            raise ValueError("queue_entry must contain 'encounter_id' field")
+        # Either encounter_id or queue_id must be provided
+        if not v.get("encounter_id") and not v.get("queue_id"):
+            raise ValueError("queue_entry must contain either 'encounter_id' or 'queue_id' field")
         
-        if not v.get("raw_payload"):
-            raise ValueError("queue_entry must contain 'raw_payload' field")
+        # raw_payload is optional - will be fetched from DB if not provided
+        # This allows the endpoint to work with GET /queue responses (encounterPayload)
         
         return v
 
@@ -3139,7 +3144,7 @@ def update_queue_status_and_experity_action(
             }
         },
         400: {
-            "description": "Invalid request data or missing required fields. `queue_entry` must contain `encounter_id` and `raw_payload`."
+            "description": "Invalid request data or missing required fields. `queue_entry` must contain either `encounter_id` or `queue_id`. `raw_payload` is optional and will be fetched from database if not provided."
         },
         401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
         404: {"description": "Queue entry not found in database."},
@@ -3163,9 +3168,9 @@ async def map_queue_to_experity(
     
     **Request Body:**
     - **queue_entry** (required): Dictionary containing:
-      - **encounter_id** (required): Encounter identifier (UUID)
-      - **raw_payload** (required): Dictionary with encounter data
-      - **queue_id** (optional): Queue identifier (UUID, used for database updates)
+      - **encounter_id** (optional): Encounter identifier (UUID). Required if `queue_id` is not provided.
+      - **queue_id** (optional): Queue identifier (UUID). Required if `encounter_id` is not provided.
+      - **raw_payload** (optional): Dictionary with encounter data. If not provided, will be fetched from database.
       - **parsed_payload** (optional): Parsed payload dictionary
     
     **Response:**
@@ -3184,11 +3189,13 @@ async def map_queue_to_experity(
     - **error** (object, if success is false): Error details with code and message
     
     **Behavior:**
-    - If `queue_id` is not provided, the endpoint attempts to find it by `encounter_id`
+    - Either `encounter_id` or `queue_id` must be provided
+    - If `raw_payload` is not provided, the endpoint fetches it from the database using `encounter_id` or `queue_id`
+    - This allows seamless integration with `GET /queue` responses (which return `encounterPayload` in camelCase)
     - Queue entry status is automatically managed during processing
     - On error, the queue entry status is set to `ERROR` and attempts counter is incremented
     
-    **Example Request:**
+    **Example Request (with raw_payload):**
     ```json
     {
       "queue_entry": {
@@ -3196,13 +3203,17 @@ async def map_queue_to_experity(
         "raw_payload": {
           "encounterId": "550e8400-e29b-41d4-a716-446655440000",
           "emrId": "EMR12345",
-          "chiefComplaints": [
-            {
-              "mainProblem": "Fever and cough",
-              "bodyParts": ["chest", "throat"]
-            }
-          ]
+          "chiefComplaints": [{"mainProblem": "Fever and cough"}]
         }
+      }
+    }
+    ```
+    
+    **Example Request (fetch from database):**
+    ```json
+    {
+      "queue_entry": {
+        "encounter_id": "550e8400-e29b-41d4-a716-446655440000"
       }
     }
     ```
@@ -3243,44 +3254,103 @@ async def map_queue_to_experity(
     queue_entry = request_data.queue_entry
     queue_id = queue_entry.get("queue_id")
     encounter_id = queue_entry.get("encounter_id")
+    raw_payload = queue_entry.get("raw_payload")
     
     try:
         # Validate queue_entry structure (already validated by Pydantic, but double-check)
-        if not encounter_id:
+        if not encounter_id and not queue_id:
             return ExperityMapResponse(
                 success=False,
                 error={
                     "code": "VALIDATION_ERROR",
-                    "message": "queue_entry must contain 'encounter_id' field"
+                    "message": "queue_entry must contain either 'encounter_id' or 'queue_id' field"
                 }
             )
         
-        if not queue_entry.get("raw_payload"):
-            return ExperityMapResponse(
-                success=False,
-                error={
-                    "code": "VALIDATION_ERROR",
-                    "message": "queue_entry must contain 'raw_payload' field"
-                }
-            )
-        
-        # Try to get queue_id from database if not provided
-        if not queue_id:
+        # Connect to database to fetch queue entry if needed
+        if not conn:
             conn = get_db_connection()
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            try:
-                cursor.execute(
-                    "SELECT queue_id FROM queue WHERE encounter_id = %s",
-                    (encounter_id,)
-                )
-                result = cursor.fetchone()
-                if result:
-                    queue_id = str(result.get('queue_id'))
-            finally:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        try:
+            # Fetch queue entry from database if raw_payload is not provided
+            # or if we need to get queue_id/encounter_id
+            db_queue_entry = None
+            if not raw_payload or not queue_id or not encounter_id:
+                # Build query to fetch queue entry
+                if queue_id:
+                    cursor.execute(
+                        "SELECT queue_id, encounter_id, emr_id, raw_payload FROM queue WHERE queue_id = %s",
+                        (queue_id,)
+                    )
+                elif encounter_id:
+                    cursor.execute(
+                        "SELECT queue_id, encounter_id, emr_id, raw_payload FROM queue WHERE encounter_id = %s",
+                        (encounter_id,)
+                    )
+                else:
+                    cursor.close()
+                    return ExperityMapResponse(
+                        success=False,
+                        error={
+                            "code": "VALIDATION_ERROR",
+                            "message": "Must provide either queue_id or encounter_id to fetch queue entry"
+                        }
+                    )
+                
+                db_queue_entry = cursor.fetchone()
+                
+                if not db_queue_entry:
+                    cursor.close()
+                    return ExperityMapResponse(
+                        success=False,
+                        error={
+                            "code": "NOT_FOUND",
+                            "message": "Queue entry not found in database"
+                        }
+                    )
+                
+                # Use database values to fill in missing fields
+                if not queue_id:
+                    queue_id = str(db_queue_entry.get('queue_id'))
+                if not encounter_id:
+                    encounter_id = str(db_queue_entry.get('encounter_id'))
+                if not raw_payload:
+                    # Get raw_payload from database
+                    db_raw_payload = db_queue_entry.get('raw_payload')
+                    if isinstance(db_raw_payload, str):
+                        import json
+                        try:
+                            raw_payload = json.loads(db_raw_payload)
+                        except json.JSONDecodeError:
+                            raw_payload = {}
+                    elif db_raw_payload is not None:
+                        raw_payload = db_raw_payload
+                    else:
+                        raw_payload = {}
+            
+            # Validate we have raw_payload now
+            if not raw_payload:
                 cursor.close()
-                if not queue_id:  # Only close conn if we're done with it
-                    conn.close()
-                    conn = None
+                return ExperityMapResponse(
+                    success=False,
+                    error={
+                        "code": "VALIDATION_ERROR",
+                        "message": "raw_payload is required. Either provide it in the request or ensure the queue entry exists in the database."
+                    }
+                )
+            
+            # Update queue_entry with fetched/validated values
+            queue_entry = {
+                "queue_id": queue_id,
+                "encounter_id": encounter_id,
+                "raw_payload": raw_payload,
+                **{k: v for k, v in queue_entry.items() if k not in ["queue_id", "encounter_id", "raw_payload"]}
+            }
+            
+        finally:
+            cursor.close()
+            # Keep conn open if we need it for status updates
         
         # Update queue status to PROCESSING if queue_id exists
         if queue_id and conn is None:
