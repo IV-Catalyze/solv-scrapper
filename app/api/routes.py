@@ -1323,9 +1323,8 @@ class PatientCreateRequest(BaseModel):
     reasonForVisit: Optional[str] = Field(None, description="Reason provided for the visit.", example="Annual checkup")
     status: Optional[str] = Field(None, description="Current queue status for the patient.", example="confirmed")
     capturedAt: Optional[str] = Field(None, description="Timestamp indicating when the record was captured in ISO 8601 format.", example="2025-11-21T10:30:00Z", alias="captured_at")
-    bookingId: Optional[str] = Field(None, description="Internal booking identifier.", example="booking-123", alias="booking_id")
-    bookingNumber: Optional[str] = Field(None, description="Human-readable booking number.", example="BK-001", alias="booking_number")
-    patientNumber: Optional[str] = Field(None, description="Clinic-specific patient number.", example="PN-456", alias="patient_number")
+    createdAt: Optional[str] = Field(None, description="Record creation timestamp in ISO 8601 format.", example="2025-11-21T10:30:00Z", alias="created_at")
+    updatedAt: Optional[str] = Field(None, description="Record last update timestamp in ISO 8601 format.", example="2025-11-21T10:30:00Z", alias="updated_at")
     
     class Config:
         populate_by_name = True
@@ -1340,9 +1339,11 @@ class PatientCreateRequest(BaseModel):
                 "dob": "1990-01-15",
                 "mobilePhone": "+1234567890",
                 "sexAtBirth": "M",
-                "status": "confirmed",
+                "capturedAt": "2025-11-21T10:30:00Z",
                 "reasonForVisit": "Annual checkup",
-                "capturedAt": "2025-11-21T10:30:00Z"
+                "createdAt": "2025-11-21T10:30:00Z",
+                "updatedAt": "2025-11-21T10:30:00Z",
+                "status": "confirmed"
             }
         }
     
