@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 try:
-    from fastapi import FastAPI, HTTPException, Query, Request, Depends
+    from fastapi import FastAPI, HTTPException, Query, Request, Depends, Path
     from fastapi.responses import HTMLResponse, JSONResponse
     from fastapi.templating import Jinja2Templates
     from pydantic import BaseModel, Field, field_validator, model_validator
@@ -1174,29 +1174,29 @@ def get_summary_by_emr_id(conn, emr_id: str) -> Optional[Dict[str, Any]]:
 
 
 def format_summary_response(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Format summary record for JSON response."""
+    """Format summary record for JSON response with camelCase field names."""
     formatted = {
         'id': record.get('id'),
-        'emr_id': record.get('emr_id', ''),
+        'emrId': record.get('emr_id', ''),
         'note': record.get('note', ''),
-        'created_at': None,
-        'updated_at': None,
+        'createdAt': None,
+        'updatedAt': None,
     }
     
     # Convert datetime objects to ISO format strings
     if record.get('created_at'):
         created_at = record['created_at']
         if isinstance(created_at, datetime):
-            formatted['created_at'] = created_at.isoformat()
+            formatted['createdAt'] = created_at.isoformat()
         elif isinstance(created_at, str):
-            formatted['created_at'] = created_at
+            formatted['createdAt'] = created_at
     
     if record.get('updated_at'):
         updated_at = record['updated_at']
         if isinstance(updated_at, datetime):
-            formatted['updated_at'] = updated_at.isoformat()
+            formatted['updatedAt'] = updated_at.isoformat()
         elif isinstance(updated_at, str):
-            formatted['updated_at'] = updated_at
+            formatted['updatedAt'] = updated_at
     
     return formatted
 
@@ -1267,9 +1267,9 @@ def decorate_patient_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 # Patient data submission models
 class PatientCreateRequest(BaseModel):
     """Request model for creating a single patient record."""
-    emr_id: str = Field(..., description="EMR identifier for the patient (required).", example="EMR12345")
-    location_id: Optional[str] = Field(None, description="Unique identifier for the clinic location (required for new patients).", example="AXjwbE")
-    location_name: Optional[str] = Field(None, description="Display name of the clinic location.", example="Demo Clinic")
+    emrId: str = Field(..., description="EMR identifier for the patient (required).", example="EMR12345", alias="emr_id")
+    locationId: Optional[str] = Field(None, description="Unique identifier for the clinic location (required for new patients).", example="AXjwbE", alias="location_id")
+    locationName: Optional[str] = Field(None, description="Display name of the clinic location.", example="Demo Clinic", alias="location_name")
     legalFirstName: Optional[str] = Field(None, description="Patient legal first name.", example="John")
     legalLastName: Optional[str] = Field(None, description="Patient legal last name.", example="Doe")
     dob: Optional[str] = Field(None, description="Date of birth in ISO 8601 format.", example="1990-01-15")
@@ -1277,25 +1277,27 @@ class PatientCreateRequest(BaseModel):
     sexAtBirth: Optional[str] = Field(None, description="Sex at birth or recorded gender marker.", example="M")
     reasonForVisit: Optional[str] = Field(None, description="Reason provided for the visit.", example="Annual checkup")
     status: Optional[str] = Field(None, description="Current queue status for the patient.", example="confirmed")
-    captured_at: Optional[str] = Field(None, description="Timestamp indicating when the record was captured in ISO 8601 format.", example="2025-11-21T10:30:00Z")
-    booking_id: Optional[str] = Field(None, description="Internal booking identifier.", example="booking-123")
-    booking_number: Optional[str] = Field(None, description="Human-readable booking number.", example="BK-001")
-    patient_number: Optional[str] = Field(None, description="Clinic-specific patient number.", example="PN-456")
+    capturedAt: Optional[str] = Field(None, description="Timestamp indicating when the record was captured in ISO 8601 format.", example="2025-11-21T10:30:00Z", alias="captured_at")
+    bookingId: Optional[str] = Field(None, description="Internal booking identifier.", example="booking-123", alias="booking_id")
+    bookingNumber: Optional[str] = Field(None, description="Human-readable booking number.", example="BK-001", alias="booking_number")
+    patientNumber: Optional[str] = Field(None, description="Clinic-specific patient number.", example="PN-456", alias="patient_number")
     
     class Config:
+        populate_by_name = True
         extra = "allow"
         json_schema_extra = {
             "example": {
-                "emr_id": "EMR12345",
-                "location_id": "AXjwbE",
-                "location_name": "Demo Clinic",
+                "emrId": "EMR12345",
+                "locationId": "AXjwbE",
+                "locationName": "Demo Clinic",
                 "legalFirstName": "John",
                 "legalLastName": "Doe",
                 "dob": "1990-01-15",
                 "mobilePhone": "+1234567890",
                 "sexAtBirth": "M",
                 "status": "confirmed",
-                "reasonForVisit": "Annual checkup"
+                "reasonForVisit": "Annual checkup",
+                "capturedAt": "2025-11-21T10:30:00Z"
             }
         }
 
@@ -1485,10 +1487,11 @@ class ExperityMapResponse(BaseModel):
 # Summary data submission models
 class SummaryRequest(BaseModel):
     """Request model for creating or updating a summary record."""
-    emr_id: str = Field(
+    emrId: str = Field(
         ..., 
         description="EMR identifier for the patient",
-        example="EMR12345"
+        example="EMR12345",
+        alias="emr_id"
     )
     note: str = Field(
         ..., 
@@ -1497,9 +1500,10 @@ class SummaryRequest(BaseModel):
     )
     
     class Config:
+        populate_by_name = True
         json_schema_extra = {
             "example": {
-                "emr_id": "EMR12345",
+                "emrId": "EMR12345",
                 "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days."
             }
         }
@@ -1508,19 +1512,20 @@ class SummaryRequest(BaseModel):
 class SummaryResponse(BaseModel):
     """Response model for summary records."""
     id: int = Field(..., description="Unique identifier for the summary record", example=123)
-    emr_id: str = Field(..., description="EMR identifier for the patient", example="EMR12345")
+    emrId: str = Field(..., description="EMR identifier for the patient", example="EMR12345", alias="emr_id")
     note: str = Field(..., description="Summary note text", example="Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.")
-    created_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was created", example="2025-11-21T10:30:00Z")
-    updated_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was last updated", example="2025-11-21T10:30:00Z")
+    createdAt: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was created", example="2025-11-21T10:30:00Z", alias="created_at")
+    updatedAt: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was last updated", example="2025-11-21T10:30:00Z", alias="updated_at")
     
     class Config:
+        populate_by_name = True
         json_schema_extra = {
             "example": {
                 "id": 123,
-                "emr_id": "EMR12345",
+                "emrId": "EMR12345",
                 "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.",
-                "created_at": "2025-11-21T10:30:00Z",
-                "updated_at": "2025-11-21T10:30:00Z"
+                "createdAt": "2025-11-21T10:30:00Z",
+                "updatedAt": "2025-11-21T10:30:00Z"
             }
         }
         extra = "allow"
@@ -1728,7 +1733,7 @@ async def experity_chat_ui(
 
 
 @app.get(
-    "/patient/{emr_id}",
+    "/patient/{emrId}",
     tags=["Patients"],
     response_model=PatientPayload,
     responses={
@@ -1760,7 +1765,7 @@ async def experity_chat_ui(
     },
 )
 async def get_patient_by_emr_id(
-    emr_id: str,
+    emrId: str = Path(..., description="EMR identifier for the patient"),
     current_client: TokenData = get_auth_dependency()
 ) -> Dict[str, Any]:
     """
@@ -1802,13 +1807,13 @@ async def get_patient_by_emr_id(
             LIMIT 1;
         """
         
-        cursor.execute(query, (emr_id,))
+        cursor.execute(query, (emrId,))
         record = cursor.fetchone()
         
         if not record:
             raise HTTPException(
                 status_code=404,
-                detail=f"Patient with EMR ID '{emr_id}' not found"
+                detail=f"Patient with EMR ID '{emrId}' not found"
             )
         
         ensure_client_location_access(record.get("location_id"), current_client)
@@ -1890,10 +1895,10 @@ async def create_patient(
     
     conn = None
     try:
-        # Convert Pydantic model to dict
-        patient_dict = patient_data.model_dump(exclude_none=True)
+        # Convert Pydantic model to dict (use by_alias=False to get internal field names for normalization)
+        patient_dict = patient_data.model_dump(exclude_none=True, by_alias=False)
         
-        # Normalize the patient record
+        # Normalize the patient record (normalize_patient_record accepts both camelCase and snake_case)
         normalized = normalize_patient_record(patient_dict)
         
         # Check if emr_id is required
@@ -2002,7 +2007,7 @@ async def create_patient(
 
 
 @app.patch(
-    "/patients/{emr_id}",
+    "/patients/{emrId}",
     tags=["Patients"],
     response_model=Dict[str, Any],
     responses={
@@ -2027,19 +2032,19 @@ async def create_patient(
     },
 )
 async def update_patient_status(
-    emr_id: str,
-    status_data: StatusUpdateRequest,
+    emrId: str = Path(..., description="EMR identifier for the patient"),
+    status_data: StatusUpdateRequest = ...,
     current_client: TokenData = get_auth_dependency()
 ) -> Dict[str, Any]:
     """
     """
-    if not emr_id or not emr_id.strip():
+    if not emrId or not emrId.strip():
         raise HTTPException(
             status_code=400,
-            detail="emr_id is required in the URL path"
+            detail="emrId is required in the URL path"
         )
     
-    emr_id_clean = emr_id.strip()
+    emr_id_clean = emrId.strip()
     normalized_status = normalize_status(status_data.status)
     
     if not normalized_status:
@@ -2776,10 +2781,10 @@ async def list_patients(
                 "application/json": {
                     "example": {
                         "id": 123,
-                        "emr_id": "EMR12345",
+                        "emrId": "EMR12345",
                         "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.",
-                        "created_at": "2025-11-21T10:30:00Z",
-                        "updated_at": "2025-11-21T10:30:00Z"
+                        "createdAt": "2025-11-21T10:30:00Z",
+                        "updatedAt": "2025-11-21T10:30:00Z"
                     }
                 }
             }
@@ -2795,14 +2800,14 @@ async def create_summary(
 ) -> SummaryResponse:
     """
     **Request Body:**
-    - `emr_id` (required): EMR identifier for the patient
+    - `emrId` (required): EMR identifier for the patient
     - `note` (required): Summary note text containing clinical information
     
     **Example:**
     ```json
     POST /summary
     {
-      "emr_id": "EMR12345",
+      "emrId": "EMR12345",
       "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days."
     }
     ```
@@ -2814,10 +2819,10 @@ async def create_summary(
     
     try:
         # Validate required fields
-        if not summary_data.emr_id:
+        if not summary_data.emrId:
             raise HTTPException(
                 status_code=400,
-                detail="emr_id is required. Please provide an EMR identifier."
+                detail="emrId is required. Please provide an EMR identifier."
             )
         
         if not summary_data.note:
@@ -2828,7 +2833,7 @@ async def create_summary(
         
         # Prepare summary data
         summary_dict = {
-            'emr_id': summary_data.emr_id,
+            'emr_id': summary_data.emrId,
             'note': summary_data.note,
         }
         
@@ -2841,7 +2846,8 @@ async def create_summary(
         # Format the response
         formatted_response = format_summary_response(saved_summary)
         
-        return SummaryResponse(**formatted_response)
+        # Use by_alias=True to output camelCase field names
+        return SummaryResponse(**formatted_response).model_dump(exclude_none=True, exclude_unset=True, by_alias=True)
         
     except HTTPException:
         raise
@@ -2883,10 +2889,10 @@ async def create_summary(
                 "application/json": {
                     "example": {
                         "id": 123,
-                        "emr_id": "EMR12345",
+                        "emrId": "EMR12345",
                         "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.",
-                        "created_at": "2025-11-21T10:30:00Z",
-                        "updated_at": "2025-11-21T10:30:00Z"
+                        "createdAt": "2025-11-21T10:30:00Z",
+                        "updatedAt": "2025-11-21T10:30:00Z"
                     }
                 }
             }
@@ -2897,7 +2903,7 @@ async def create_summary(
     },
 )
 async def get_summary(
-    emr_id: str = Query(..., alias="emr_id", description="EMR identifier for the patient"),
+    emrId: str = Query(..., alias="emrId", description="EMR identifier for the patient"),
     current_client: TokenData = get_auth_dependency()
 ) -> SummaryResponse:
     """
@@ -2905,36 +2911,37 @@ async def get_summary(
     
     **Example:**
     ```
-    GET /summary?emr_id=EMR12345
+    GET /summary?emrId=EMR12345
     ```
     
-    Returns the summary with the latest `updated_at` timestamp. If multiple summaries exist, only the most recent one is returned.
+    Returns the summary with the latest `updatedAt` timestamp. If multiple summaries exist, only the most recent one is returned.
     """
     conn = None
     
     try:
-        if not emr_id:
+        if not emrId:
             raise HTTPException(
                 status_code=400,
-                detail="emr_id query parameter is required."
+                detail="emrId query parameter is required."
             )
         
         # Get database connection
         conn = get_db_connection()
         
         # Retrieve the summary
-        summary = get_summary_by_emr_id(conn, emr_id)
+        summary = get_summary_by_emr_id(conn, emrId)
         
         if not summary:
             raise HTTPException(
                 status_code=404,
-                detail=f"Summary not found for EMR ID: {emr_id}"
+                detail=f"Summary not found for EMR ID: {emrId}"
             )
         
         # Format the response
         formatted_response = format_summary_response(summary)
         
-        return SummaryResponse(**formatted_response)
+        # Use by_alias=True to output camelCase field names
+        return SummaryResponse(**formatted_response).model_dump(exclude_none=True, exclude_unset=True, by_alias=True)
         
     except HTTPException:
         raise
