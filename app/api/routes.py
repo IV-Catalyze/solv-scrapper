@@ -336,13 +336,6 @@ class PatientPayload(BaseModel):
     class Config:
         extra = "allow"
         populate_by_name = True
-    
-    @classmethod
-    def model_json_schema(cls, **kwargs):
-        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
-        # Generate schema with by_alias=False to use field names (camelCase)
-        schema = super().model_json_schema(by_alias=False, **kwargs)
-        return schema
 
 
 def fetch_locations(cursor) -> List[Dict[str, Optional[str]]]:
@@ -976,19 +969,38 @@ def save_queue(conn, queue_data: Dict[str, Any]) -> Dict[str, Any]:
 def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
     """Create a queue entry from an encounter record.
     
+    This function ensures that only encounter fields from encounter_payload are stored
+    in the queue's raw_payload. The emr_id comes from the encounter table, not from
+    the payload.
+    
     Args:
         conn: PostgreSQL database connection
         encounter_data: Dictionary containing encounter data (from save_encounter result)
+            Expected structure:
+            - encounter_id: UUID (from encounters table)
+            - emr_id: string (from encounters table)
+            - encounter_payload: dict (the actual encounter JSON object)
         
     Returns:
         Dictionary with the created queue data
+        
+    Raises:
+        ValueError: If required fields are missing or invalid
     """
     import json
+    import logging
     
-    # Extract data from encounter
+    logger = logging.getLogger(__name__)
+    
+    # Extract data from encounter table (not from payload)
     encounter_id = encounter_data.get('encounter_id')
     if not encounter_id:
         raise ValueError("encounter_id is required to create queue entry")
+    
+    # Get emr_id from encounter table (not from payload)
+    emr_id = encounter_data.get('emr_id', '')
+    if not emr_id:
+        logger.warning(f"emr_id is empty for encounter {encounter_id}")
     
     # Get encounter_payload from encounter
     encounter_payload = encounter_data.get('encounter_payload')
@@ -999,91 +1011,115 @@ def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[st
     if isinstance(encounter_payload, str):
         try:
             encounter_payload = json.loads(encounter_payload)
-        except json.JSONDecodeError:
-            raise ValueError("encounter_payload must be valid JSON")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"encounter_payload must be valid JSON: {str(e)}")
+    
+    # Validate that encounter_payload is a dictionary
+    if not isinstance(encounter_payload, dict):
+        raise ValueError(f"encounter_payload must be a dictionary, got {type(encounter_payload).__name__}")
+    
+    # Create a clean copy of encounter_payload for raw_payload
+    # This ensures we only store encounter fields, not any table metadata
+    raw_payload = dict(encounter_payload)
+    
+    # Validate that raw_payload contains expected encounter fields
+    # At minimum, it should have an id or encounterId
+    encounter_id_in_payload = (
+        raw_payload.get('id') or 
+        raw_payload.get('encounterId') or 
+        raw_payload.get('encounter_id')
+    )
+    
+    if not encounter_id_in_payload:
+        logger.warning(
+            f"encounter_payload for encounter {encounter_id} does not contain "
+            "id, encounterId, or encounter_id field"
+        )
+    
+    # Ensure the encounter_id in payload matches the table encounter_id
+    if encounter_id_in_payload and str(encounter_id_in_payload) != str(encounter_id):
+        logger.warning(
+            f"encounter_id mismatch: table has {encounter_id}, "
+            f"payload has {encounter_id_in_payload}"
+        )
+    
+    # Remove emr_id from raw_payload if it exists (it should come from table, not payload)
+    # This ensures consistency - emr_id always comes from the encounter table
+    if 'emrId' in raw_payload or 'emr_id' in raw_payload:
+        payload_emr_id = raw_payload.pop('emrId', None) or raw_payload.pop('emr_id', None)
+        if payload_emr_id and payload_emr_id != emr_id:
+            logger.warning(
+                f"emr_id mismatch: table has '{emr_id}', payload had '{payload_emr_id}'. "
+                "Using table emr_id."
+            )
     
     # Extract chief_complaints and trauma_type from encounter_payload for parsed_payload
-    chief_complaints = encounter_payload.get('chiefComplaints') or encounter_payload.get('chief_complaints', [])
-    trauma_type = encounter_payload.get('traumaType') or encounter_payload.get('trauma_type')
+    chief_complaints = raw_payload.get('chiefComplaints') or raw_payload.get('chief_complaints', [])
+    trauma_type = raw_payload.get('traumaType') or raw_payload.get('trauma_type')
+    
+    # Validate chief_complaints is a list
+    if not isinstance(chief_complaints, list):
+        logger.warning(f"chief_complaints is not a list for encounter {encounter_id}, converting to empty list")
+        chief_complaints = []
     
     # Create parsed_payload structure with experityAction set to empty array
     parsed_payload = {
         'trauma_type': trauma_type,
-        'chief_complaints': chief_complaints if isinstance(chief_complaints, list) else [],
+        'chief_complaints': chief_complaints,
         'experityAction': []
     }
     
     # Build queue data
+    # Note: emr_id comes from encounter_data (table), not from raw_payload
     queue_data = {
         'encounter_id': str(encounter_id),
-        'emr_id': encounter_data.get('emr_id', ''),
+        'emr_id': str(emr_id),  # From encounter table, not from payload
         'status': 'PENDING',
-        'raw_payload': encounter_payload,  # Store full encounter payload as raw_payload
-        'parsed_payload': parsed_payload,  # Store simplified parsed structure
+        'raw_payload': raw_payload,  # Clean copy of encounter payload (only encounter fields)
+        'parsed_payload': parsed_payload,  # Simplified parsed structure
         'attempts': 0,
     }
+    
+    logger.info(
+        f"Creating queue entry for encounter {encounter_id} "
+        f"(emr_id: {emr_id}, trauma_type: {trauma_type}, "
+        f"chief_complaints count: {len(chief_complaints)})"
+    )
     
     # Save queue entry
     return save_queue(conn, queue_data)
 
 
 def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Format queue record for JSON response."""
+    """Format queue record for JSON response.
+    
+    Returns only: emrId, status, attempts, encounterPayload
+    Similar to EncounterResponse structure.
+    """
     import json
     
+    # Get raw_payload (encounter data) - this becomes encounterPayload
+    raw_payload = record.get('raw_payload')
+    
+    # Handle JSONB field - convert from string if needed
+    if raw_payload:
+        if isinstance(raw_payload, str):
+            try:
+                raw_payload = json.loads(raw_payload)
+            except json.JSONDecodeError:
+                raw_payload = {}
+        elif not isinstance(raw_payload, dict):
+            raw_payload = {}
+    else:
+        raw_payload = {}
+    
+    # Format response to match EncounterResponse structure
     formatted = {
-        'queue_id': str(record.get('queue_id', '')),
-        'encounter_id': str(record.get('encounter_id', '')),
         'emr_id': record.get('emr_id', ''),
         'status': record.get('status', 'PENDING'),
-        'raw_payload': record.get('raw_payload'),
-        'parsed_payload': record.get('parsed_payload'),
         'attempts': record.get('attempts', 0),
-        'created_at': None,
-        'updated_at': None,
+        'encounter_payload': raw_payload,  # This will be aliased to encounterPayload
     }
-    
-    # Convert datetime objects to ISO format strings
-    if record.get('created_at'):
-        created_at = record['created_at']
-        if isinstance(created_at, datetime):
-            formatted['created_at'] = created_at.isoformat()
-        elif isinstance(created_at, str):
-            formatted['created_at'] = created_at
-    
-    if record.get('updated_at'):
-        updated_at = record['updated_at']
-        if isinstance(updated_at, datetime):
-            formatted['updated_at'] = updated_at.isoformat()
-        elif isinstance(updated_at, str):
-            formatted['updated_at'] = updated_at
-    
-    # Handle JSONB fields
-    if formatted.get('raw_payload'):
-        if isinstance(formatted['raw_payload'], str):
-            try:
-                formatted['raw_payload'] = json.loads(formatted['raw_payload'])
-            except json.JSONDecodeError:
-                pass
-    
-    if formatted.get('parsed_payload'):
-        if isinstance(formatted['parsed_payload'], str):
-            try:
-                formatted['parsed_payload'] = json.loads(formatted['parsed_payload'])
-            except json.JSONDecodeError:
-                pass
-        
-        # Ensure experityAction is an array (handle legacy data)
-        if isinstance(formatted['parsed_payload'], dict):
-            experity_action = formatted['parsed_payload'].get('experityAction')
-            if experity_action is None:
-                formatted['parsed_payload']['experityAction'] = []
-            elif isinstance(experity_action, dict):
-                # Convert legacy single object to array
-                formatted['parsed_payload']['experityAction'] = [experity_action]
-            elif not isinstance(experity_action, list):
-                # If it's not a list, initialize as empty array
-                formatted['parsed_payload']['experityAction'] = []
     
     return formatted
 
@@ -1434,17 +1470,36 @@ class QueueUpdateRequest(BaseModel):
 
 class QueueResponse(BaseModel):
     """Response model for queue records."""
-    queue_id: str = Field(..., description="Unique identifier for the queue entry (UUID).")
-    encounter_id: str = Field(..., description="Encounter identifier (UUID).")
-    emr_id: Optional[str] = Field(None, description="EMR identifier for the patient.")
+    emrId: str = Field(
+        ..., 
+        description="EMR identifier for the patient",
+        example="EMR12345",
+        alias="emr_id"
+    )
     status: str = Field(..., description="Queue status: PENDING, PROCESSING, DONE, or ERROR.")
-    raw_payload: Optional[Dict[str, Any]] = Field(None, description="Raw JSON payload from encounter.")
-    parsed_payload: Optional[Dict[str, Any]] = Field(None, description="Parsed payload with trauma_type, chief_complaints, and experityAction (array of action objects).")
-    created_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was created.")
-    updated_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was last updated.")
     attempts: int = Field(default=0, description="Number of processing attempts.")
+    encounterPayload: Dict[str, Any] = Field(
+        ..., 
+        description="Full encounter JSON payload (raw_payload from queue)",
+        alias="encounter_payload"
+    )
     
     class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "emrId": "EMR12345",
+                "status": "PENDING",
+                "attempts": 0,
+                "encounterPayload": {
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                    "traumaType": "BURN",
+                    "chiefComplaints": [{"id": "00f9612e-f37d-451b-9172-25cbddee58a9", "description": "cough"}],
+                    "status": "COMPLETE"
+                }
+            }
+        }
         extra = "allow"
 
 
@@ -1543,13 +1598,6 @@ class SummaryResponse(BaseModel):
             }
         }
         extra = "allow"
-    
-    @classmethod
-    def model_json_schema(cls, **kwargs):
-        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
-        # Generate schema with by_alias=False to use field names (camelCase)
-        schema = super().model_json_schema(by_alias=False, **kwargs)
-        return schema
 
 
 # Token generation endpoint removed - HMAC authentication only
@@ -2324,22 +2372,22 @@ async def create_encounter(
             "content": {
                 "application/json": {
                     "example": {
-                        "queue_id": "660e8400-e29b-41d4-a716-446655440000",
-                        "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
-                        "emr_id": "EMR12345",
+                        "emrId": "EMR12345",
                         "status": "PENDING",
-                        "parsed_payload": {
-                            "experityAction": [
+                        "attempts": 0,
+                        "encounterPayload": {
+                            "id": "550e8400-e29b-41d4-a716-446655440000",
+                            "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                            "traumaType": "BURN",
+                            "chiefComplaints": [
                                 {
-                                    "action": "UPDATE_VITALS",
-                                    "data": {
-                                        "temperature": 98.6,
-                                        "bloodPressure": "120/80"
-                                    }
+                                    "id": "00f9612e-f37d-451b-9172-25cbddee58a9",
+                                    "description": "cough",
+                                    "type": "search"
                                 }
-                            ]
-                        },
-                        "updated_at": "2025-11-21T10:35:00Z"
+                            ],
+                            "status": "COMPLETE"
+                        }
                     }
                 }
             }
@@ -2512,16 +2560,22 @@ async def update_queue_experity_action(
                 "application/json": {
                     "example": [
                         {
-                            "queue_id": "660e8400-e29b-41d4-a716-446655440000",
-                            "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
-                            "emr_id": "EMR12345",
+                            "emrId": "EMR12345",
                             "status": "PENDING",
-                            "parsed_payload": {
-                                "experityAction": []
-                            },
                             "attempts": 0,
-                            "created_at": "2025-11-21T10:30:00Z",
-                            "updated_at": "2025-11-21T10:30:00Z"
+                            "encounterPayload": {
+                                "id": "550e8400-e29b-41d4-a716-446655440000",
+                                "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                                "traumaType": "BURN",
+                                "chiefComplaints": [
+                                    {
+                                        "id": "00f9612e-f37d-451b-9172-25cbddee58a9",
+                                        "description": "cough",
+                                        "type": "search"
+                                    }
+                                ],
+                                "status": "COMPLETE"
+                            }
                         }
                     ]
                 }
@@ -2576,14 +2630,10 @@ async def list_queue(
     
     **Response:**
     Returns an array of queue entry objects. Each entry includes:
-    - `queue_id`: Unique queue identifier
-    - `encounter_id`: Associated encounter identifier
-    - `emr_id`: Patient EMR identifier
-    - `status`: Processing status
-    - `raw_payload`: Original encounter JSON
-    - `parsed_payload`: Parsed structure with `experityAction` array
+    - `emrId`: Patient EMR identifier
+    - `status`: Processing status (PENDING, PROCESSING, DONE, ERROR)
     - `attempts`: Number of processing attempts
-    - Timestamps: `created_at`, `updated_at`
+    - `encounterPayload`: Full encounter JSON payload (raw encounter data)
     
     **Example Request:**
     ```
