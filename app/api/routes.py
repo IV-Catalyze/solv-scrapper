@@ -1492,8 +1492,16 @@ class ExperityMapResponse(BaseModel):
 # Summary data submission models
 class SummaryRequest(BaseModel):
     """Request model for creating or updating a summary record."""
-    emr_id: str = Field(..., description="EMR identifier for the patient.", example="EMR12345")
-    note: str = Field(..., description="Summary note text containing clinical information.", example="Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.")
+    emr_id: str = Field(
+        ..., 
+        description="EMR identifier for the patient",
+        example="EMR12345"
+    )
+    note: str = Field(
+        ..., 
+        description="Summary note text containing clinical information",
+        example="Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days."
+    )
     
     class Config:
         json_schema_extra = {
@@ -1506,13 +1514,22 @@ class SummaryRequest(BaseModel):
 
 class SummaryResponse(BaseModel):
     """Response model for summary records."""
-    id: int = Field(..., description="Unique identifier for the summary record.")
-    emr_id: str = Field(..., description="EMR identifier for the patient.")
-    note: str = Field(..., description="Summary note text.")
-    created_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was created.")
-    updated_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was last updated.")
+    id: int = Field(..., description="Unique identifier for the summary record", example=123)
+    emr_id: str = Field(..., description="EMR identifier for the patient", example="EMR12345")
+    note: str = Field(..., description="Summary note text", example="Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.")
+    created_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was created", example="2025-11-21T10:30:00Z")
+    updated_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was last updated", example="2025-11-21T10:30:00Z")
     
     class Config:
+        json_schema_extra = {
+            "example": {
+                "id": 123,
+                "emr_id": "EMR12345",
+                "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.",
+                "created_at": "2025-11-21T10:30:00Z",
+                "updated_at": "2025-11-21T10:30:00Z"
+            }
+        }
         extra = "allow"
 
 
@@ -2761,7 +2778,7 @@ async def list_patients(
     status_code=201,
     responses={
         201: {
-            "description": "Summary record created successfully.",
+            "description": "Summary record created successfully",
             "content": {
                 "application/json": {
                     "example": {
@@ -2774,11 +2791,9 @@ async def list_patients(
                 }
             }
         },
-        400: {
-            "description": "Invalid request data or missing required fields. Both `emr_id` and `note` are required."
-        },
-        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        500: {"description": "Database or server error while saving the summary."},
+        400: {"description": "Invalid request data or missing required fields"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Server error"},
     },
 )
 async def create_summary(
@@ -2788,25 +2803,21 @@ async def create_summary(
     """
     Create a summary record for a patient.
     
-    This endpoint accepts summary data in JSON format and saves it to the database.
-    The summary is linked to a patient via the EMR ID and contains clinical notes.
+    **Request Body:**
+    - `emr_id` (required): EMR identifier for the patient
+    - `note` (required): Summary note text containing clinical information
     
-    **Required Fields:**
-    - **emr_id** (required): EMR identifier for the patient. Example: `EMR12345`
-    - **note** (required): Summary note text containing clinical information. Example: `"Patient is a 69 year old male presenting with fever and cough."`
-    
-    **Response:**
-    Returns the created summary record with an auto-generated `id`, timestamps, and the provided data.
-    
-    **Example Request:**
+    **Example:**
     ```json
+    POST /summary
     {
       "emr_id": "EMR12345",
       "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days."
     }
     ```
     
-    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
+    **Response:**
+    Returns the created summary record with auto-generated `id` and timestamps.
     """
     conn = None
     
@@ -2876,7 +2887,7 @@ async def create_summary(
     response_model=SummaryResponse,
     responses={
         200: {
-            "description": "Most recent summary record for the specified EMR ID. Returns the summary with the latest `updated_at` timestamp.",
+            "description": "Summary record",
             "content": {
                 "application/json": {
                     "example": {
@@ -2889,37 +2900,24 @@ async def create_summary(
                 }
             }
         },
-        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        404: {"description": "Summary not found for the specified EMR ID."},
-        500: {"description": "Database or server error while fetching the summary."},
+        401: {"description": "Authentication required"},
+        404: {"description": "Summary not found"},
+        500: {"description": "Server error"},
     },
 )
 async def get_summary(
-    emr_id: str = Query(..., alias="emr_id", description="EMR identifier for the patient. Example: `EMR12345`"),
+    emr_id: str = Query(..., alias="emr_id", description="EMR identifier for the patient"),
     current_client: TokenData = get_auth_dependency()
 ) -> SummaryResponse:
     """
-    Retrieve the most recent summary record for a patient by EMR ID.
+    Get the most recent summary record for a patient.
     
-    This endpoint queries the database for the summary record with the latest `updated_at` 
-    timestamp matching the provided EMR ID.
-    
-    **Query Parameters:**
-    - **emr_id** (required): EMR identifier for the patient. Example: `EMR12345`
-    
-    **Response:**
-    Returns a single summary object. If multiple summaries exist for the same EMR ID, 
-    only the most recent one (by `updated_at`) is returned.
-    
-    **Example Request:**
+    **Example:**
     ```
     GET /summary?emr_id=EMR12345
     ```
     
-    The query orders rows by `updated_at DESC` and returns the most recent summary.
-    If no summary exists for the given EMR ID, a 404 error is returned.
-    
-    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
+    Returns the summary with the latest `updated_at` timestamp. If multiple summaries exist, only the most recent one is returned.
     """
     conn = None
     
