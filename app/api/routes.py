@@ -1796,7 +1796,6 @@ async def experity_chat_ui(
 @app.get(
     "/patient/{emr_id}",
     tags=["Patients"],
-    summary="Get patient by EMR ID",
     response_model=PatientPayload,
     responses={
         200: {
@@ -1831,8 +1830,6 @@ async def get_patient_by_emr_id(
     current_client: TokenData = get_auth_dependency()
 ) -> Dict[str, Any]:
     """
-    Get patient by EMR ID.
-    
     **Example:**
     ```
     GET /patient/EMR12345
@@ -1883,7 +1880,7 @@ async def get_patient_by_emr_id(
         ensure_client_location_access(record.get("location_id"), current_client)
         
         response_payload = build_patient_payload(record)
-        
+
         # Remove these fields completely from the response (always exclude)
         fields_to_always_exclude = [
             "booking_id", "booking_number", "patient_number",
@@ -1924,11 +1921,10 @@ async def get_patient_by_emr_id(
 @app.post(
     "/patients/create",
     tags=["Patients"],
-    summary="Create or update patient record",
     response_model=Dict[str, Any],
     responses={
-        201: {
-            "description": "Patient record created or updated successfully.",
+        200: {
+            "description": "Patient record",
             "content": {
                 "application/json": {
                     "example": {
@@ -1940,11 +1936,9 @@ async def get_patient_by_emr_id(
                 }
             }
         },
-        400: {
-            "description": "Invalid request data. Common errors: missing `emr_id`, missing `location_id` for new patients."
-        },
-        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        500: {"description": "Database or server error while saving the record."},
+        400: {"description": "Invalid request data"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Server error"},
     },
 )
 async def create_patient(
@@ -1952,37 +1946,14 @@ async def create_patient(
     current_client: TokenData = get_auth_dependency()
 ) -> Dict[str, Any]:
     """
-    Create a new patient record or update an existing one.
+    **Required:**
+    - `emr_id` (string)
+    - `location_id` (string) - required for new patients
     
-    This endpoint accepts patient data in JSON format and saves it to the database.
-    The data is normalized and validated before insertion. If a patient with the same 
-    `emr_id` already exists, the record will be updated with the new data.
+    **Optional:**
+    - `location_name`, `legalFirstName`, `legalLastName`, `dob`, `mobilePhone`, `sexAtBirth`, `status`, `reasonForVisit`, `captured_at`
     
-    **Required Fields:**
-    - **emr_id** (required): EMR identifier for the patient
-    
-    **Conditionally Required:**
-    - **location_id** (required for new patients): Location identifier. For existing patients, 
-      if `location_id` is missing, the endpoint will attempt to reuse the location from the 
-      most recent existing record.
-    
-    **Optional Fields:**
-    - `booking_id`, `booking_number`, `patient_number`: Booking and patient identifiers
-    - `location_name`: Display name of the clinic location
-    - `legalFirstName`, `legalLastName`: Patient legal name
-    - `dob`: Date of birth (ISO 8601 format)
-    - `mobilePhone`: Primary phone number
-    - `sexAtBirth`: Sex at birth or recorded gender marker
-    - `status`: Current queue status (e.g., "confirmed", "checked_in", "pending")
-    - `reasonForVisit`: Reason provided for the visit
-    - `captured_at`: Timestamp when the record was captured (ISO 8601 format)
-    
-    **Behavior:**
-    - If patient exists: Updates the existing record with new data
-    - If patient is new: Creates a new record (requires `location_id`)
-    - Response includes `status` field indicating "created" or "updated"
-    
-    **Example Request:**
+    **Example:**
     ```json
     {
       "emr_id": "EMR12345",
@@ -1996,8 +1967,6 @@ async def create_patient(
       "reasonForVisit": "Annual checkup"
     }
     ```
-    
-    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
     if not normalize_patient_record or not insert_patients:
         raise HTTPException(
@@ -2121,25 +2090,26 @@ async def create_patient(
 @app.patch(
     "/patients/{emr_id}",
     tags=["Patients"],
-    summary="Update patient status",
     response_model=Dict[str, Any],
     responses={
         200: {
-            "description": "Patient status updated successfully.",
+            "description": "Status update result",
             "content": {
                 "application/json": {
                     "example": {
                         "message": "Patient status updated successfully",
                         "emr_id": "EMR12345",
-                        "status": "checked_in"
+                        "old_status": "confirmed",
+                        "new_status": "checked_in",
+                        "updated_at": "2025-11-21T10:30:00Z"
                     }
                 }
             }
         },
-        400: {"description": "Invalid request data. Missing or invalid status field."},
-        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        404: {"description": "Patient with the specified EMR ID not found."},
-        500: {"description": "Database or server error while updating the status."},
+        400: {"description": "Invalid request data"},
+        401: {"description": "Authentication required"},
+        404: {"description": "Patient not found"},
+        500: {"description": "Server error"},
     },
 )
 async def update_patient_status(
@@ -2148,33 +2118,15 @@ async def update_patient_status(
     current_client: TokenData = get_auth_dependency()
 ) -> Dict[str, Any]:
     """
-    Update the queue status for a patient by EMR ID.
+    **Required:**
+    - `status` (string) - in request body
     
-    This endpoint updates only the `status` field of the patient record. The status value 
-    is normalized (lowercased and trimmed) before being saved. All other patient fields 
-    remain unchanged.
-    
-    **Path Parameters:**
-    - **emr_id** (required): EMR identifier for the patient. Example: `EMR12345`
-    
-    **Request Body:**
-    - **status** (required): New queue status for the patient. Common values: 
-      `confirmed`, `checked_in`, `pending`, `completed`, `cancelled`
-    
-    **Behavior:**
-    - Status is normalized: converted to lowercase and trimmed
-    - Only the status field is updated; other fields remain unchanged
-    - Updates the most recent patient record matching the EMR ID
-    
-    **Example Request:**
+    **Example:**
     ```json
-    PATCH /patients/EMR12345
     {
       "status": "checked_in"
     }
     ```
-    
-    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
     if not emr_id or not emr_id.strip():
         raise HTTPException(
@@ -2864,11 +2816,10 @@ if __name__ == "__main__":
 @app.get(
     "/patients",
     tags=["Patients"],
-    summary="List patients by location and status",
     response_model=List[PatientPayload],
     responses={
         200: {
-            "description": "List of patient records matching the filters. Results are ordered by `captured_at` descending (newest first).",
+            "description": "List of patient records",
             "content": {
                 "application/json": {
                     "example": [
@@ -2878,18 +2829,22 @@ if __name__ == "__main__":
                             "location_name": "Demo Clinic",
                             "legalFirstName": "John",
                             "legalLastName": "Doe",
-                            "status": "confirmed",
-                            "status_class": "confirmed",
-                            "status_label": "Confirmed",
-                            "captured_at": "2025-11-21T10:30:00Z"
+                            "dob": "1990-01-15",
+                            "mobilePhone": "+1234567890",
+                            "sexAtBirth": "M",
+                            "captured_at": "2025-11-21T10:30:00Z",
+                            "reasonForVisit": "Annual checkup",
+                            "created_at": "2025-11-21T10:30:00Z",
+                            "updated_at": "2025-11-21T10:30:00Z",
+                            "status": "confirmed"
                         }
                     ]
                 }
             }
         },
-        400: {"description": "Missing or invalid query parameters. At least one valid status must be provided if statuses parameter is used."},
-        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        500: {"description": "Server error while fetching patient data."},
+        400: {"description": "Invalid query parameters"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Server error"},
     },
 )
 async def list_patients(
@@ -2897,55 +2852,31 @@ async def list_patients(
     locationId: Optional[str] = Query(
         default=None,
         alias="locationId",
-        description=(
-            "Location identifier to filter patients by. "
-            "**Required** unless `DEFAULT_LOCATION_ID` environment variable is set. "
-            "Example: `AXjwbE`"
-        ),
+        description="Location identifier. Required unless DEFAULT_LOCATION_ID is set.",
     ),
     limit: Optional[int] = Query(
         default=None,
         ge=1,
         alias="limit",
-        description="Maximum number of records to return. Must be >= 1. Example: `50`"
+        description="Maximum number of records to return"
     ),
     statuses: Optional[List[str]] = Query(
         default=None,
         alias="statuses",
-        description=(
-            "Filter patients by status. Provide multiple values by repeating the query parameter. "
-            "If not provided, defaults to: `checked_in`, `confirmed`. "
-            "Valid statuses are case-insensitive and will be normalized. "
-            "Example: `?statuses=confirmed&statuses=checked_in`"
-        )
+        description="Filter by status. Defaults to checked_in, confirmed if not provided."
     ),
     current_client: TokenData = get_auth_dependency()
 ):
     """
-    Retrieve a list of patient records filtered by location and status.
-    
-    This endpoint returns patient queue data as JSON. It reads from the remote production API 
-    when `USE_REMOTE_API_FOR_READS` is enabled and a location filter is provided; 
-    otherwise falls back to the local database.
-    
     **Query Parameters:**
-    - **locationId** (optional): Location identifier to filter patients by. Required unless `DEFAULT_LOCATION_ID` env var is set.
-    - **statuses** (optional): Filter by status. Provide multiple values by repeating the parameter. 
-      If not provided, defaults to: `checked_in`, `confirmed`.
-    - **limit** (optional): Maximum number of records to return (must be >= 1).
+    - `locationId` (optional) - Required unless DEFAULT_LOCATION_ID is set
+    - `statuses` (optional) - Defaults to checked_in, confirmed
+    - `limit` (optional)
     
-    **Response:**
-    Returns an array of patient objects ordered by `captured_at` descending (newest first).
-    Each patient object includes normalized fields like `emr_id`, `location_id`, `status`, 
-    `legalFirstName`, `legalLastName`, and presentation fields like `status_class`, `status_label`, 
-    and `captured_display`.
-    
-    **Example Request:**
+    **Example:**
     ```
-    GET /patients?locationId=AXjwbE&statuses=confirmed&statuses=checked_in&limit=50
+    GET /patients?locationId=AXjwbE&statuses=confirmed&limit=50
     ```
-    
-    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
     if statuses is None:
         normalized_statuses = DEFAULT_STATUSES.copy()
@@ -2967,13 +2898,25 @@ async def list_patients(
         if use_remote_reads and normalized_location_id:
             # Fetch patients directly from production API
             patients_raw = await fetch_remote_patients(normalized_location_id, normalized_statuses, limit)
-            return [PatientPayload(**patient) for patient in patients_raw]
+            # Remove excluded fields
+            fields_to_exclude = ["status_class", "status_label", "captured_display", "source"]
+            filtered_patients = [
+                {k: v for k, v in patient.items() if k not in fields_to_exclude}
+                for patient in patients_raw
+            ]
+            return [PatientPayload(**patient) for patient in filtered_patients]
 
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         try:
             patients_raw = get_local_patients(cursor, normalized_location_id, normalized_statuses, limit)
-            return [PatientPayload(**patient) for patient in patients_raw]
+            # Remove excluded fields
+            fields_to_exclude = ["status_class", "status_label", "captured_display", "source"]
+            filtered_patients = [
+                {k: v for k, v in patient.items() if k not in fields_to_exclude}
+                for patient in patients_raw
+            ]
+            return [PatientPayload(**patient) for patient in filtered_patients]
         finally:
             cursor.close()
             conn.close()
