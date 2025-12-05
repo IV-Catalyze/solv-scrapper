@@ -253,18 +253,39 @@ def extract_experity_actions(response_json: Dict[str, Any], encounter_data: Opti
                 f"Output text preview: {output_text_clean[:200]}"
             ) from e
         
-        # Handle new prompt format: full wrapper structure {success, data: {experity_actions: {...}, ...}, error}
+        # Handle new prompt format: full wrapper structure {success, data: {experityActions: {...}, ...}, error}
         if isinstance(experity_mapping, dict) and "success" in experity_mapping:
             # LLM returned full wrapper structure from new prompt
             if experity_mapping.get("success") is True and "data" in experity_mapping:
                 data = experity_mapping["data"]
-                # Extract experity_actions from data
-                if "experity_actions" in data:
-                    experity_mapping = data["experity_actions"]
-                    logger.info("Extracted experity_actions from full wrapper structure")
+                
+                # Remove duplicate snake_case fields if camelCase versions exist
+                if "encounterId" in data and "encounter_id" in data:
+                    logger.warning("Removing duplicate field: encounter_id (using encounterId)")
+                    del data["encounter_id"]
+                if "processedAt" in data and "processed_at" in data:
+                    logger.warning("Removing duplicate field: processed_at (using processedAt)")
+                    del data["processed_at"]
+                if "queueId" in data and "queue_id" in data:
+                    logger.warning("Removing duplicate field: queue_id (using queueId)")
+                    del data["queue_id"]
+                
+                # Extract experityActions from data (camelCase - preferred)
+                # Also check for snake_case for backward compatibility
+                if "experityActions" in data:
+                    experity_mapping = data["experityActions"]
+                    logger.info("Extracted experityActions from full wrapper structure (camelCase)")
+                elif "experity_actions" in data:
+                    # Check for nested experityActions inside experity_actions (wrong structure)
+                    if isinstance(data["experity_actions"], dict) and "experityActions" in data["experity_actions"]:
+                        logger.warning("Found nested experity_actions.experityActions structure - extracting inner experityActions")
+                        experity_mapping = data["experity_actions"]["experityActions"]
+                    else:
+                        experity_mapping = data["experity_actions"]
+                        logger.warning("Extracted experity_actions from full wrapper structure (snake_case - deprecated)")
                 else:
-                    # If experity_actions not in data, use data itself (backward compatibility)
-                    logger.warning("Full wrapper structure found but experity_actions not in data, using data directly")
+                    # If experityActions not in data, use data itself (backward compatibility)
+                    logger.warning("Full wrapper structure found but experityActions not in data, using data directly")
                     experity_mapping = data
             elif experity_mapping.get("success") is False:
                 # LLM returned error structure
@@ -450,6 +471,9 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
     Raises:
         AzureAIClientError: Various error types for different failure modes
     """
+    import time
+    start_time = time.perf_counter()
+    
     if not HTTPX_AVAILABLE:
         raise AzureAIClientError(
             "httpx package not installed. Install it with: pip install httpx"
@@ -459,8 +483,11 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
     url = f"{PROJECT_ENDPOINT}/applications/{AGENT_NAME}/protocols/openai/responses?api-version={API_VERSION}"
     
     # Get Azure token
+    token_start = time.perf_counter()
     try:
         token = get_azure_token()
+        token_time = time.perf_counter() - token_start
+        logger.info(f"⏱️  Azure token acquisition: {token_time:.3f}s")
     except AzureAIAuthenticationError:
         raise
     
@@ -508,7 +535,11 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                     f"for encounter_id: {queue_entry.get('encounter_id', 'unknown')}"
                 )
                 
+                # Time the actual API call
+                api_call_start = time.perf_counter()
                 response = await client.post(url, headers=headers, json=payload)
+                api_call_time = time.perf_counter() - api_call_start
+                logger.info(f"⏱️  Azure AI API call (attempt {attempt + 1}): {api_call_time:.3f}s")
                 
                 # Handle rate limiting
                 if response.status_code == 429:
@@ -567,13 +598,18 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                 
                 # Extract Experity mapping response
                 # Pass encounter_data for backward compatibility conversion
+                parse_start = time.perf_counter()
                 experity_mapping = extract_experity_actions(response_json, encounter_data=encounter_data)
+                parse_time = time.perf_counter() - parse_start
+                logger.info(f"⏱️  Response parsing: {parse_time:.3f}s")
                 
                 # Log summary info
                 complaints_count = len(experity_mapping.get("complaints", []))
+                total_time = time.perf_counter() - start_time
                 logger.info(
-                    f"Successfully received Experity mapping with {complaints_count} complaints "
-                    f"for encounter_id: {queue_entry.get('encounter_id', 'unknown')}"
+                    f"✅ Successfully received Experity mapping with {complaints_count} complaints "
+                    f"for encounter_id: {queue_entry.get('encounter_id', 'unknown')} "
+                    f"(Total time: {total_time:.3f}s)"
                 )
                 
                 return experity_mapping
