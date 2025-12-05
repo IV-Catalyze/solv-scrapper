@@ -124,8 +124,11 @@ def test_encounter_endpoint(emr_id: str, encounter_payload_file: str):
             response_data = response.json()
             print(f"\n📦 Response Data:")
             print(f"   emrId: {response_data.get('emrId') or response_data.get('emr_id')}")
-            print(f"   encounterId: {response_data.get('encounterId') or response_data.get('encounter_id')}")
             print(f"   encounterPayload keys: {list(response_data.get('encounterPayload', {}).keys())[:5]}...")
+            # Verify encounterId is NOT in response
+            if 'encounterId' in response_data or 'encounter_id' in response_data:
+                print("⚠️  Warning: encounterId should not be in response!")
+                return False
             return True
         else:
             print(f"❌ Error: {response.status_code}")

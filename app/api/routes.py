@@ -319,22 +319,23 @@ def use_remote_api_for_reads() -> bool:
 class PatientPayload(BaseModel):
     """Schema describing the normalized patient payload returned by the API."""
 
-    emr_id: Optional[str] = Field(None, description="EMR identifier for the patient.")
-    location_id: Optional[str] = Field(None, description="Unique identifier for the clinic location.")
-    location_name: Optional[str] = Field(None, description="Display name of the clinic location.")
+    emrId: Optional[str] = Field(None, description="EMR identifier for the patient.", alias="emr_id")
+    locationId: Optional[str] = Field(None, description="Unique identifier for the clinic location.", alias="location_id")
+    locationName: Optional[str] = Field(None, description="Display name of the clinic location.", alias="location_name")
     legalFirstName: Optional[str] = Field(None, description="Patient legal first name.")
     legalLastName: Optional[str] = Field(None, description="Patient legal last name.")
     dob: Optional[str] = Field(None, description="Date of birth in ISO 8601 format.")
     mobilePhone: Optional[str] = Field(None, description="Primary phone number on file.")
     sexAtBirth: Optional[str] = Field(None, description="Sex at birth or recorded gender marker.")
-    captured_at: Optional[str] = Field(None, description="Timestamp indicating when the record was captured.")
+    capturedAt: Optional[str] = Field(None, description="Timestamp indicating when the record was captured.", alias="captured_at")
     reasonForVisit: Optional[str] = Field(None, description="Reason provided for the visit.")
-    created_at: Optional[str] = Field(None, description="Record creation timestamp.")
-    updated_at: Optional[str] = Field(None, description="Record last update timestamp.")
+    createdAt: Optional[str] = Field(None, description="Record creation timestamp.", alias="created_at")
+    updatedAt: Optional[str] = Field(None, description="Record last update timestamp.", alias="updated_at")
     status: Optional[str] = Field(None, description="Current queue status for the patient.")
 
     class Config:
         extra = "allow"
+        populate_by_name = True
 
 
 def fetch_locations(cursor) -> List[Dict[str, Optional[str]]]:
@@ -561,8 +562,8 @@ def prepare_dashboard_patients(
 
     # Sort by captured_at descending then updated_at
     def sort_key(item: Dict[str, Any]):
-        captured = parse_datetime(item.get("captured_at"))
-        updated = parse_datetime(item.get("updated_at"))
+        captured = parse_datetime(item.get("capturedAt") or item.get("captured_at"))
+        updated = parse_datetime(item.get("updatedAt") or item.get("updated_at"))
         return (captured, updated)
 
     results.sort(key=sort_key, reverse=True)
@@ -624,8 +625,8 @@ def filter_patients_by_search(
         last_name = (patient.get("legalLastName") or "").lower()
         full_name = f"{first_name} {last_name}".strip()
         
-        # Search in EMR ID
-        emr_id = (patient.get("emr_id") or "").lower()
+        # Search in EMR ID (support both camelCase and snake_case for backward compatibility)
+        emr_id = (patient.get("emrId") or patient.get("emr_id") or "").lower()
         
         # Search in phone number
         phone = (patient.get("mobilePhone") or "").replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
@@ -657,8 +658,8 @@ def get_local_patients(
     combined = confirmed + pending
 
     def sort_key(item: Dict[str, Any]):
-        captured = parse_datetime(item.get("captured_at"))
-        updated = parse_datetime(item.get("updated_at"))
+        captured = parse_datetime(item.get("capturedAt") or item.get("captured_at"))
+        updated = parse_datetime(item.get("updatedAt") or item.get("updated_at"))
         return (captured, updated)
 
     combined.sort(key=sort_key, reverse=True)
@@ -835,7 +836,6 @@ def format_encounter_response(record: Dict[str, Any]) -> Dict[str, Any]:
     
     formatted = {
         'emr_id': record.get('emr_id', ''),
-        'encounter_id': str(record.get('encounter_id', '')),
         'encounter_payload': record.get('encounter_payload', {}),
     }
     
@@ -1202,7 +1202,7 @@ def format_summary_response(record: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def build_patient_payload(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Build patient response payload in normalized structure."""
+    """Build patient response payload in normalized structure with camelCase field names."""
     captured = record.get("captured_at")
     if isinstance(captured, datetime):
         captured = captured.isoformat()
@@ -1215,18 +1215,18 @@ def build_patient_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     raw_payload = record.get("raw_payload")
 
     payload = {
-        "emr_id": record.get("emr_id"),
-        "location_id": record.get("location_id"),
-        "location_name": record.get("location_name"),
+        "emrId": record.get("emr_id"),
+        "locationId": record.get("location_id"),
+        "locationName": record.get("location_name"),
         "legalFirstName": record.get("legal_first_name"),
         "legalLastName": record.get("legal_last_name"),
         "dob": record.get("dob"),
         "mobilePhone": record.get("mobile_phone"),
         "sexAtBirth": record.get("sex_at_birth"),
-        "captured_at": captured,
+        "capturedAt": captured,
         "reasonForVisit": record.get("reason_for_visit"),
-        "created_at": created,
-        "updated_at": updated,
+        "createdAt": created,
+        "updatedAt": updated,
     }
 
     # Note: booking_id, booking_number, patient_number, appointment_date,
@@ -1252,7 +1252,7 @@ def decorate_patient_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     payload["status_label"] = status_class.replace("_", " ").title()
 
     captured_display = None
-    captured_raw = payload.get("captured_at")
+    captured_raw = payload.get("capturedAt") or payload.get("captured_at")
     captured_dt = parse_datetime(captured_raw)
     if captured_dt > datetime.min:
         captured_display = captured_dt.strftime("%b %d, %Y %I:%M %p").lstrip("0").replace(" 0", " ")
@@ -1363,12 +1363,6 @@ class EncounterResponse(BaseModel):
         example="EMR12345",
         alias="emr_id"
     )
-    encounterId: str = Field(
-        ..., 
-        description="Encounter identifier (UUID)",
-        example="550e8400-e29b-41d4-a716-446655440000",
-        alias="encounter_id"
-    )
     encounterPayload: Dict[str, Any] = Field(
         ..., 
         description="Full encounter JSON payload as stored",
@@ -1380,7 +1374,6 @@ class EncounterResponse(BaseModel):
         json_schema_extra = {
             "example": {
                 "emrId": "EMR12345",
-                "encounterId": "550e8400-e29b-41d4-a716-446655440000",
                 "encounterPayload": {
                     "id": "550e8400-e29b-41d4-a716-446655440000",
                     "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
@@ -1744,18 +1737,18 @@ async def experity_chat_ui(
             "content": {
                 "application/json": {
                     "example": {
-                        "emr_id": "EMR12345",
-                        "location_id": "AXjwbE",
-                        "location_name": "Demo Clinic",
+                        "emrId": "EMR12345",
+                        "locationId": "AXjwbE",
+                        "locationName": "Demo Clinic",
                         "legalFirstName": "John",
                         "legalLastName": "Doe",
                         "dob": "1990-01-15",
                         "mobilePhone": "+1234567890",
                         "sexAtBirth": "M",
-                        "captured_at": "2025-11-21T10:30:00Z",
+                        "capturedAt": "2025-11-21T10:30:00Z",
                         "reasonForVisit": "Annual checkup",
-                        "created_at": "2025-11-21T10:30:00Z",
-                        "updated_at": "2025-11-21T10:30:00Z",
+                        "createdAt": "2025-11-21T10:30:00Z",
+                        "updatedAt": "2025-11-21T10:30:00Z",
                         "status": "confirmed"
                     }
                 }
@@ -2135,7 +2128,6 @@ async def update_patient_status(
                 "application/json": {
                     "example": {
                         "emrId": "EMR12345",
-                        "encounterId": "550e8400-e29b-41d4-a716-446655440000",
                         "encounterPayload": {
                             "id": "550e8400-e29b-41d4-a716-446655440000",
                             "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
@@ -2166,8 +2158,6 @@ async def create_encounter(
     current_client: TokenData = get_auth_dependency()
 ) -> EncounterResponse:
     """
-    Create or update an encounter record.
-    
     **Request Body:**
     - `emrId` (required): EMR identifier for the patient
     - `encounterPayload` (required): Full encounter JSON object. Must contain `id` or `encounterId` field.
@@ -2197,8 +2187,8 @@ async def create_encounter(
     ```
     
     **Response:**
-    Returns the stored encounter with `emrId`, `encounterId`, and `encounterPayload`.
-    If an encounter with the same `encounterId` exists, it will be updated.
+    Returns the stored encounter with `emrId` and `encounterPayload`.
+    If an encounter with the same `encounterId` (from `encounterPayload.id` or `encounterPayload.encounterId`) exists, it will be updated.
     """
     conn = None
     
@@ -2801,8 +2791,6 @@ async def create_summary(
     current_client: TokenData = get_auth_dependency()
 ) -> SummaryResponse:
     """
-    Create a summary record for a patient.
-    
     **Request Body:**
     - `emr_id` (required): EMR identifier for the patient
     - `note` (required): Summary note text containing clinical information
