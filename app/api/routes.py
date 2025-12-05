@@ -2366,11 +2366,11 @@ async def create_encounter(
 @app.post(
     "/queue",
     tags=["Queue"],
-    summary="Update queue experityAction",
+    summary="Update queue entry",
     response_model=QueueResponse,
     responses={
         200: {
-            "description": "Queue entry updated successfully. The `experityAction` field in `parsed_payload` has been updated.",
+            "description": "Queue entry updated successfully",
             "content": {
                 "application/json": {
                     "example": {
@@ -2394,12 +2394,10 @@ async def create_encounter(
                 }
             }
         },
-        400: {
-            "description": "Invalid request data or missing required fields. Either `queue_id` or `encounter_id` must be provided."
-        },
-        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        404: {"description": "Queue entry not found. Provide a valid `queue_id` or `encounter_id`."},
-        500: {"description": "Database or server error while updating the queue."},
+        400: {"description": "Invalid request data or missing required fields"},
+        401: {"description": "Authentication required"},
+        404: {"description": "Queue entry not found"},
+        500: {"description": "Server error"},
     },
 )
 async def update_queue_experity_action(
@@ -2407,25 +2405,14 @@ async def update_queue_experity_action(
     current_client: TokenData = get_auth_dependency()
 ) -> QueueResponse:
     """
-    Update the `experityAction` field in a queue entry's `parsed_payload`.
-    
-    This endpoint allows updating the `experityAction` array within the `parsed_payload` 
-    of a queue entry. The queue entry can be identified by either `queue_id` or `encounter_id`.
-    
     **Request Body:**
-    - **queue_id** (optional): Queue identifier (UUID). Either `queue_id` or `encounter_id` must be provided.
-    - **encounter_id** (optional): Encounter identifier (UUID). Either `queue_id` or `encounter_id` must be provided.
-    - **experityAction** (optional): Array of Experity action objects to set in `parsed_payload`. 
-      If a single object is provided, it will be automatically converted to an array.
+    - `encounter_id` (optional): Encounter identifier (UUID). Either `encounter_id` or `queue_id` must be provided.
+    - `queue_id` (optional): Queue identifier (UUID). Either `encounter_id` or `queue_id` must be provided.
+    - `experityAction` (optional): Array of Experity action objects.
     
-    **Behavior:**
-    - Updates the `experityAction` field in the queue entry's `parsed_payload`
-    - If `experityAction` is not provided, the field remains unchanged
-    - If `experityAction` is `null` or an empty array, it will be set to an empty array
-    - Single objects are automatically converted to arrays for backward compatibility
-    
-    **Example Request:**
+    **Example:**
     ```json
+    POST /queue
     {
       "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
       "experityAction": [
@@ -2440,7 +2427,8 @@ async def update_queue_experity_action(
     }
     ```
     
-    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
+    **Response:**
+    Returns the updated queue entry with `emrId`, `status`, `attempts`, and `encounterPayload`.
     """
     conn = None
     cursor = None
@@ -2561,11 +2549,11 @@ async def update_queue_experity_action(
 @app.get(
     "/queue",
     tags=["Queue"],
-    summary="List queue entries with optional filters",
+    summary="List queue entries",
     response_model=List[QueueResponse],
     responses={
         200: {
-            "description": "List of queue entries matching the filters. Results are ordered by `created_at` descending (newest first).",
+            "description": "List of queue entries",
             "content": {
                 "application/json": {
                     "example": [
@@ -2591,69 +2579,57 @@ async def update_queue_experity_action(
                 }
             }
         },
-        400: {"description": "Invalid query parameters."},
-        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        500: {"description": "Database or server error while fetching queue entries."},
+        400: {"description": "Invalid query parameters"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Server error"},
     },
 )
 async def list_queue(
     queue_id: Optional[str] = Query(
         default=None,
         alias="queue_id",
-        description="Filter by queue identifier (UUID). Example: `660e8400-e29b-41d4-a716-446655440000`"
+        description="Filter by queue identifier (UUID)"
     ),
     encounter_id: Optional[str] = Query(
         default=None,
         alias="encounter_id",
-        description="Filter by encounter identifier (UUID). Example: `550e8400-e29b-41d4-a716-446655440000`"
+        description="Filter by encounter identifier (UUID)"
     ),
     status: Optional[str] = Query(
         default=None,
         alias="status",
-        description="Filter by status. Valid values: `PENDING`, `PROCESSING`, `DONE`, `ERROR`. Example: `PENDING`"
+        description="Filter by status: PENDING, PROCESSING, DONE, ERROR"
     ),
     emr_id: Optional[str] = Query(
         default=None,
         alias="emr_id",
-        description="Filter by EMR identifier. Example: `EMR12345`"
+        description="Filter by EMR identifier"
     ),
     limit: Optional[int] = Query(
         default=None,
         ge=1,
         alias="limit",
-        description="Maximum number of records to return. Must be >= 1. Example: `50`"
+        description="Maximum number of records to return"
     ),
     current_client: TokenData = get_auth_dependency()
 ) -> List[QueueResponse]:
     """
-    Retrieve queue entries with optional filters.
-    
-    This endpoint allows querying queue entries by various filters. Queue entries track 
-    the processing status of encounters and contain both raw and parsed payloads.
-    
     **Query Parameters (all optional):**
-    - **queue_id**: Get specific queue entry by UUID
-    - **encounter_id**: Get queue entry by encounter UUID
-    - **status**: Filter by status. Valid values: `PENDING`, `PROCESSING`, `DONE`, `ERROR`
-    - **emr_id**: Filter by EMR identifier
-    - **limit**: Limit the number of results (must be >= 1)
+    - `queue_id`: Filter by queue identifier (UUID)
+    - `encounter_id`: Filter by encounter identifier (UUID)
+    - `status`: Filter by status: `PENDING`, `PROCESSING`, `DONE`, `ERROR`
+    - `emr_id`: Filter by EMR identifier
+    - `limit`: Maximum number of records to return (must be >= 1)
     
-    **Response:**
-    Returns an array of queue entry objects. Each entry includes:
-    - `emrId`: Patient EMR identifier
-    - `status`: Processing status (PENDING, PROCESSING, DONE, ERROR)
-    - `attempts`: Number of processing attempts
-    - `encounterPayload`: Full encounter JSON payload (raw encounter data)
-    
-    **Example Request:**
+    **Example:**
     ```
     GET /queue?status=PENDING&limit=10
     GET /queue?encounter_id=550e8400-e29b-41d4-a716-446655440000
     ```
     
-    Results are ordered by `created_at` descending (newest first).
-    
-    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
+    **Response:**
+    Returns an array of queue entries. Each entry contains `emrId`, `status`, `attempts`, and `encounterPayload`.
+    Results are ordered by creation time (newest first).
     """
     conn = None
     cursor = None
