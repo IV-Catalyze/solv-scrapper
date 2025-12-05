@@ -131,89 +131,82 @@ CREATE TRIGGER update_pending_patients_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
--- Create encounters table
+-- Create encounters table (simplified structure)
+-- Note: This table now only stores emr_id, encounter_id, and encounter_payload
+-- Run migrate_encounters_simplify.sql to migrate existing tables
 CREATE TABLE IF NOT EXISTS encounters (
-    id UUID PRIMARY KEY,
-    encounter_id UUID UNIQUE NOT NULL,
-    client_id VARCHAR(255) NOT NULL,
-    emr_id VARCHAR(255),
-    trauma_type VARCHAR(50),
-    chief_complaints JSONB NOT NULL,
-    status VARCHAR(50),
-    created_by VARCHAR(255),
-    started_at TIMESTAMP,
-    raw_payload JSONB,
-    parsed_payload JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT chief_complaints_not_empty CHECK (jsonb_array_length(chief_complaints) > 0)
+    encounter_id UUID PRIMARY KEY,
+    emr_id VARCHAR(255) NOT NULL,
+    encounter_payload JSONB NOT NULL
 );
 
 -- Create indexes for encounters table
 CREATE INDEX IF NOT EXISTS idx_encounters_encounter_id ON encounters(encounter_id);
-CREATE INDEX IF NOT EXISTS idx_encounters_client_id ON encounters(client_id);
 CREATE INDEX IF NOT EXISTS idx_encounters_emr_id ON encounters(emr_id);
-CREATE INDEX IF NOT EXISTS idx_encounters_started_at ON encounters(started_at);
-CREATE INDEX IF NOT EXISTS idx_encounters_status ON encounters(status);
-CREATE INDEX IF NOT EXISTS idx_encounters_created_at ON encounters(created_at);
 
--- Ensure new columns exist (for legacy tables)
+-- Ensure new columns exist (for legacy tables - will be removed by migration)
 ALTER TABLE encounters
-    ADD COLUMN IF NOT EXISTS id UUID,
     ADD COLUMN IF NOT EXISTS encounter_id UUID,
-    ADD COLUMN IF NOT EXISTS client_id VARCHAR(255),
     ADD COLUMN IF NOT EXISTS emr_id VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS trauma_type VARCHAR(50),
-    ADD COLUMN IF NOT EXISTS chief_complaints JSONB,
-    ADD COLUMN IF NOT EXISTS status VARCHAR(50),
-    ADD COLUMN IF NOT EXISTS created_by VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS started_at TIMESTAMP,
-    ADD COLUMN IF NOT EXISTS raw_payload JSONB,
-    ADD COLUMN IF NOT EXISTS parsed_payload JSONB,
-    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    ADD COLUMN IF NOT EXISTS encounter_payload JSONB;
 
 -- Drop legacy encounter columns/indexes that are no longer used
 ALTER TABLE encounters
-    DROP COLUMN IF EXISTS patient_id;
+    DROP COLUMN IF EXISTS patient_id,
+    DROP COLUMN IF EXISTS id,
+    DROP COLUMN IF EXISTS client_id,
+    DROP COLUMN IF EXISTS trauma_type,
+    DROP COLUMN IF EXISTS chief_complaints,
+    DROP COLUMN IF EXISTS status,
+    DROP COLUMN IF EXISTS created_by,
+    DROP COLUMN IF EXISTS started_at,
+    DROP COLUMN IF EXISTS raw_payload,
+    DROP COLUMN IF EXISTS parsed_payload,
+    DROP COLUMN IF EXISTS created_at,
+    DROP COLUMN IF EXISTS updated_at;
+
 DROP INDEX IF EXISTS idx_encounters_patient_id;
+DROP INDEX IF EXISTS idx_encounters_client_id;
+DROP INDEX IF EXISTS idx_encounters_started_at;
+DROP INDEX IF EXISTS idx_encounters_status;
+DROP INDEX IF EXISTS idx_encounters_created_at;
 
--- Add NOT NULL constraint to chief_complaints if it doesn't exist
+-- Drop constraint if it exists
+ALTER TABLE encounters DROP CONSTRAINT IF EXISTS chief_complaints_not_empty;
+
+-- Ensure encounter_id is the primary key
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns 
-               WHERE table_name = 'encounters' AND column_name = 'chief_complaints' 
-               AND is_nullable = 'YES') THEN
-        -- Delete any rows with NULL chief_complaints (invalid data)
-        DELETE FROM encounters WHERE chief_complaints IS NULL;
-        -- Then add NOT NULL constraint
-        ALTER TABLE encounters ALTER COLUMN chief_complaints SET NOT NULL;
-    END IF;
-END $$;
-
--- Add check constraint to ensure chief_complaints is not empty
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conname = 'chief_complaints_not_empty' 
-        AND conrelid = 'encounters'::regclass
+    -- Drop existing primary key if it's on a different column
+    IF EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE table_name = 'encounters' 
+        AND constraint_type = 'PRIMARY KEY'
+        AND constraint_name != 'encounters_pkey'
     ) THEN
-        ALTER TABLE encounters 
-        ADD CONSTRAINT chief_complaints_not_empty 
-        CHECK (jsonb_array_length(chief_complaints) > 0);
+        ALTER TABLE encounters DROP CONSTRAINT IF EXISTS encounters_pkey;
+    END IF;
+    
+    -- Add primary key on encounter_id if it doesn't exist
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE table_name = 'encounters' 
+        AND constraint_type = 'PRIMARY KEY'
+    ) THEN
+        ALTER TABLE encounters ADD PRIMARY KEY (encounter_id);
     END IF;
 END $$;
+
+-- Ensure NOT NULL constraints
+ALTER TABLE encounters 
+    ALTER COLUMN encounter_id SET NOT NULL,
+    ALTER COLUMN emr_id SET NOT NULL,
+    ALTER COLUMN encounter_payload SET NOT NULL;
 
 -- Ensure uniqueness on encounter_id
 CREATE UNIQUE INDEX IF NOT EXISTS idx_encounters_encounter_id_unique ON encounters(encounter_id);
 
--- Create trigger to automatically update updated_at for encounters
-DROP TRIGGER IF EXISTS update_encounters_updated_at ON encounters;
-CREATE TRIGGER update_encounters_updated_at
-    BEFORE UPDATE ON encounters
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+-- Note: No trigger needed for updated_at since that column has been removed
 
 -- Create queue table
 -- Note: parsed_payload JSONB structure:

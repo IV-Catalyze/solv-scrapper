@@ -92,13 +92,8 @@ except ImportError:
     AzureAITimeoutError = Exception
     AzureAIResponseError = Exception
 
-# Import encounter parsing functions
-try:
-    from app.utils.encounter import parse_encounter_payload, validate_encounter_payload
-except ImportError:
-    print("Warning: encounter.py not found. Encounter parsing will be unavailable.")
-    parse_encounter_payload = None
-    validate_encounter_payload = None
+# Note: parse_encounter_payload and validate_encounter_payload are no longer used
+# The endpoint now accepts only emrId and encounterPayload directly
 
 # Import patient saving functions
 try:
@@ -757,9 +752,9 @@ def save_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
     Args:
         conn: PostgreSQL database connection
         encounter_data: Dictionary containing encounter data with:
-            - Individual fields (id, encounter_id, client_id, etc.)
-            - raw_payload: Optional raw JSON payload (JSONB)
-            - parsed_payload: Optional parsed JSON payload (JSONB)
+            - encounter_id: UUID (required)
+            - emr_id: string (required)
+            - encounter_payload: JSONB (required) - full encounter JSON payload
         
     Returns:
         Dictionary with the saved encounter data
@@ -773,68 +768,41 @@ def save_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     try:
-        # Parse started_at timestamp if provided
-        started_at = None
-        if encounter_data.get('started_at'):
-            started_at = parse_datetime(encounter_data['started_at'])
-            if started_at == datetime.min:
-                started_at = None
+        # Extract required fields
+        encounter_id = encounter_data.get('encounter_id')
+        emr_id = encounter_data.get('emr_id')
+        encounter_payload = encounter_data.get('encounter_payload')
         
-        # Validate chief_complaints is not empty
-        chief_complaints = encounter_data.get('chief_complaints', [])
-        if not chief_complaints or len(chief_complaints) == 0:
-            raise ValueError("chief_complaints cannot be empty. At least one complaint is required.")
+        # Validate required fields
+        if not encounter_id:
+            raise ValueError("encounter_id is required")
+        if not emr_id:
+            raise ValueError("emr_id is required")
+        if not encounter_payload:
+            raise ValueError("encounter_payload is required")
         
-        # Convert chief_complaints to JSONB
-        chief_complaints_json = Json(chief_complaints)
-        
-        # Extract raw_payload and parsed_payload if provided
-        raw_payload_json = None
-        if encounter_data.get('raw_payload'):
-            raw_payload_json = Json(encounter_data['raw_payload'])
-        
-        parsed_payload_json = None
-        if encounter_data.get('parsed_payload'):
-            parsed_payload_json = Json(encounter_data['parsed_payload'])
+        # Convert encounter_payload to JSONB
+        encounter_payload_json = Json(encounter_payload)
         
         # Use INSERT ... ON CONFLICT to handle duplicates (update on conflict)
-        # Note: chief_complaints is always updated since it's required
         query = """
             INSERT INTO encounters (
-                id, encounter_id, client_id, emr_id, trauma_type,
-                chief_complaints, status, created_by, started_at,
-                raw_payload, parsed_payload
+                encounter_id, emr_id, encounter_payload
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s)
             ON CONFLICT (encounter_id) 
             DO UPDATE SET
-                client_id = EXCLUDED.client_id,
                 emr_id = EXCLUDED.emr_id,
-                trauma_type = EXCLUDED.trauma_type,
-                chief_complaints = EXCLUDED.chief_complaints,
-                status = EXCLUDED.status,
-                created_by = EXCLUDED.created_by,
-                started_at = EXCLUDED.started_at,
-                raw_payload = EXCLUDED.raw_payload,
-                parsed_payload = EXCLUDED.parsed_payload,
-                updated_at = CURRENT_TIMESTAMP
+                encounter_payload = EXCLUDED.encounter_payload
             RETURNING *
         """
         
         cursor.execute(
             query,
             (
-                encounter_data['id'],
-                encounter_data['encounter_id'],
-                encounter_data['client_id'],  # Use full client_id (with prefix if present)
-                encounter_data.get('emr_id'),
-                encounter_data.get('trauma_type'),
-                chief_complaints_json,  # Always provided (validated above)
-                encounter_data.get('status'),
-                encounter_data.get('created_by'),
-                started_at,
-                raw_payload_json,
-                parsed_payload_json,
+                encounter_id,
+                emr_id,
+                encounter_payload_json,
             )
         )
         
@@ -844,23 +812,11 @@ def save_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
         # Format the result for response
         formatted_result = format_patient_record(result)
         
-        # Convert chief_complaints JSONB back to list
-        if formatted_result.get('chief_complaints'):
-            if isinstance(formatted_result['chief_complaints'], str):
-                formatted_result['chief_complaints'] = json.loads(formatted_result['chief_complaints'])
-        
-        # Convert raw_payload and parsed_payload JSONB back to dicts if present
-        if formatted_result.get('raw_payload'):
-            if isinstance(formatted_result['raw_payload'], str):
+        # Convert encounter_payload JSONB back to dict if present
+        if formatted_result.get('encounter_payload'):
+            if isinstance(formatted_result['encounter_payload'], str):
                 try:
-                    formatted_result['raw_payload'] = json.loads(formatted_result['raw_payload'])
-                except json.JSONDecodeError:
-                    pass  # Keep as string if not valid JSON
-        
-        if formatted_result.get('parsed_payload'):
-            if isinstance(formatted_result['parsed_payload'], str):
-                try:
-                    formatted_result['parsed_payload'] = json.loads(formatted_result['parsed_payload'])
+                    formatted_result['encounter_payload'] = json.loads(formatted_result['encounter_payload'])
                 except json.JSONDecodeError:
                     pass  # Keep as string if not valid JSON
         
@@ -878,48 +834,18 @@ def format_encounter_response(record: Dict[str, Any]) -> Dict[str, Any]:
     import json
     
     formatted = {
-        'id': str(record.get('id', '')),
+        'emr_id': record.get('emr_id', ''),
         'encounter_id': str(record.get('encounter_id', '')),
-        'client_id': str(record.get('client_id', '')),
-        'emr_id': record.get('emr_id'),
-        'trauma_type': record.get('trauma_type'),
-        'chief_complaints': record.get('chief_complaints', []),
-        'status': record.get('status'),
-        'created_by': record.get('created_by'),
-        'started_at': None,
-        'created_at': None,
-        'updated_at': None,
+        'encounter_payload': record.get('encounter_payload', {}),
     }
     
-    # Convert datetime objects to ISO format strings
-    if record.get('started_at'):
-        started_at = record['started_at']
-        if isinstance(started_at, datetime):
-            formatted['started_at'] = started_at.isoformat()
-        elif isinstance(started_at, str):
-            formatted['started_at'] = started_at
-    
-    if record.get('created_at'):
-        created_at = record['created_at']
-        if isinstance(created_at, datetime):
-            formatted['created_at'] = created_at.isoformat()
-        elif isinstance(created_at, str):
-            formatted['created_at'] = created_at
-    
-    if record.get('updated_at'):
-        updated_at = record['updated_at']
-        if isinstance(updated_at, datetime):
-            formatted['updated_at'] = updated_at.isoformat()
-        elif isinstance(updated_at, str):
-            formatted['updated_at'] = updated_at
-    
-    # Handle chief_complaints JSONB
-    if formatted.get('chief_complaints'):
-        if isinstance(formatted['chief_complaints'], str):
+    # Handle encounter_payload JSONB - convert from string if needed
+    if formatted.get('encounter_payload'):
+        if isinstance(formatted['encounter_payload'], str):
             try:
-                formatted['chief_complaints'] = json.loads(formatted['chief_complaints'])
+                formatted['encounter_payload'] = json.loads(formatted['encounter_payload'])
             except json.JSONDecodeError:
-                formatted['chief_complaints'] = []
+                formatted['encounter_payload'] = {}
     
     return formatted
 
@@ -1057,50 +983,36 @@ def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[st
     if not encounter_id:
         raise ValueError("encounter_id is required to create queue entry")
     
-    # Get raw_payload and parsed_payload from encounter
-    raw_payload = encounter_data.get('raw_payload')
-    parsed_payload = encounter_data.get('parsed_payload')
+    # Get encounter_payload from encounter
+    encounter_payload = encounter_data.get('encounter_payload')
+    if not encounter_payload:
+        raise ValueError("encounter_payload is required to create queue entry")
     
-    # Ensure parsed_payload has the correct structure with experityAction set to empty array
-    if parsed_payload:
-        if isinstance(parsed_payload, str):
-            try:
-                parsed_payload = json.loads(parsed_payload)
-            except json.JSONDecodeError:
-                parsed_payload = {}
-        
-        # Ensure experityAction is present and set to empty array
-        if 'experityAction' not in parsed_payload:
-            parsed_payload['experityAction'] = []
-        # Handle legacy null values - convert to empty array
-        elif parsed_payload.get('experityAction') is None:
-            parsed_payload['experityAction'] = []
-        # Handle legacy single object - convert to array
-        elif isinstance(parsed_payload.get('experityAction'), dict):
-            parsed_payload['experityAction'] = [parsed_payload['experityAction']]
-    else:
-        # Create parsed_payload structure from encounter data
-        # Handle chief_complaints - it might be a list or JSON string
-        chief_complaints = encounter_data.get('chief_complaints', [])
-        if isinstance(chief_complaints, str):
-            try:
-                chief_complaints = json.loads(chief_complaints)
-            except json.JSONDecodeError:
-                chief_complaints = []
-        
-        parsed_payload = {
-            'trauma_type': encounter_data.get('trauma_type'),
-            'chief_complaints': chief_complaints,
-            'experityAction': []
-        }
+    # If encounter_payload is a string, parse it
+    if isinstance(encounter_payload, str):
+        try:
+            encounter_payload = json.loads(encounter_payload)
+        except json.JSONDecodeError:
+            raise ValueError("encounter_payload must be valid JSON")
+    
+    # Extract chief_complaints and trauma_type from encounter_payload for parsed_payload
+    chief_complaints = encounter_payload.get('chiefComplaints') or encounter_payload.get('chief_complaints', [])
+    trauma_type = encounter_payload.get('traumaType') or encounter_payload.get('trauma_type')
+    
+    # Create parsed_payload structure with experityAction set to empty array
+    parsed_payload = {
+        'trauma_type': trauma_type,
+        'chief_complaints': chief_complaints if isinstance(chief_complaints, list) else [],
+        'experityAction': []
+    }
     
     # Build queue data
     queue_data = {
         'encounter_id': str(encounter_id),
         'emr_id': encounter_data.get('emr_id', ''),
         'status': 'PENDING',
-        'raw_payload': raw_payload,
-        'parsed_payload': parsed_payload,
+        'raw_payload': encounter_payload,  # Store full encounter payload as raw_payload
+        'parsed_payload': parsed_payload,  # Store simplified parsed structure
         'attempts': 0,
     }
     
@@ -1406,54 +1318,24 @@ class StatusUpdateRequest(BaseModel):
 
 
 # Encounter data submission models
-class ChiefComplaint(BaseModel):
-    """Model for a single chief complaint."""
-    id: str = Field(..., description="Unique identifier for the chief complaint.")
-    description: str = Field(..., description="Description of the complaint.")
-    type: str = Field(..., description="Type of complaint (e.g., 'trauma').")
-    part: str = Field(..., description="Body part affected.")
-    bodyParts: List[str] = Field(default_factory=list, description="List of affected body parts.")
-
-
 class EncounterCreateRequest(BaseModel):
     """Request model for creating an encounter record."""
-    id: str = Field(..., description="Unique identifier for the encounter (UUID).")
-    clientId: Optional[str] = Field(None, description="Client identifier (optional - will use authenticated client if not provided).")
-    encounterId: str = Field(..., description="Encounter identifier (UUID).")
-    emrId: str = Field(..., description="EMR identifier for the patient (links encounter to patient EMR record).")
-    traumaType: Optional[str] = Field(None, description="Type of trauma (e.g., 'BURN').")
-    chiefComplaints: List[ChiefComplaint] = Field(..., min_length=1, description="List of chief complaints. At least one complaint is required.")
-    status: Optional[str] = Field(None, description="Status of the encounter (e.g., 'COMPLETE').")
-    createdBy: Optional[str] = Field(None, description="Email or identifier of the user who created the encounter.")
-    startedAt: Optional[str] = Field(None, description="ISO 8601 timestamp when the encounter started.")
-    
-    @field_validator('chiefComplaints')
-    @classmethod
-    def validate_chief_complaints_not_empty(cls, v: List[ChiefComplaint]) -> List[ChiefComplaint]:
-        """Ensure chief_complaints is not empty."""
-        if not v or len(v) == 0:
-            raise ValueError('chiefComplaints cannot be empty. At least one complaint is required.')
-        return v
+    emrId: str = Field(..., description="EMR identifier for the patient (links encounter to patient EMR record).", alias="emr_id")
+    encounterPayload: Dict[str, Any] = Field(..., description="Full encounter JSON payload (e.g., entire encounter object from cough.json or injury head.json).", alias="encounter_payload")
     
     class Config:
+        populate_by_name = True  # Allow both emrId and emr_id, encounterPayload and encounter_payload
         extra = "allow"
 
 
 class EncounterResponse(BaseModel):
     """Response model for encounter records."""
-    id: str = Field(..., description="Unique identifier for the encounter (UUID).")
-    encounter_id: str = Field(..., description="Encounter identifier (UUID).")
-    client_id: str = Field(..., description="Client identifier (may include prefix like 'Stage-' or 'Prod-').")
-    emr_id: Optional[str] = Field(None, description="EMR identifier for the patient.")
-    trauma_type: Optional[str] = Field(None, description="Type of trauma.")
-    chief_complaints: List[Dict[str, Any]] = Field(default_factory=list, description="List of chief complaints.")
-    status: Optional[str] = Field(None, description="Status of the encounter.")
-    created_by: Optional[str] = Field(None, description="User who created the encounter.")
-    started_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the encounter started.")
-    created_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was created.")
-    updated_at: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was last updated.")
+    emrId: str = Field(..., description="EMR identifier for the patient.", alias="emr_id")
+    encounterId: str = Field(..., description="Encounter identifier (UUID).", alias="encounter_id")
+    encounterPayload: Dict[str, Any] = Field(..., description="Full encounter JSON payload.", alias="encounter_payload")
     
     class Config:
+        populate_by_name = True  # Allow both camelCase and snake_case
         extra = "allow"
 
 
@@ -2178,34 +2060,26 @@ async def update_patient_status(
     status_code=201,
     responses={
         201: {
-            "description": "Encounter record created or updated successfully. The full raw JSON is stored as `raw_payload`, and a parsed structure is stored as `parsed_payload`.",
+            "description": "Encounter record created or updated successfully. The full encounter JSON payload is stored as `encounterPayload`.",
             "content": {
                 "application/json": {
                     "example": {
-                        "id": "550e8400-e29b-41d4-a716-446655440000",
-                        "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
-                        "client_id": "Stage-1c3dca8d-730f-4a32-9221-4e4277903505",
-                        "emr_id": "EMR12345",
-                        "trauma_type": "BURN",
-                        "chief_complaints": [
-                            {
-                                "mainProblem": "Fever and cough",
-                                "bodyParts": ["chest", "throat"]
-                            }
-                        ],
-                        "status": "COMPLETE",
-                        "started_at": "2025-11-21T10:30:00Z",
-                        "created_at": "2025-11-21T10:30:00Z",
-                        "updated_at": "2025-11-21T10:30:00Z"
+                        "emrId": "EMR12345",
+                        "encounterId": "550e8400-e29b-41d4-a716-446655440000",
+                        "encounterPayload": {
+                            "id": "550e8400-e29b-41d4-a716-446655440000",
+                            "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                            "attributes": {},
+                            "chiefComplaints": []
+                        }
                     }
                 }
             }
         },
         400: {
-            "description": "Invalid request data or missing required fields. Common errors: missing `encounterId`, missing `emrId`, empty `chiefComplaints` array, or `client_id` mismatch."
+            "description": "Invalid request data or missing required fields. Common errors: missing `emrId`, missing `encounterPayload`, or missing `id`/`encounterId` within `encounterPayload`."
         },
         401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        403: {"description": "Forbidden. The `client_id` in payload does not match the authenticated client."},
         500: {"description": "Database or server error while saving the encounter."},
     },
 )
@@ -2216,60 +2090,40 @@ async def create_encounter(
     """
     Create or update an encounter record from the provided JSON data.
     
-    This endpoint accepts flexible JSON and stores both the raw payload and a parsed structure.
-    The full raw JSON is stored as `raw_payload`, and a simplified parsed structure is stored 
-    as `parsed_payload` for processing in the queue and UI.
-    
-    **Important:** This endpoint accepts flexible JSON structure. Field names can be in either 
-    camelCase or snake_case format. The endpoint will parse and normalize the data.
+    This endpoint accepts only `emrId` and `encounterPayload`. The `encounterPayload` should contain
+    the full encounter JSON object (like the entire content of cough.json or injury head.json).
     
     **Required Fields:**
-    - **encounterId** or **encounter_id** (required): Encounter identifier (UUID)
     - **emrId** or **emr_id** (required): EMR identifier for the patient (links encounter to patient record)
-    - **chiefComplaints** or **chief_complaints** (required): List of chief complaint objects. 
-      Must be a non-empty array with at least one complaint.
-    
-    **Conditionally Required:**
-    - **clientId** or **client_id** (optional): Client identifier. If not provided in payload, 
-      the authenticated client from HMAC signature will be used. If provided, it must match 
-      the authenticated client.
-    
-    **Optional Fields:**
-    - **id** (optional): Unique identifier for the encounter (UUID). If not provided, `encounterId` will be used.
-    - **traumaType** or **trauma_type** (optional): Type of trauma (e.g., "BURN")
-    - **status** (optional): Status of the encounter (e.g., "COMPLETE")
-    - **createdBy** or **created_by** (optional): Email or identifier of the user who created the encounter
-    - **startedAt** or **started_at** (optional): ISO 8601 timestamp when the encounter started
-    
-    **Chief Complaints Structure:**
-    Each complaint object in the `chiefComplaints` array should contain:
-    - `mainProblem` or `main_problem` (string): Main problem description
-    - `bodyParts` or `body_parts` (array of strings, optional): List of affected body parts
-    - Other complaint-related fields as needed
-    
-    **Field Name Conventions:**
-    The endpoint supports both camelCase (e.g., `encounterId`, `chiefComplaints`) and 
-    snake_case (e.g., `encounter_id`, `chief_complaints`) field names. Both formats are accepted.
+    - **encounterPayload** or **encounter_payload** (required): Full encounter JSON payload. 
+      This should be the entire encounter object (e.g., the full JSON from cough.json or injury head.json).
+      The payload must contain either an `id` or `encounterId` field to identify the encounter.
     
     **Behavior:**
-    - If an encounter with the same `encounterId` already exists, it will be updated
-    - Raw JSON is stored as-is in `raw_payload`
-    - Parsed and normalized data is stored in `parsed_payload`
+    - If an encounter with the same `encounterId` (extracted from `encounterPayload.id` or `encounterPayload.encounterId`) 
+      already exists, it will be updated
+    - The entire `encounterPayload` is stored as-is in the database
     
     **Example Request:**
     ```json
     {
-      "encounterId": "550e8400-e29b-41d4-a716-446655440000",
       "emrId": "EMR12345",
-      "chiefComplaints": [
-        {
-          "mainProblem": "Fever and cough",
-          "bodyParts": ["chest", "throat"]
-        }
-      ],
-      "traumaType": "BURN",
-      "status": "COMPLETE",
-      "startedAt": "2025-11-21T10:30:00Z"
+      "encounterPayload": {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+        "attributes": {
+          "gender": "male",
+          "ageYears": 69
+        },
+        "chiefComplaints": [
+          {
+            "id": "00f9612e-f37d-451b-9172-25cbddee58a9",
+            "description": "cough",
+            "type": "search"
+          }
+        ],
+        "status": "COMPLETE"
+      }
     }
     ```
     
@@ -2279,97 +2133,56 @@ async def create_encounter(
     
     try:
         # Capture raw JSON body
-        raw_json = await request.json()
+        request_body = await request.json()
         
-        # Store raw payload as-is
-        raw_payload = raw_json.copy() if isinstance(raw_json, dict) else raw_json
-        
-        # Parse the raw JSON to create parsed_payload
-        if not parse_encounter_payload:
-            raise HTTPException(
-                status_code=500,
-                detail="Encounter parsing functionality is unavailable"
-            )
-        
-        parsed_payload = parse_encounter_payload(raw_json)
-        
-        # Validate parsed payload
-        if not validate_encounter_payload:
-            raise HTTPException(
-                status_code=500,
-                detail="Encounter validation functionality is unavailable"
-            )
-        
-        is_valid, error_message = validate_encounter_payload(parsed_payload)
-        if not is_valid:
-            raise HTTPException(
-                status_code=400,
-                detail=error_message or "Invalid encounter payload"
-            )
-        
-        # Extract required fields from parsed_payload
-        encounter_id = parsed_payload.get('encounter_id')
-        client_id = parsed_payload.get('client_id')
-        emr_id = parsed_payload.get('emr_id')
-        id_value = parsed_payload.get('id') or encounter_id
-        
-        # Ensure we have all required fields
-        if not encounter_id:
-            raise HTTPException(
-                status_code=400,
-                detail="encounter_id is required. Please provide an encounter identifier."
-            )
-        
+        # Extract emrId (support both camelCase and snake_case)
+        emr_id = request_body.get('emrId') or request_body.get('emr_id')
         if not emr_id:
             raise HTTPException(
                 status_code=400,
-                detail="emr_id is required. Please provide an EMR identifier for the patient."
+                detail="emrId is required. Please provide an EMR identifier for the patient."
             )
         
-        # Use authenticated client_id if not provided in payload
-        if not client_id:
-            if current_client and current_client.client_id:
-                client_id = current_client.client_id
-            else:
-                raise HTTPException(
-                    status_code=400,
-                    detail="client_id is required. Please provide a client identifier or authenticate with HMAC."
-                )
-
-        # Validate client_id matches authenticated client if provided
-        if current_client and current_client.client_id and current_client.client_id != client_id:
-            raise HTTPException(
-                status_code=403,
-                detail="client_id in payload does not match the authenticated client.",
-            )
-        
-        # Validate chief_complaints is not empty
-        chief_complaints = parsed_payload.get('chief_complaints', [])
-        if not chief_complaints or len(chief_complaints) == 0:
+        # Extract encounterPayload (support both camelCase and snake_case)
+        encounter_payload = request_body.get('encounterPayload') or request_body.get('encounter_payload')
+        if not encounter_payload:
             raise HTTPException(
                 status_code=400,
-                detail="chief_complaints cannot be empty. At least one complaint is required."
+                detail="encounterPayload is required. Please provide the full encounter JSON payload."
             )
         
-        # Build encounter_dict with individual fields from parsed_payload
+        # Validate encounterPayload is a dictionary
+        if not isinstance(encounter_payload, dict):
+            raise HTTPException(
+                status_code=400,
+                detail="encounterPayload must be a JSON object."
+            )
+        
+        # Extract encounter_id from within encounterPayload
+        # Try both 'id' and 'encounterId' fields (support both camelCase and snake_case)
+        encounter_id = (
+            encounter_payload.get('id') or 
+            encounter_payload.get('encounterId') or 
+            encounter_payload.get('encounter_id')
+        )
+        
+        if not encounter_id:
+            raise HTTPException(
+                status_code=400,
+                detail="encounterPayload must contain either an 'id' or 'encounterId' field to identify the encounter."
+            )
+        
+        # Build encounter_dict with only the 3 required fields
         encounter_dict = {
-            'id': id_value,
-            'encounter_id': encounter_id,
-            'client_id': client_id,
-            'emr_id': emr_id,
-            'trauma_type': parsed_payload.get('trauma_type'),
-            'chief_complaints': chief_complaints,
-            'status': parsed_payload.get('status'),
-            'created_by': parsed_payload.get('created_by'),
-            'started_at': parsed_payload.get('started_at'),
-            'raw_payload': raw_payload,  # Store full raw JSON
-            'parsed_payload': parsed_payload,  # Store simplified parsed structure
+            'encounter_id': str(encounter_id),
+            'emr_id': str(emr_id),
+            'encounter_payload': encounter_payload,  # Store full encounter JSON
         }
         
         # Get database connection
         conn = get_db_connection()
         
-        # Save the encounter (with both raw and parsed payloads)
+        # Save the encounter
         saved_encounter = save_encounter(conn, encounter_dict)
         
         # Automatically create queue entry from encounter
