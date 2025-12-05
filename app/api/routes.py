@@ -3126,126 +3126,6 @@ def update_queue_status_and_experity_action(
     tags=["Queue"],
     summary="Map queue entry to Experity actions via Azure AI",
     response_model=ExperityMapResponse,
-    request_body=Body(
-        ...,
-        examples={
-            "format1_queue_entry": {
-                "summary": "Format 1: Queue Entry Wrapper (with raw_payload)",
-                "description": "Send encounter data wrapped in queue_entry object",
-                "value": {
-                    "queue_entry": {
-                        "encounter_id": "6984a75c-1d07-4d1b-a35c-0f71d5416f87",
-                        "emr_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-                        "raw_payload": {
-                            "id": "6984a75c-1d07-4d1b-a35c-0f71d5416f87",
-                            "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-                            "attributes": {
-                                "gender": "male",
-                                "pulseOx": 99,
-                                "ageYears": 69,
-                                "heightCm": 167.64,
-                                "weightKg": 63.50,
-                                "weightClass": "normal",
-                                "pulseRateBpm": 20,
-                                "bodyMassIndex": 22.60,
-                                "respirationBpm": 18,
-                                "bodyTemperatureCelsius": 37,
-                                "bloodPressureSystolicMm": 180,
-                                "bloodPressureDiastolicMm": 100
-                            },
-                            "traumaType": "NONE",
-                            "chiefComplaints": [
-                                {
-                                    "id": "00f9612e-f37d-451b-9172-25cbddee58a9",
-                                    "description": "cough",
-                                    "painScale": 3,
-                                    "durationDays": 10,
-                                    "type": "search",
-                                    "part": null,
-                                    "symptom": {
-                                        "root": {
-                                            "reviewOfSystemsCategory": "RESPIRATORY"
-                                        }
-                                    }
-                                }
-                            ],
-                            "orders": [
-                                {
-                                    "id": "316d977d-df36-4ed8-9df0-4cc83decc0b1",
-                                    "type": "clinical",
-                                    "label": "84 - Order and perform COVID test",
-                                    "performed": true
-                                }
-                            ],
-                            "additionalQuestions": {
-                                "conditions": [],
-                                "guardianAssistedInterview": "No"
-                            }
-                        }
-                    }
-                }
-            },
-            "format1_fetch_db": {
-                "summary": "Format 1: Queue Entry Wrapper (fetch from database)",
-                "description": "Provide only encounter_id to fetch data from database",
-                "value": {
-                    "queue_entry": {
-                        "encounter_id": "6984a75c-1d07-4d1b-a35c-0f71d5416f87"
-                    }
-                }
-            },
-            "format2_direct_encounter": {
-                "summary": "Format 2: Direct Encounter Object",
-                "description": "Send encounter JSON directly without queue_entry wrapper",
-                "value": {
-                    "id": "6984a75c-1d07-4d1b-a35c-0f71d5416f87",
-                    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-                    "attributes": {
-                        "gender": "male",
-                        "pulseOx": 99,
-                        "ageYears": 69,
-                        "heightCm": 167.64,
-                        "weightKg": 63.50,
-                        "weightClass": "normal",
-                        "pulseRateBpm": 20,
-                        "bodyMassIndex": 22.60,
-                        "respirationBpm": 18,
-                        "bodyTemperatureCelsius": 37,
-                        "bloodPressureSystolicMm": 180,
-                        "bloodPressureDiastolicMm": 100
-                    },
-                    "traumaType": "NONE",
-                    "chiefComplaints": [
-                        {
-                            "id": "00f9612e-f37d-451b-9172-25cbddee58a9",
-                            "description": "cough",
-                            "painScale": 3,
-                            "durationDays": 10,
-                            "type": "search",
-                            "part": null,
-                            "symptom": {
-                                "root": {
-                                    "reviewOfSystemsCategory": "RESPIRATORY"
-                                }
-                            }
-                        }
-                    ],
-                    "orders": [
-                        {
-                            "id": "316d977d-df36-4ed8-9df0-4cc83decc0b1",
-                            "type": "clinical",
-                            "label": "84 - Order and perform COVID test",
-                            "performed": true
-                        }
-                    ],
-                    "additionalQuestions": {
-                        "conditions": [],
-                        "guardianAssistedInterview": "No"
-                    }
-                }
-            }
-        }
-    ),
     responses={
         200: {
             "description": "Successfully mapped queue entry to Experity actions. The queue entry status is updated to PROCESSING during the request and DONE or ERROR based on the result.",
@@ -3271,18 +3151,18 @@ def update_queue_status_and_experity_action(
                                     "pulseOx": 99
                                 },
                                 "guardianAssistedInterview": {
-                                    "present": false,
-                                    "guardianName": null,
-                                    "relationship": null,
-                                    "notes": null
+                                    "present": False,
+                                    "guardianName": None,
+                                    "relationship": None,
+                                    "notes": None
                                 },
                                 "labOrders": [
                                     {
                                         "orderId": "316d977d-df36-4ed8-9df0-4cc83decc0b1",
                                         "name": "84 - Order and perform COVID test",
                                         "status": "performed",
-                                        "priority": null,
-                                        "reason": null
+                                        "priority": None,
+                                        "reason": None
                                     }
                                 ],
                                 "icdUpdates": [],
@@ -3292,11 +3172,11 @@ def update_queue_status_and_experity_action(
                                         "complaintId": "00f9612e-f37d-451b-9172-25cbddee58a9",
                                         "description": "cough",
                                         "traumaType": "NONE",
-                                        "bodyPartRaw": null,
+                                        "bodyPartRaw": None,
                                         "reviewOfSystemsCategory": "RESPIRATORY",
                                         "gender": "male",
                                         "bodyAreaKey": "Chest",
-                                        "subLocationLabel": null,
+                                        "subLocationLabel": None,
                                         "experityTemplate": "Chest",
                                         "coordKey": "CHEST_PARENT",
                                         "bodyMapSide": "front",
@@ -3320,7 +3200,7 @@ def update_queue_status_and_experity_action(
                             },
                             "encounter_id": "6984a75c-1d07-4d1b-a35c-0f71d5416f87",
                             "processed_at": "2025-01-21T10:30:00.000Z",
-                            "queue_id": null
+                            "queue_id": None
                         }
                     }
                 }
