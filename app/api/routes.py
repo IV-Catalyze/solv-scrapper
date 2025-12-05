@@ -1376,6 +1376,7 @@ class PatientCreateRequest(BaseModel):
             "example": {
                 "emr_id": "EMR12345",
                 "location_id": "AXjwbE",
+                "location_name": "Demo Clinic",
                 "legalFirstName": "John",
                 "legalLastName": "Doe",
                 "dob": "1990-01-15",
