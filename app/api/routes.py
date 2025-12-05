@@ -3124,11 +3124,11 @@ def update_queue_status_and_experity_action(
 @app.post(
     "/experity/map",
     tags=["Queue"],
-    summary="Map queue entry to Experity actions via Azure AI",
+    summary="Map encounter data to Experity actions",
     response_model=ExperityMapResponse,
     responses={
         200: {
-            "description": "Successfully mapped queue entry to Experity actions. The queue entry status is updated to PROCESSING during the request and DONE or ERROR based on the result.",
+            "description": "Successfully mapped encounter data to Experity actions.",
             "content": {
                 "application/json": {
                     "example": {
@@ -3221,7 +3221,7 @@ async def map_queue_to_experity(
     current_client: TokenData = get_auth_dependency()
 ) -> ExperityMapResponse:
     """
-    Map encounter data to Experity actions using Azure AI.
+    Map encounter data to Experity actions.
     
     **Two Input Formats Supported:**
     
@@ -3236,8 +3236,6 @@ async def map_queue_to_experity(
        - No database lookup, no queue status updates
     
     **Response:** Returns Experity mapping with vitals, complaints, lab orders, and ICD updates.
-    
-    See request body examples above for both formats.
     
     Requires HMAC authentication via X-Timestamp and X-Signature headers.
     """
