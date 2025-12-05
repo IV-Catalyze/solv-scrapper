@@ -1093,13 +1093,13 @@ def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[st
 def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
     """Format queue record for JSON response.
     
-    Returns only: emrId, status, attempts, encounterPayload
-    Similar to EncounterResponse structure.
-    Uses camelCase keys to match QueueResponse model aliases.
+    Returns only: emr_id, status, attempts, encounter_payload (snake_case)
+    Similar to format_encounter_response structure.
+    FastAPI will serialize using field names (camelCase: emrId, encounterPayload).
     """
     import json
     
-    # Get raw_payload (encounter data) - this becomes encounterPayload
+    # Get raw_payload (encounter data) - this becomes encounter_payload
     raw_payload = record.get('raw_payload')
     
     # Handle JSONB field - convert from string if needed
@@ -1114,12 +1114,13 @@ def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
     else:
         raw_payload = {}
     
-    # Format response to match EncounterResponse structure (camelCase)
+    # Format response using snake_case keys (matching format_encounter_response pattern)
+    # FastAPI will serialize using field names (camelCase) via response_model
     formatted = {
-        'emrId': record.get('emr_id', ''),  # Use camelCase to match alias
+        'emr_id': record.get('emr_id', ''),
         'status': record.get('status', 'PENDING'),
         'attempts': record.get('attempts', 0),
-        'encounterPayload': raw_payload,  # Use camelCase to match alias
+        'encounter_payload': raw_payload,
     }
     
     return formatted
@@ -2524,10 +2525,9 @@ async def update_queue_experity_action(
         # Format the response
         formatted_response = format_queue_response(updated_entry)
         
-        # Explicitly dump with by_alias=False to use field names (camelCase: emrId, encounterPayload)
-        # FastAPI response_model might use aliases by default, so we return dict explicitly
-        queue_response = QueueResponse(**formatted_response)
-        return queue_response.model_dump(by_alias=False, exclude_none=True)
+        # Return model instance directly - FastAPI will serialize using field names (camelCase)
+        # Matching EncounterResponse pattern
+        return QueueResponse(**formatted_response)
         
     except HTTPException:
         raise
@@ -2697,9 +2697,9 @@ async def list_queue(
         # Format the results
         formatted_results = [format_queue_response(record) for record in results]
         
-        # Explicitly dump with by_alias=False to use field names (camelCase: emrId, encounterPayload)
-        # FastAPI response_model might use aliases by default, so we return dicts explicitly
-        return [QueueResponse(**result).model_dump(by_alias=False, exclude_none=True) for result in formatted_results]
+        # Return model instances directly - FastAPI will serialize using field names (camelCase)
+        # Matching EncounterResponse pattern
+        return [QueueResponse(**result) for result in formatted_results]
         
     except HTTPException:
         raise
