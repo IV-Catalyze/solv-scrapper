@@ -120,7 +120,7 @@ All API endpoints require **HMAC-SHA256 authentication** via `X-Timestamp` and `
 
 **Base URL:** `https://app-97926.on-aptible.com`
     """,
-    version="1.0.0",
+    version="1.0.4",
     openapi_tags=[
         {
             "name": "Patients",
