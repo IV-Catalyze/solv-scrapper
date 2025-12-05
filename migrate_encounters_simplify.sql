@@ -5,8 +5,11 @@
 -- 3. Drops the chief_complaints_not_empty constraint
 -- 4. Updates indexes
 
--- Step 1: Drop the constraint first
+-- Step 1: Drop the constraint and trigger first
 ALTER TABLE encounters DROP CONSTRAINT IF EXISTS chief_complaints_not_empty;
+
+-- Drop the trigger for updated_at (column will be removed)
+DROP TRIGGER IF EXISTS update_encounters_updated_at ON encounters;
 
 -- Step 2: Handle encounter_payload column
 DO $$
