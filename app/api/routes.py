@@ -2525,9 +2525,10 @@ async def update_queue_experity_action(
         # Format the response
         formatted_response = format_queue_response(updated_entry)
         
-        # Return model instance directly - FastAPI will serialize using field names (camelCase)
-        # Matching EncounterResponse pattern
-        return QueueResponse(**formatted_response)
+        # Explicitly use model_dump(by_alias=False) to ensure camelCase output
+        # FastAPI may use aliases by default, so we explicitly use field names
+        queue_response = QueueResponse(**formatted_response)
+        return queue_response.model_dump(by_alias=False)
         
     except HTTPException:
         raise
@@ -2697,9 +2698,9 @@ async def list_queue(
         # Format the results
         formatted_results = [format_queue_response(record) for record in results]
         
-        # Return model instances directly - FastAPI will serialize using field names (camelCase)
-        # Matching EncounterResponse pattern
-        return [QueueResponse(**result) for result in formatted_results]
+        # Explicitly use model_dump(by_alias=False) to ensure camelCase output
+        # FastAPI may use aliases by default, so we explicitly use field names
+        return [QueueResponse(**result).model_dump(by_alias=False) for result in formatted_results]
         
     except HTTPException:
         raise
