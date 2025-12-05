@@ -1798,9 +1798,9 @@ async def experity_chat_ui(
     tags=["Patients"],
     summary="Get patient by EMR ID",
     response_model=PatientPayload,
-        responses={
+    responses={
         200: {
-            "description": "Most recent patient record for the specified EMR ID. Returns the record with the latest `captured_at` timestamp.",
+            "description": "Patient record",
             "content": {
                 "application/json": {
                     "example": {
@@ -1821,9 +1821,9 @@ async def experity_chat_ui(
                 }
             }
         },
-        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        404: {"description": "No patient found for the supplied EMR ID."},
-        500: {"description": "Database or server error while fetching the record."},
+        401: {"description": "Authentication required"},
+        404: {"description": "Patient not found"},
+        500: {"description": "Server error"},
     },
 )
 async def get_patient_by_emr_id(
@@ -1831,25 +1831,12 @@ async def get_patient_by_emr_id(
     current_client: TokenData = get_auth_dependency()
 ) -> Dict[str, Any]:
     """
-    Retrieve the most recent patient record for a specific EMR ID.
-
-    This endpoint queries the database for the patient record with the latest `captured_at` timestamp 
-    matching the provided EMR ID. The result is normalized using `build_patient_payload()` to ensure 
-    consistent field names and formatting.
+    Get patient by EMR ID.
     
-    **Path Parameters:**
-    - **emr_id** (required): EMR identifier for the patient. Example: `EMR12345`
-    
-    **Response:**
-    Returns a single patient object with all normalized fields. If multiple records exist for the 
-    same EMR ID, only the most recent one (by `captured_at`) is returned.
-    
-    **Example Request:**
+    **Example:**
     ```
     GET /patient/EMR12345
     ```
-    
-    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
     """
     conn = None
     cursor = None
