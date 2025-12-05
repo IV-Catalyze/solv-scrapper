@@ -79,7 +79,8 @@ try:
         AzureAIAuthenticationError,
         AzureAIRateLimitError,
         AzureAITimeoutError,
-        AzureAIResponseError
+        AzureAIResponseError,
+        REQUEST_TIMEOUT
     )
     AZURE_AI_AVAILABLE = True
 except ImportError:
@@ -3456,12 +3457,15 @@ async def map_queue_to_experity(
                 break
             except AzureAIAuthenticationError as e:
                 # Authentication errors should not be retried
+                logger.error(f"Azure AI authentication error: {str(e)}")
                 error_response = ExperityMapResponse(
                     success=False,
                     error={
                         "code": "AZURE_AI_AUTH_ERROR",
-                        "message": "Failed to authenticate with Azure AI",
-                        "details": {"azure_message": str(e)}
+                        "message": "Failed to authenticate with Azure AI. Please check Azure credentials configuration.",
+                        "details": {
+                            "suggestion": "Verify Azure credentials are properly configured and have access to the Azure AI service"
+                        }
                     }
                 )
                 # Update queue status to ERROR
@@ -3471,7 +3475,7 @@ async def map_queue_to_experity(
                             conn=conn,
                             queue_id=queue_id,
                             status='ERROR',
-                            error_message=str(e),
+                            error_message="Authentication failed",
                             increment_attempts=True
                         )
                     except Exception:
@@ -3503,13 +3507,13 @@ async def map_queue_to_experity(
                     continue
                 
                 # Exhausted retries for rate limit
+                logger.error(f"Azure AI rate limit error: {str(e)}")
                 error_response = ExperityMapResponse(
                     success=False,
                     error={
                         "code": "AZURE_AI_RATE_LIMIT",
                         "message": f"Azure AI rate limit exceeded after {endpoint_max_retries} attempts with extended waits",
                         "details": {
-                            "azure_message": str(e),
                             "attempts": endpoint_max_retries,
                             "suggestion": "Please wait a few minutes before trying again, or check your Azure AI quota limits"
                         }
@@ -3522,7 +3526,7 @@ async def map_queue_to_experity(
                             conn=conn,
                             queue_id=queue_id,
                             status='ERROR',
-                            error_message=str(e),
+                            error_message="Rate limit exceeded",
                             increment_attempts=True
                         )
                     except Exception:
@@ -3532,6 +3536,7 @@ async def map_queue_to_experity(
             except AzureAITimeoutError as e:
                 # Timeout errors can be retried
                 last_endpoint_error = e
+                logger.error(f"Azure AI timeout error: {str(e)}")
                 if endpoint_attempt < endpoint_max_retries - 1:
                     wait_time = endpoint_retry_delay * (endpoint_attempt + 1)
                     logger.warning(
@@ -3541,12 +3546,17 @@ async def map_queue_to_experity(
                     await asyncio.sleep(wait_time)
                     continue
                 # Exhausted retries
+                timeout_seconds = REQUEST_TIMEOUT if AZURE_AI_AVAILABLE else 120
                 error_response = ExperityMapResponse(
                     success=False,
                     error={
                         "code": "AZURE_AI_TIMEOUT",
-                        "message": f"Request to Azure AI agent timed out after {endpoint_max_retries} attempts",
-                        "details": {"azure_message": str(e), "attempts": endpoint_max_retries}
+                        "message": f"Request to Azure AI agent timed out after {endpoint_max_retries} attempts. The request exceeded the {timeout_seconds} second timeout limit.",
+                        "details": {
+                            "attempts": endpoint_max_retries,
+                            "timeout_seconds": timeout_seconds,
+                            "suggestion": "Try increasing AZURE_AI_REQUEST_TIMEOUT environment variable or retry the request later"
+                        }
                     }
                 )
                 # Update queue status to ERROR
@@ -3556,7 +3566,7 @@ async def map_queue_to_experity(
                             conn=conn,
                             queue_id=queue_id,
                             status='ERROR',
-                            error_message=str(e),
+                            error_message=f"Timeout after {endpoint_max_retries} attempts",
                             increment_attempts=True
                         )
                     except Exception:
@@ -3566,21 +3576,27 @@ async def map_queue_to_experity(
             except (AzureAIResponseError, AzureAIClientError) as e:
                 # Response/Client errors can be retried (e.g., JSON parsing errors, incomplete responses)
                 last_endpoint_error = e
+                logger.error(f"Azure AI error: {str(e)}")
                 if endpoint_attempt < endpoint_max_retries - 1:
                     wait_time = endpoint_retry_delay * (endpoint_attempt + 1)
                     logger.warning(
-                        f"Azure AI error on attempt {endpoint_attempt + 1}/{endpoint_max_retries}: {str(e)}. "
+                        f"Azure AI error on attempt {endpoint_attempt + 1}/{endpoint_max_retries}. "
                         f"Retrying in {wait_time} seconds..."
                     )
                     await asyncio.sleep(wait_time)
                     continue
                 # Exhausted retries
+                error_type = "response error" if isinstance(e, AzureAIResponseError) else "client error"
                 error_response = ExperityMapResponse(
                     success=False,
                     error={
                         "code": "AZURE_AI_ERROR",
-                        "message": f"Azure AI agent returned an error after {endpoint_max_retries} attempts",
-                        "details": {"azure_message": str(e), "attempts": endpoint_max_retries}
+                        "message": f"Azure AI agent encountered a {error_type} after {endpoint_max_retries} attempts. Please try again later or contact support if the issue persists.",
+                        "details": {
+                            "attempts": endpoint_max_retries,
+                            "error_type": error_type,
+                            "suggestion": "Retry the request or check Azure AI service status"
+                        }
                     }
                 )
                 # Update queue status to ERROR
@@ -3590,7 +3606,7 @@ async def map_queue_to_experity(
                             conn=conn,
                             queue_id=queue_id,
                             status='ERROR',
-                            error_message=str(e),
+                            error_message=f"Azure AI {error_type} after {endpoint_max_retries} attempts",
                             increment_attempts=True
                         )
                     except Exception:
@@ -3604,12 +3620,16 @@ async def map_queue_to_experity(
         # Check if we got a successful response
         if experity_mapping is None:
             # This should not happen, but handle it gracefully
+            logger.error(f"No response from Azure AI after {endpoint_max_retries} attempts")
             error_response = ExperityMapResponse(
                 success=False,
                 error={
                     "code": "AZURE_AI_ERROR",
                     "message": f"Failed to get response from Azure AI after {endpoint_max_retries} attempts",
-                    "details": {"last_error": str(last_endpoint_error) if last_endpoint_error else "Unknown error"}
+                    "details": {
+                        "attempts": endpoint_max_retries,
+                        "suggestion": "Please try again later or contact support if the issue persists"
+                    }
                 }
             )
             if queue_id and conn:
@@ -3668,18 +3688,22 @@ async def map_queue_to_experity(
             success=False,
             error={
                 "code": "DATABASE_ERROR",
-                "message": "Database error occurred",
-                "details": {"error": str(e)}
+                "message": "A database error occurred while processing the request",
+                "details": {
+                    "suggestion": "Please try again later or contact support if the issue persists"
+                }
             }
         )
     except Exception as e:
-        logger.error(f"Unexpected error in map_queue_to_experity: {str(e)}")
+        logger.error(f"Unexpected error in map_queue_to_experity: {str(e)}", exc_info=True)
         return ExperityMapResponse(
             success=False,
             error={
                 "code": "INTERNAL_ERROR",
-                "message": "Internal server error",
-                "details": {"error": str(e)}
+                "message": "An unexpected error occurred while processing the request",
+                "details": {
+                    "suggestion": "Please try again later or contact support if the issue persists"
+                }
             }
         )
     finally:
@@ -3688,4 +3712,3 @@ async def map_queue_to_experity(
                 conn.close()
             except Exception:
                 pass
-
