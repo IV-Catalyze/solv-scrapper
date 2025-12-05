@@ -325,9 +325,6 @@ class PatientPayload(BaseModel):
     """Schema describing the normalized patient payload returned by the API."""
 
     emr_id: Optional[str] = Field(None, description="EMR identifier for the patient.")
-    booking_id: Optional[str] = Field(None, description="Internal booking identifier.")
-    booking_number: Optional[str] = Field(None, description="Human-readable booking number.")
-    patient_number: Optional[str] = Field(None, description="Clinic-specific patient number.")
     location_id: Optional[str] = Field(None, description="Unique identifier for the clinic location.")
     location_name: Optional[str] = Field(None, description="Display name of the clinic location.")
     legalFirstName: Optional[str] = Field(None, description="Patient legal first name.")
@@ -340,15 +337,6 @@ class PatientPayload(BaseModel):
     created_at: Optional[str] = Field(None, description="Record creation timestamp.")
     updated_at: Optional[str] = Field(None, description="Record last update timestamp.")
     status: Optional[str] = Field(None, description="Current queue status for the patient.")
-    appointment_date: Optional[str] = Field(None, description="Scheduled appointment date (if provided).")
-    appointment_date_at_clinic_tz: Optional[str] = Field(
-        None, description="Appointment date/time localized to the clinic timezone."
-    )
-    calendar_date: Optional[str] = Field(None, description="Calendar date associated with the visit.")
-    status_class: Optional[str] = Field(None, description="Normalized status (lowercase/underscored) for styling.")
-    status_label: Optional[str] = Field(None, description="Human-friendly status label.")
-    captured_display: Optional[str] = Field(None, description="Formatted capture timestamp for UI display.")
-    source: Optional[str] = Field(None, description="Origin of the record (e.g., 'confirmed', 'pending').")
 
     class Config:
         extra = "allow"
@@ -1367,11 +1355,8 @@ def decorate_patient_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 # Patient data submission models
 class PatientCreateRequest(BaseModel):
     """Request model for creating a single patient record."""
-    emr_id: Optional[str] = Field(None, description="EMR identifier for the patient.", example="EMR12345")
-    booking_id: Optional[str] = Field(None, description="Internal booking identifier.", example="booking-123")
-    booking_number: Optional[str] = Field(None, description="Human-readable booking number.", example="BK-001")
-    patient_number: Optional[str] = Field(None, description="Clinic-specific patient number.", example="PN-456")
-    location_id: Optional[str] = Field(None, description="Unique identifier for the clinic location.", example="AXjwbE")
+    emr_id: str = Field(..., description="EMR identifier for the patient (required).", example="EMR12345")
+    location_id: Optional[str] = Field(None, description="Unique identifier for the clinic location (required for new patients).", example="AXjwbE")
     location_name: Optional[str] = Field(None, description="Display name of the clinic location.", example="Demo Clinic")
     legalFirstName: Optional[str] = Field(None, description="Patient legal first name.", example="John")
     legalLastName: Optional[str] = Field(None, description="Patient legal last name.", example="Doe")
@@ -1381,6 +1366,9 @@ class PatientCreateRequest(BaseModel):
     reasonForVisit: Optional[str] = Field(None, description="Reason provided for the visit.", example="Annual checkup")
     status: Optional[str] = Field(None, description="Current queue status for the patient.", example="confirmed")
     captured_at: Optional[str] = Field(None, description="Timestamp indicating when the record was captured in ISO 8601 format.", example="2025-11-21T10:30:00Z")
+    booking_id: Optional[str] = Field(None, description="Internal booking identifier.", example="booking-123")
+    booking_number: Optional[str] = Field(None, description="Human-readable booking number.", example="BK-001")
+    patient_number: Optional[str] = Field(None, description="Clinic-specific patient number.", example="PN-456")
     
     class Config:
         extra = "allow"
@@ -1946,27 +1934,6 @@ async def create_patient(
     current_client: TokenData = get_auth_dependency()
 ) -> Dict[str, Any]:
     """
-    **Required:**
-    - `emr_id` (string)
-    - `location_id` (string) - required for new patients
-    
-    **Optional:**
-    - `location_name`, `legalFirstName`, `legalLastName`, `dob`, `mobilePhone`, `sexAtBirth`, `status`, `reasonForVisit`, `captured_at`
-    
-    **Example:**
-    ```json
-    {
-      "emr_id": "EMR12345",
-      "location_id": "AXjwbE",
-      "legalFirstName": "John",
-      "legalLastName": "Doe",
-      "dob": "1990-01-15",
-      "mobilePhone": "+1234567890",
-      "sexAtBirth": "M",
-      "status": "confirmed",
-      "reasonForVisit": "Annual checkup"
-    }
-    ```
     """
     if not normalize_patient_record or not insert_patients:
         raise HTTPException(
@@ -2118,15 +2085,6 @@ async def update_patient_status(
     current_client: TokenData = get_auth_dependency()
 ) -> Dict[str, Any]:
     """
-    **Required:**
-    - `status` (string) - in request body
-    
-    **Example:**
-    ```json
-    {
-      "status": "checked_in"
-    }
-    ```
     """
     if not emr_id or not emr_id.strip():
         raise HTTPException(
