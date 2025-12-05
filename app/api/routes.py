@@ -1597,6 +1597,13 @@ class SummaryRequest(BaseModel):
                 "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days."
             }
         }
+    
+    @classmethod
+    def model_json_schema(cls, **kwargs):
+        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
+        # Generate schema with by_alias=False to use field names (camelCase)
+        schema = super().model_json_schema(by_alias=False, **kwargs)
+        return schema
 
 
 class SummaryResponse(BaseModel):
@@ -1619,6 +1626,13 @@ class SummaryResponse(BaseModel):
             }
         }
         extra = "allow"
+    
+    @classmethod
+    def model_json_schema(cls, **kwargs):
+        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
+        # Generate schema with by_alias=False to use field names (camelCase)
+        schema = super().model_json_schema(by_alias=False, **kwargs)
+        return schema
 
 
 # Token generation endpoint removed - HMAC authentication only
