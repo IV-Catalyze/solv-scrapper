@@ -1631,7 +1631,7 @@ class SummaryResponse(BaseModel):
     @classmethod
     def model_json_schema(cls, **kwargs):
         """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
-        # Generate schema with by_alias=False to use field names (camelCase)
+        # Generate schema with by_alias=False to use field names (camelCase) matching model_dump(by_alias=False)
         schema = super().model_json_schema(by_alias=False, **kwargs)
         return schema
 
@@ -2271,7 +2271,7 @@ async def create_encounter(
     """
     **Request Body:**
     - `emrId` (required): EMR identifier for the patient
-    - `encounterPayload` (required): Full encounter JSON object. Must contain `id` or `encounterId` field.
+    - `encounterPayload` (required): Full encounter JSON object. Must contain `id` (the ID of the encounter) field.
     
     **Example:**
     ```json
@@ -2946,8 +2946,8 @@ async def create_summary(
         # Format the response
         formatted_response = format_summary_response(saved_summary)
         
-        # Use by_alias=True to output camelCase field names
-        return SummaryResponse(**formatted_response).model_dump(exclude_none=True, exclude_unset=True, by_alias=True)
+        # Use by_alias=False to output camelCase field names (matching OpenAPI schema)
+        return SummaryResponse(**formatted_response).model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
         
     except HTTPException:
         raise
@@ -3040,8 +3040,8 @@ async def get_summary(
         # Format the response
         formatted_response = format_summary_response(summary)
         
-        # Use by_alias=True to output camelCase field names
-        return SummaryResponse(**formatted_response).model_dump(exclude_none=True, exclude_unset=True, by_alias=True)
+        # Use by_alias=False to output camelCase field names (matching OpenAPI schema)
+        return SummaryResponse(**formatted_response).model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
         
     except HTTPException:
         raise
