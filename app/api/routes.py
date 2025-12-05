@@ -1095,6 +1095,7 @@ def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
     
     Returns only: emrId, status, attempts, encounterPayload
     Similar to EncounterResponse structure.
+    Uses camelCase keys to match QueueResponse model aliases.
     """
     import json
     
@@ -1113,12 +1114,12 @@ def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
     else:
         raw_payload = {}
     
-    # Format response to match EncounterResponse structure
+    # Format response to match EncounterResponse structure (camelCase)
     formatted = {
-        'emr_id': record.get('emr_id', ''),
+        'emrId': record.get('emr_id', ''),  # Use camelCase to match alias
         'status': record.get('status', 'PENDING'),
         'attempts': record.get('attempts', 0),
-        'encounter_payload': raw_payload,  # This will be aliased to encounterPayload
+        'encounterPayload': raw_payload,  # Use camelCase to match alias
     }
     
     return formatted
