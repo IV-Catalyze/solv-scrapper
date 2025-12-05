@@ -1507,20 +1507,32 @@ class QueueResponse(BaseModel):
 
 # Experity mapping endpoint models
 class ExperityMapRequest(BaseModel):
-    """Request model for mapping queue entry to Experity actions via Azure AI."""
-    queue_entry: Dict[str, Any] = Field(
-        ...,
-        description="Queue entry containing either encounter_id or queue_id (required), and optionally raw_payload (will be fetched from database if not provided)."
+    """Request model for mapping queue entry to Experity actions via Azure AI.
+    
+    Supports two input formats:
+    1. Queue entry wrapper: {"queue_entry": {"encounter_id": "...", "raw_payload": {...}}}
+    2. Direct encounter object: {"id": "...", "clientId": "...", "attributes": {...}, ...}
+    """
+    queue_entry: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Queue entry wrapper containing either encounter_id or queue_id (optional), and optionally raw_payload (will be fetched from database if not provided)."
     )
+    
+    # Allow root-level fields for direct encounter format
+    class Config:
+        extra = "allow"
     
     @field_validator("queue_entry")
     @classmethod
-    def validate_queue_entry(cls, v: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate queue entry has required fields.
+    def validate_queue_entry(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Validate queue entry has required fields if provided.
         
-        Either encounter_id or queue_id must be provided.
-        raw_payload is optional - if not provided, it will be fetched from database.
+        Either encounter_id or queue_id must be provided in queue_entry.
+        raw_payload is optional - if not provided, will be fetched from database.
         """
+        if v is None:
+            return v
+        
         if not isinstance(v, dict):
             raise ValueError("queue_entry must be a dictionary")
         
@@ -3166,12 +3178,18 @@ async def map_queue_to_experity(
     - Set to `DONE` on successful mapping
     - Set to `ERROR` on failure (with error message stored)
     
-    **Request Body:**
+    **Supported Input Formats:**
+    
+    **Format 1: Queue Entry Wrapper**
     - **queue_entry** (required): Dictionary containing:
       - **encounter_id** (optional): Encounter identifier (UUID). Required if `queue_id` is not provided.
       - **queue_id** (optional): Queue identifier (UUID). Required if `encounter_id` is not provided.
       - **raw_payload** (optional): Dictionary with encounter data. If not provided, will be fetched from database.
-      - **parsed_payload** (optional): Parsed payload dictionary
+    
+    **Format 2: Direct Encounter Object**
+    - Send the encounter JSON directly (e.g., from `cough.json` or `injury head.json`)
+    - Must contain `id` field (encounter identifier)
+    - All encounter fields at root level: `id`, `clientId`, `attributes`, `chiefComplaints`, `orders`, etc.
     
     **Response:**
     - **success** (boolean): Whether the mapping was successful
@@ -3183,38 +3201,49 @@ async def map_queue_to_experity(
         - `labOrders`: Array of lab orders
         - `icdUpdates`: Array of ICD-10 updates
         - `complaints`: Array of complaint objects
-      - **queue_id**: Queue identifier (if available)
+      - **queue_id**: Queue identifier (if available, null for direct encounters)
       - **encounter_id**: Encounter identifier
       - **processed_at**: ISO 8601 timestamp
     - **error** (object, if success is false): Error details with code and message
     
     **Behavior:**
-    - Either `encounter_id` or `queue_id` must be provided
-    - If `raw_payload` is not provided, the endpoint fetches it from the database using `encounter_id` or `queue_id`
+    - Format 1: Either `encounter_id` or `queue_id` must be provided. If `raw_payload` is not provided, the endpoint fetches it from the database.
+    - Format 2: Direct encounter object is processed immediately (no database lookup). Queue status updates are skipped.
     - This allows seamless integration with `GET /queue` responses (which return `encounterPayload` in camelCase)
-    - Queue entry status is automatically managed during processing
-    - On error, the queue entry status is set to `ERROR` and attempts counter is incremented
+    - Queue entry status is automatically managed during processing (only for Format 1)
+    - On error, the queue entry status is set to `ERROR` and attempts counter is incremented (only for Format 1)
     
-    **Example Request (with raw_payload):**
+    **Example Request (Format 1 - with raw_payload):**
     ```json
     {
       "queue_entry": {
         "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
         "raw_payload": {
-          "encounterId": "550e8400-e29b-41d4-a716-446655440000",
-          "emrId": "EMR12345",
-          "chiefComplaints": [{"mainProblem": "Fever and cough"}]
+          "id": "550e8400-e29b-41d4-a716-446655440000",
+          "clientId": "EMR12345",
+          "chiefComplaints": [{"description": "Fever and cough"}]
         }
       }
     }
     ```
     
-    **Example Request (fetch from database):**
+    **Example Request (Format 1 - fetch from database):**
     ```json
     {
       "queue_entry": {
         "encounter_id": "550e8400-e29b-41d4-a716-446655440000"
       }
+    }
+    ```
+    
+    **Example Request (Format 2 - direct encounter):**
+    ```json
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "clientId": "EMR12345",
+      "attributes": {"gender": "male", "ageYears": 30},
+      "chiefComplaints": [{"description": "cough"}],
+      "orders": []
     }
     ```
     
@@ -3251,32 +3280,58 @@ async def map_queue_to_experity(
         )
     
     conn = None
-    queue_entry = request_data.queue_entry
-    queue_id = queue_entry.get("queue_id")
-    encounter_id = queue_entry.get("encounter_id")
-    raw_payload = queue_entry.get("raw_payload")
+    
+    # Detect input format: queue_entry wrapper (Format 1) or direct encounter (Format 2)
+    is_direct_encounter = request_data.queue_entry is None
+    if not is_direct_encounter:
+        # Format 1: Queue Entry Wrapper
+        queue_entry = request_data.queue_entry
+        queue_id = queue_entry.get("queue_id")
+        encounter_id = queue_entry.get("encounter_id")
+        raw_payload = queue_entry.get("raw_payload")
+    else:
+        # Format 2: Direct Encounter Object
+        # Treat the entire request body as the encounter data
+        direct_encounter = body_json
+        encounter_id = direct_encounter.get("id")
+        queue_id = None
+        raw_payload = direct_encounter
+        
+        # Create a queue_entry structure for processing
+        queue_entry = {
+            "encounter_id": encounter_id,
+            "queue_id": None,
+            "raw_payload": raw_payload,
+            "emr_id": direct_encounter.get("clientId")
+        }
     
     try:
-        # Validate queue_entry structure (already validated by Pydantic, but double-check)
+        # Validate we have encounter data
+        # For queue_entry format: need encounter_id or queue_id
+        # For direct encounter format: need id field
         if not encounter_id and not queue_id:
             return ExperityMapResponse(
                 success=False,
                 error={
                     "code": "VALIDATION_ERROR",
-                    "message": "queue_entry must contain either 'encounter_id' or 'queue_id' field"
+                    "message": "Request must contain either: (1) queue_entry with 'encounter_id' or 'queue_id', or (2) direct encounter object with 'id' field"
                 }
             )
         
         # Connect to database to fetch queue entry if needed
-        if not conn:
-            conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        # Skip database lookup for direct encounter format (we already have all the data)
+        cursor = None
+        if not is_direct_encounter:
+            if not conn:
+                conn = get_db_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         try:
             # Fetch queue entry from database if raw_payload is not provided
             # or if we need to get queue_id/encounter_id
+            # Skip for direct encounter format
             db_queue_entry = None
-            if not raw_payload or not queue_id or not encounter_id:
+            if not is_direct_encounter and (not raw_payload or not queue_id or not encounter_id):
                 # Build query to fetch queue entry
                 if queue_id:
                     cursor.execute(
@@ -3289,7 +3344,8 @@ async def map_queue_to_experity(
                         (encounter_id,)
                     )
                 else:
-                    cursor.close()
+                    if cursor is not None:
+                        cursor.close()
                     return ExperityMapResponse(
                         success=False,
                         error={
@@ -3301,7 +3357,8 @@ async def map_queue_to_experity(
                 db_queue_entry = cursor.fetchone()
                 
                 if not db_queue_entry:
-                    cursor.close()
+                    if cursor is not None:
+                        cursor.close()
                     return ExperityMapResponse(
                         success=False,
                         error={
@@ -3331,7 +3388,8 @@ async def map_queue_to_experity(
             
             # Validate we have raw_payload now
             if not raw_payload:
-                cursor.close()
+                if cursor is not None:
+                    cursor.close()
                 return ExperityMapResponse(
                     success=False,
                     error={
@@ -3349,7 +3407,9 @@ async def map_queue_to_experity(
             }
             
         finally:
-            cursor.close()
+            # Only close cursor if we created it (not in direct encounter mode)
+            if cursor is not None:
+                cursor.close()
             # Keep conn open if we need it for status updates
         
         # Update queue status to PROCESSING if queue_id exists
