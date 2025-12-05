@@ -2525,10 +2525,15 @@ async def update_queue_experity_action(
         # Format the response
         formatted_response = format_queue_response(updated_entry)
         
-        # Explicitly use model_dump(by_alias=False) to ensure camelCase output
-        # FastAPI may use aliases by default, so we explicitly use field names
+        # Create model for validation, then return dict with camelCase keys
+        # FastAPI's jsonable_encoder uses aliases for models, but preserves dict keys
         queue_response = QueueResponse(**formatted_response)
-        return queue_response.model_dump(by_alias=False)
+        response_dict = queue_response.model_dump(by_alias=False)
+        
+        # Return dict directly - FastAPI will serialize it as-is (camelCase)
+        # Bypassing response_model serialization which would use aliases
+        from fastapi.responses import JSONResponse
+        return JSONResponse(content=response_dict)
         
     except HTTPException:
         raise
@@ -2698,9 +2703,14 @@ async def list_queue(
         # Format the results
         formatted_results = [format_queue_response(record) for record in results]
         
-        # Explicitly use model_dump(by_alias=False) to ensure camelCase output
-        # FastAPI may use aliases by default, so we explicitly use field names
-        return [QueueResponse(**result).model_dump(by_alias=False) for result in formatted_results]
+        # Create models for validation, then return dicts with camelCase keys
+        # FastAPI's jsonable_encoder uses aliases for models, but preserves dict keys
+        response_list = [QueueResponse(**result).model_dump(by_alias=False) for result in formatted_results]
+        
+        # Return list of dicts directly - FastAPI will serialize as-is (camelCase)
+        # Bypassing response_model serialization which would use aliases
+        from fastapi.responses import JSONResponse
+        return JSONResponse(content=response_list)
         
     except HTTPException:
         raise
