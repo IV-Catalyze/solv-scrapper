@@ -1441,10 +1441,10 @@ class EncounterResponse(BaseModel):
 
 # Queue data submission models
 class QueueUpdateRequest(BaseModel):
-    """Request model for updating queue experityAction."""
-    queue_id: Optional[str] = Field(None, description="Queue identifier (UUID). Either queue_id or encounter_id is required.", example="660e8400-e29b-41d4-a716-446655440000")
-    encounter_id: Optional[str] = Field(None, description="Encounter identifier (UUID). Either queue_id or encounter_id is required.", example="550e8400-e29b-41d4-a716-446655440000")
-    experityAction: Optional[List[Dict[str, Any]]] = Field(None, description="Experity action objects array to update in parsed_payload.")
+    """Request model for updating queue entry."""
+    queue_id: Optional[str] = Field(None, description="Queue identifier (UUID). Either queue_id or encounter_id must be provided.", example="660e8400-e29b-41d4-a716-446655440000")
+    encounter_id: Optional[str] = Field(None, description="Encounter identifier (UUID). Either queue_id or encounter_id must be provided.", example="550e8400-e29b-41d4-a716-446655440000")
+    experityAction: Optional[List[Dict[str, Any]]] = Field(None, description="Array of Experity action objects to store in parsed_payload.")
     
     @model_validator(mode='after')
     def validate_at_least_one_identifier(self):
@@ -1468,6 +1468,7 @@ class QueueUpdateRequest(BaseModel):
                 ]
             }
         }
+        extra = "forbid"
 
 
 class QueueResponse(BaseModel):
@@ -2384,6 +2385,7 @@ async def create_encounter(
     "/queue",
     tags=["Queue"],
     summary="Update queue entry",
+    description="Update a queue entry's Experity actions. Returns the updated queue entry with emrId, status, attempts, and encounterPayload.",
     response_model=QueueResponse,
     responses={
         200: {
@@ -2422,14 +2424,18 @@ async def update_queue_experity_action(
     current_client: TokenData = get_auth_dependency()
 ) -> QueueResponse:
     """
+    Update a queue entry's Experity actions.
+    
     **Request Body:**
     - `encounter_id` (optional): Encounter identifier (UUID). Either `encounter_id` or `queue_id` must be provided.
     - `queue_id` (optional): Queue identifier (UUID). Either `encounter_id` or `queue_id` must be provided.
-    - `experityAction` (optional): Array of Experity action objects.
+    - `experityAction` (optional): Array of Experity action objects to store in parsed_payload.
     
-    **Example:**
+    **Response:**
+    Returns the updated queue entry with `emrId`, `status`, `attempts`, and `encounterPayload`.
+    
+    **Example Request:**
     ```json
-    POST /queue
     {
       "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
       "experityAction": [
@@ -2443,9 +2449,6 @@ async def update_queue_experity_action(
       ]
     }
     ```
-    
-    **Response:**
-    Returns the updated queue entry with `emrId`, `status`, `attempts`, and `encounterPayload`.
     """
     conn = None
     cursor = None
