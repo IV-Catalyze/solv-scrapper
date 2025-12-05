@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 try:
-    from fastapi import FastAPI, HTTPException, Query, Request, Depends, Path
+    from fastapi import FastAPI, HTTPException, Query, Request, Depends, Path, Body
     from fastapi.responses import HTMLResponse, JSONResponse
     from fastapi.templating import Jinja2Templates
     from pydantic import BaseModel, Field, field_validator, model_validator
@@ -3126,6 +3126,126 @@ def update_queue_status_and_experity_action(
     tags=["Queue"],
     summary="Map queue entry to Experity actions via Azure AI",
     response_model=ExperityMapResponse,
+    request_body=Body(
+        ...,
+        examples={
+            "format1_queue_entry": {
+                "summary": "Format 1: Queue Entry Wrapper (with raw_payload)",
+                "description": "Send encounter data wrapped in queue_entry object",
+                "value": {
+                    "queue_entry": {
+                        "encounter_id": "6984a75c-1d07-4d1b-a35c-0f71d5416f87",
+                        "emr_id": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                        "raw_payload": {
+                            "id": "6984a75c-1d07-4d1b-a35c-0f71d5416f87",
+                            "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                            "attributes": {
+                                "gender": "male",
+                                "pulseOx": 99,
+                                "ageYears": 69,
+                                "heightCm": 167.64,
+                                "weightKg": 63.50,
+                                "weightClass": "normal",
+                                "pulseRateBpm": 20,
+                                "bodyMassIndex": 22.60,
+                                "respirationBpm": 18,
+                                "bodyTemperatureCelsius": 37,
+                                "bloodPressureSystolicMm": 180,
+                                "bloodPressureDiastolicMm": 100
+                            },
+                            "traumaType": "NONE",
+                            "chiefComplaints": [
+                                {
+                                    "id": "00f9612e-f37d-451b-9172-25cbddee58a9",
+                                    "description": "cough",
+                                    "painScale": 3,
+                                    "durationDays": 10,
+                                    "type": "search",
+                                    "part": null,
+                                    "symptom": {
+                                        "root": {
+                                            "reviewOfSystemsCategory": "RESPIRATORY"
+                                        }
+                                    }
+                                }
+                            ],
+                            "orders": [
+                                {
+                                    "id": "316d977d-df36-4ed8-9df0-4cc83decc0b1",
+                                    "type": "clinical",
+                                    "label": "84 - Order and perform COVID test",
+                                    "performed": true
+                                }
+                            ],
+                            "additionalQuestions": {
+                                "conditions": [],
+                                "guardianAssistedInterview": "No"
+                            }
+                        }
+                    }
+                }
+            },
+            "format1_fetch_db": {
+                "summary": "Format 1: Queue Entry Wrapper (fetch from database)",
+                "description": "Provide only encounter_id to fetch data from database",
+                "value": {
+                    "queue_entry": {
+                        "encounter_id": "6984a75c-1d07-4d1b-a35c-0f71d5416f87"
+                    }
+                }
+            },
+            "format2_direct_encounter": {
+                "summary": "Format 2: Direct Encounter Object",
+                "description": "Send encounter JSON directly without queue_entry wrapper",
+                "value": {
+                    "id": "6984a75c-1d07-4d1b-a35c-0f71d5416f87",
+                    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                    "attributes": {
+                        "gender": "male",
+                        "pulseOx": 99,
+                        "ageYears": 69,
+                        "heightCm": 167.64,
+                        "weightKg": 63.50,
+                        "weightClass": "normal",
+                        "pulseRateBpm": 20,
+                        "bodyMassIndex": 22.60,
+                        "respirationBpm": 18,
+                        "bodyTemperatureCelsius": 37,
+                        "bloodPressureSystolicMm": 180,
+                        "bloodPressureDiastolicMm": 100
+                    },
+                    "traumaType": "NONE",
+                    "chiefComplaints": [
+                        {
+                            "id": "00f9612e-f37d-451b-9172-25cbddee58a9",
+                            "description": "cough",
+                            "painScale": 3,
+                            "durationDays": 10,
+                            "type": "search",
+                            "part": null,
+                            "symptom": {
+                                "root": {
+                                    "reviewOfSystemsCategory": "RESPIRATORY"
+                                }
+                            }
+                        }
+                    ],
+                    "orders": [
+                        {
+                            "id": "316d977d-df36-4ed8-9df0-4cc83decc0b1",
+                            "type": "clinical",
+                            "label": "84 - Order and perform COVID test",
+                            "performed": true
+                        }
+                    ],
+                    "additionalQuestions": {
+                        "conditions": [],
+                        "guardianAssistedInterview": "No"
+                    }
+                }
+            }
+        }
+    ),
     responses={
         200: {
             "description": "Successfully mapped queue entry to Experity actions. The queue entry status is updated to PROCESSING during the request and DONE or ERROR based on the result.",
@@ -3135,34 +3255,82 @@ def update_queue_status_and_experity_action(
                         "success": True,
                         "data": {
                             "experity_actions": {
-                                "emrId": "EMR12345",
+                                "emrId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
                                 "vitals": {
-                                    "temperature": 98.6,
-                                    "bloodPressure": "120/80"
+                                    "gender": "male",
+                                    "ageYears": 69,
+                                    "heightCm": 167.64,
+                                    "weightKg": 63.50,
+                                    "bodyMassIndex": 22.60,
+                                    "weightClass": "normal",
+                                    "pulseRateBpm": 20,
+                                    "respirationBpm": 18,
+                                    "bodyTemperatureCelsius": 37,
+                                    "bloodPressureSystolicMm": 180,
+                                    "bloodPressureDiastolicMm": 100,
+                                    "pulseOx": 99
                                 },
-                                "guardianAssistedInterview": None,
-                                "labOrders": [],
+                                "guardianAssistedInterview": {
+                                    "present": false,
+                                    "guardianName": null,
+                                    "relationship": null,
+                                    "notes": null
+                                },
+                                "labOrders": [
+                                    {
+                                        "orderId": "316d977d-df36-4ed8-9df0-4cc83decc0b1",
+                                        "name": "84 - Order and perform COVID test",
+                                        "status": "performed",
+                                        "priority": null,
+                                        "reason": null
+                                    }
+                                ],
                                 "icdUpdates": [],
                                 "complaints": [
                                     {
-                                        "mainProblem": "Fever and cough",
-                                        "bodyParts": ["chest", "throat"]
+                                        "encounterId": "6984a75c-1d07-4d1b-a35c-0f71d5416f87",
+                                        "complaintId": "00f9612e-f37d-451b-9172-25cbddee58a9",
+                                        "description": "cough",
+                                        "traumaType": "NONE",
+                                        "bodyPartRaw": null,
+                                        "reviewOfSystemsCategory": "RESPIRATORY",
+                                        "gender": "male",
+                                        "bodyAreaKey": "Chest",
+                                        "subLocationLabel": null,
+                                        "experityTemplate": "Chest",
+                                        "coordKey": "CHEST_PARENT",
+                                        "bodyMapSide": "front",
+                                        "ui": {
+                                            "bodyMapClick": {
+                                                "x": 183,
+                                                "y": 556
+                                            },
+                                            "bodyPartId": 3
+                                        },
+                                        "mainProblem": "Cough",
+                                        "notesTemplateKey": "CHEST_TEMPLATE_B",
+                                        "notesPayload": {
+                                            "quality": ["Chest tightness"],
+                                            "severity": 3
+                                        },
+                                        "notesFreeText": "Patient reports cough for 10 days with pain scale of 3.",
+                                        "reasoning": "Cough is a respiratory symptom mapped to Chest body area."
                                     }
                                 ]
                             },
-                            "queue_id": "660e8400-e29b-41d4-a716-446655440000",
-                            "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
-                            "processed_at": "2025-11-21T10:30:00Z"
+                            "encounter_id": "6984a75c-1d07-4d1b-a35c-0f71d5416f87",
+                            "processed_at": "2025-01-21T10:30:00.000Z",
+                            "queue_id": null
                         }
                     }
                 }
             }
         },
         400: {
-            "description": "Invalid request data or missing required fields. `queue_entry` must contain either `encounter_id` or `queue_id`. `raw_payload` is optional and will be fetched from database if not provided."
+            "description": "Invalid request data. Must provide either: (1) queue_entry with encounter_id or queue_id, or (2) direct encounter object with id field."
         },
         401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        404: {"description": "Queue entry not found in database."},
+        404: {"description": "Queue entry not found in database (Format 1 only)."},
         502: {"description": "Azure AI agent returned an error. The queue entry status is updated to ERROR."},
         504: {"description": "Request to Azure AI agent timed out. The queue entry status is updated to ERROR."},
         500: {"description": "Database or server error. Azure AI client may not be available."},
@@ -3173,84 +3341,25 @@ async def map_queue_to_experity(
     current_client: TokenData = get_auth_dependency()
 ) -> ExperityMapResponse:
     """
-    Map a queue entry to Experity actions using Azure AI Experity Mapper Agent.
+    Map encounter data to Experity actions using Azure AI.
     
-    This endpoint processes a queue entry through Azure AI to generate Experity mapping actions.
-    The queue entry status is automatically updated during processing:
-    - Set to `PROCESSING` when the request starts
-    - Set to `DONE` on successful mapping
-    - Set to `ERROR` on failure (with error message stored)
+    **Two Input Formats Supported:**
     
-    **Supported Input Formats:**
+    1. **Queue Entry Wrapper** - Wrap encounter in `queue_entry` object
+       - Provide `encounter_id` or `queue_id` 
+       - Optionally include `raw_payload` (otherwise fetched from database)
+       - Queue status is automatically updated
     
-    **Format 1: Queue Entry Wrapper**
-    - **queue_entry** (required): Dictionary containing:
-      - **encounter_id** (optional): Encounter identifier (UUID). Required if `queue_id` is not provided.
-      - **queue_id** (optional): Queue identifier (UUID). Required if `encounter_id` is not provided.
-      - **raw_payload** (optional): Dictionary with encounter data. If not provided, will be fetched from database.
+    2. **Direct Encounter** - Send encounter JSON directly
+       - Must include `id` field
+       - All encounter fields at root level
+       - No database lookup, no queue status updates
     
-    **Format 2: Direct Encounter Object**
-    - Send the encounter JSON directly (e.g., from `cough.json` or `injury head.json`)
-    - Must contain `id` field (encounter identifier)
-    - All encounter fields at root level: `id`, `clientId`, `attributes`, `chiefComplaints`, `orders`, etc.
+    **Response:** Returns Experity mapping with vitals, complaints, lab orders, and ICD updates.
     
-    **Response:**
-    - **success** (boolean): Whether the mapping was successful
-    - **data** (object, if success is true): Contains:
-      - **experity_actions**: Full Experity mapping object (JSON) with:
-        - `emrId`: EMR identifier
-        - `vitals`: Vitals object
-        - `guardianAssistedInterview`: Guardian info object
-        - `labOrders`: Array of lab orders
-        - `icdUpdates`: Array of ICD-10 updates
-        - `complaints`: Array of complaint objects
-      - **queue_id**: Queue identifier (if available, null for direct encounters)
-      - **encounter_id**: Encounter identifier
-      - **processed_at**: ISO 8601 timestamp
-    - **error** (object, if success is false): Error details with code and message
+    See request body examples above for both formats.
     
-    **Behavior:**
-    - Format 1: Either `encounter_id` or `queue_id` must be provided. If `raw_payload` is not provided, the endpoint fetches it from the database.
-    - Format 2: Direct encounter object is processed immediately (no database lookup). Queue status updates are skipped.
-    - This allows seamless integration with `GET /queue` responses (which return `encounterPayload` in camelCase)
-    - Queue entry status is automatically managed during processing (only for Format 1)
-    - On error, the queue entry status is set to `ERROR` and attempts counter is incremented (only for Format 1)
-    
-    **Example Request (Format 1 - with raw_payload):**
-    ```json
-    {
-      "queue_entry": {
-        "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
-        "raw_payload": {
-          "id": "550e8400-e29b-41d4-a716-446655440000",
-          "clientId": "EMR12345",
-          "chiefComplaints": [{"description": "Fever and cough"}]
-        }
-      }
-    }
-    ```
-    
-    **Example Request (Format 1 - fetch from database):**
-    ```json
-    {
-      "queue_entry": {
-        "encounter_id": "550e8400-e29b-41d4-a716-446655440000"
-      }
-    }
-    ```
-    
-    **Example Request (Format 2 - direct encounter):**
-    ```json
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "clientId": "EMR12345",
-      "attributes": {"gender": "male", "ageYears": 30},
-      "chiefComplaints": [{"description": "cough"}],
-      "orders": []
-    }
-    ```
-    
-    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
+    Requires HMAC authentication via X-Timestamp and X-Signature headers.
     """
     import logging
     import json
