@@ -336,6 +336,13 @@ class PatientPayload(BaseModel):
     class Config:
         extra = "allow"
         populate_by_name = True
+    
+    @classmethod
+    def model_json_schema(cls, **kwargs):
+        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
+        # Generate schema with by_alias=False to use field names (camelCase)
+        schema = super().model_json_schema(by_alias=False, **kwargs)
+        return schema
 
 
 def fetch_locations(cursor) -> List[Dict[str, Optional[str]]]:
@@ -1300,6 +1307,13 @@ class PatientCreateRequest(BaseModel):
                 "capturedAt": "2025-11-21T10:30:00Z"
             }
         }
+    
+    @classmethod
+    def model_json_schema(cls, **kwargs):
+        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
+        # Generate schema with by_alias=False to use field names (camelCase)
+        schema = super().model_json_schema(by_alias=False, **kwargs)
+        return schema
 
 
 class PatientBatchRequest(BaseModel):
@@ -1529,6 +1543,13 @@ class SummaryResponse(BaseModel):
             }
         }
         extra = "allow"
+    
+    @classmethod
+    def model_json_schema(cls, **kwargs):
+        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
+        # Generate schema with by_alias=False to use field names (camelCase)
+        schema = super().model_json_schema(by_alias=False, **kwargs)
+        return schema
 
 
 # Token generation endpoint removed - HMAC authentication only
