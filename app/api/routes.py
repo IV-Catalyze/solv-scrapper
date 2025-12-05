@@ -1320,23 +1320,76 @@ class StatusUpdateRequest(BaseModel):
 # Encounter data submission models
 class EncounterCreateRequest(BaseModel):
     """Request model for creating an encounter record."""
-    emrId: str = Field(..., description="EMR identifier for the patient (links encounter to patient EMR record).", alias="emr_id")
-    encounterPayload: Dict[str, Any] = Field(..., description="Full encounter JSON payload (e.g., entire encounter object from cough.json or injury head.json).", alias="encounter_payload")
+    emrId: str = Field(
+        ..., 
+        description="EMR identifier for the patient",
+        example="EMR12345",
+        alias="emr_id"
+    )
+    encounterPayload: Dict[str, Any] = Field(
+        ..., 
+        description="Full encounter JSON payload. Must contain 'id' or 'encounterId' field to identify the encounter.",
+        example={
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+            "attributes": {"gender": "male", "ageYears": 69},
+            "chiefComplaints": [{"id": "00f9612e-f37d-451b-9172-25cbddee58a9", "description": "cough"}],
+            "status": "COMPLETE"
+        },
+        alias="encounter_payload"
+    )
     
     class Config:
-        populate_by_name = True  # Allow both emrId and emr_id, encounterPayload and encounter_payload
-        extra = "allow"
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "emrId": "EMR12345",
+                "encounterPayload": {
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                    "attributes": {"gender": "male", "ageYears": 69},
+                    "chiefComplaints": [{"id": "00f9612e-f37d-451b-9172-25cbddee58a9", "description": "cough"}],
+                    "status": "COMPLETE"
+                }
+            }
+        }
 
 
 class EncounterResponse(BaseModel):
     """Response model for encounter records."""
-    emrId: str = Field(..., description="EMR identifier for the patient.", alias="emr_id")
-    encounterId: str = Field(..., description="Encounter identifier (UUID).", alias="encounter_id")
-    encounterPayload: Dict[str, Any] = Field(..., description="Full encounter JSON payload.", alias="encounter_payload")
+    emrId: str = Field(
+        ..., 
+        description="EMR identifier for the patient",
+        example="EMR12345",
+        alias="emr_id"
+    )
+    encounterId: str = Field(
+        ..., 
+        description="Encounter identifier (UUID)",
+        example="550e8400-e29b-41d4-a716-446655440000",
+        alias="encounter_id"
+    )
+    encounterPayload: Dict[str, Any] = Field(
+        ..., 
+        description="Full encounter JSON payload as stored",
+        alias="encounter_payload"
+    )
     
     class Config:
-        populate_by_name = True  # Allow both camelCase and snake_case
-        extra = "allow"
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "emrId": "EMR12345",
+                "encounterId": "550e8400-e29b-41d4-a716-446655440000",
+                "encounterPayload": {
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
+                    "attributes": {"gender": "male", "ageYears": 69},
+                    "chiefComplaints": [{"id": "00f9612e-f37d-451b-9172-25cbddee58a9", "description": "cough"}],
+                    "status": "COMPLETE"
+                }
+            }
+        }
 
 
 # Queue data submission models
@@ -2060,7 +2113,7 @@ async def update_patient_status(
     status_code=201,
     responses={
         201: {
-            "description": "Encounter record created or updated successfully. The full encounter JSON payload is stored as `encounterPayload`.",
+            "description": "Encounter record created or updated successfully",
             "content": {
                 "application/json": {
                     "example": {
@@ -2069,18 +2122,26 @@ async def update_patient_status(
                         "encounterPayload": {
                             "id": "550e8400-e29b-41d4-a716-446655440000",
                             "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-                            "attributes": {},
-                            "chiefComplaints": []
+                            "attributes": {
+                                "gender": "male",
+                                "ageYears": 69
+                            },
+                            "chiefComplaints": [
+                                {
+                                    "id": "00f9612e-f37d-451b-9172-25cbddee58a9",
+                                    "description": "cough",
+                                    "type": "search"
+                                }
+                            ],
+                            "status": "COMPLETE"
                         }
                     }
                 }
             }
         },
-        400: {
-            "description": "Invalid request data or missing required fields. Common errors: missing `emrId`, missing `encounterPayload`, or missing `id`/`encounterId` within `encounterPayload`."
-        },
-        401: {"description": "Authentication required. Provide HMAC signature via X-Timestamp and X-Signature headers."},
-        500: {"description": "Database or server error while saving the encounter."},
+        400: {"description": "Invalid request data or missing required fields"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Server error"},
     },
 )
 async def create_encounter(
@@ -2088,24 +2149,15 @@ async def create_encounter(
     current_client: TokenData = get_auth_dependency()
 ) -> EncounterResponse:
     """
-    Create or update an encounter record from the provided JSON data.
+    Create or update an encounter record.
     
-    This endpoint accepts only `emrId` and `encounterPayload`. The `encounterPayload` should contain
-    the full encounter JSON object (like the entire content of cough.json or injury head.json).
+    **Request Body:**
+    - `emrId` (required): EMR identifier for the patient
+    - `encounterPayload` (required): Full encounter JSON object. Must contain `id` or `encounterId` field.
     
-    **Required Fields:**
-    - **emrId** or **emr_id** (required): EMR identifier for the patient (links encounter to patient record)
-    - **encounterPayload** or **encounter_payload** (required): Full encounter JSON payload. 
-      This should be the entire encounter object (e.g., the full JSON from cough.json or injury head.json).
-      The payload must contain either an `id` or `encounterId` field to identify the encounter.
-    
-    **Behavior:**
-    - If an encounter with the same `encounterId` (extracted from `encounterPayload.id` or `encounterPayload.encounterId`) 
-      already exists, it will be updated
-    - The entire `encounterPayload` is stored as-is in the database
-    
-    **Example Request:**
+    **Example:**
     ```json
+    POST /encounter
     {
       "emrId": "EMR12345",
       "encounterPayload": {
@@ -2127,7 +2179,9 @@ async def create_encounter(
     }
     ```
     
-    Requires HMAC signature authentication via X-Timestamp and X-Signature headers.
+    **Response:**
+    Returns the stored encounter with `emrId`, `encounterId`, and `encounterPayload`.
+    If an encounter with the same `encounterId` exists, it will be updated.
     """
     conn = None
     
