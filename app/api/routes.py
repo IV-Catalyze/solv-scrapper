@@ -1316,9 +1316,6 @@ def build_patient_payload(record: Dict[str, Any]) -> Dict[str, Any]:
 
     payload = {
         "emr_id": record.get("emr_id"),
-        "booking_id": record.get("booking_id"),
-        "booking_number": record.get("booking_number"),
-        "patient_number": record.get("patient_number"),
         "location_id": record.get("location_id"),
         "location_name": record.get("location_name"),
         "legalFirstName": record.get("legal_first_name"),
@@ -1332,35 +1329,24 @@ def build_patient_payload(record: Dict[str, Any]) -> Dict[str, Any]:
         "updated_at": updated,
     }
 
+    # Note: booking_id, booking_number, patient_number, appointment_date,
+    # appointment_date_at_clinic_tz, and calendar_date are intentionally excluded
+    # from the response as they are not needed
+
     status = record.get("patient_status") or record.get("status")
     if not status and isinstance(raw_payload, dict):
         status = raw_payload.get("status")
     if status:
         payload["status"] = status
 
-    appointment_date = record.get("appointment_date")
-    if appointment_date is None and isinstance(raw_payload, dict):
-        appointment_date = raw_payload.get("appointment_date")
-    if appointment_date:
-        payload["appointment_date"] = appointment_date
-
-    appointment_date_clinic_tz = record.get("appointment_date_at_clinic_tz")
-    if appointment_date_clinic_tz is None and isinstance(raw_payload, dict):
-        appointment_date_clinic_tz = raw_payload.get("appointment_date_at_clinic_tz")
-    if appointment_date_clinic_tz:
-        payload["appointment_date_at_clinic_tz"] = appointment_date_clinic_tz
-
-    calendar_date = record.get("calendar_date")
-    if calendar_date is None and isinstance(raw_payload, dict):
-        calendar_date = raw_payload.get("calendar_date")
-    if calendar_date:
-        payload["calendar_date"] = calendar_date
-
     return payload
 
 
 def decorate_patient_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Add presentation-friendly fields to the patient payload."""
+    # Note: status_class, status_label, and captured_display are only added
+    # for dashboard/list endpoints, not for single patient retrieval
+    # This function is kept for backward compatibility with list endpoints
     status_class = normalize_status(payload.get("status")) or "unknown"
     payload["status_class"] = status_class
     payload["status_label"] = status_class.replace("_", " ").title()
@@ -1812,7 +1798,7 @@ async def experity_chat_ui(
     tags=["Patients"],
     summary="Get patient by EMR ID",
     response_model=PatientPayload,
-    responses={
+        responses={
         200: {
             "description": "Most recent patient record for the specified EMR ID. Returns the record with the latest `captured_at` timestamp.",
             "content": {
@@ -1826,11 +1812,11 @@ async def experity_chat_ui(
                         "dob": "1990-01-15",
                         "mobilePhone": "+1234567890",
                         "sexAtBirth": "M",
-                        "status": "confirmed",
-                        "reasonForVisit": "Annual checkup",
                         "captured_at": "2025-11-21T10:30:00Z",
+                        "reasonForVisit": "Annual checkup",
                         "created_at": "2025-11-21T10:30:00Z",
-                        "updated_at": "2025-11-21T10:30:00Z"
+                        "updated_at": "2025-11-21T10:30:00Z",
+                        "status": "confirmed"
                     }
                 }
             }
@@ -1843,7 +1829,7 @@ async def experity_chat_ui(
 async def get_patient_by_emr_id(
     emr_id: str,
     current_client: TokenData = get_auth_dependency()
-) -> PatientPayload:
+) -> Dict[str, Any]:
     """
     Retrieve the most recent patient record for a specific EMR ID.
 
@@ -1910,8 +1896,22 @@ async def get_patient_by_emr_id(
         ensure_client_location_access(record.get("location_id"), current_client)
         
         response_payload = build_patient_payload(record)
+        
+        # Remove these fields completely from the response (always exclude)
+        fields_to_always_exclude = [
+            "booking_id", "booking_number", "patient_number",
+            "appointment_date", "appointment_date_at_clinic_tz", "calendar_date",
+            "status_class", "status_label", "captured_display", "source"
+        ]
+        # Remove excluded fields regardless of their values
+        filtered_payload = {
+            k: v for k, v in response_payload.items()
+            if k not in fields_to_always_exclude
+        }
 
-        return PatientPayload(**response_payload)
+        # Create model and exclude both None and unset values from serialization
+        patient = PatientPayload(**filtered_payload)
+        return patient.model_dump(exclude_none=True, exclude_unset=True)
         
     except HTTPException:
         # Re-raise HTTP exceptions
@@ -3490,6 +3490,10 @@ async def map_queue_to_experity(
         experity_mapping = None
         last_endpoint_error = None
         
+        # Performance timing
+        import time
+        endpoint_start_time = time.perf_counter()
+        
         for endpoint_attempt in range(endpoint_max_retries):
             try:
                 logger.info(
@@ -3641,6 +3645,10 @@ async def map_queue_to_experity(
                     except Exception:
                         pass
                 raise HTTPException(status_code=502, detail=error_response.dict())
+        
+        # Log total endpoint processing time
+        endpoint_total_time = time.perf_counter() - endpoint_start_time
+        logger.info(f"⏱️  Total endpoint processing time: {endpoint_total_time:.3f}s")
         
         # Check if we got a successful response
         if experity_mapping is None:
