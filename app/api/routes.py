@@ -2524,7 +2524,8 @@ async def update_queue_experity_action(
         # Format the response
         formatted_response = format_queue_response(updated_entry)
         
-        return QueueResponse(**formatted_response)
+        # Use by_alias=True to output camelCase field names (emrId, encounterPayload)
+        return QueueResponse(**formatted_response).model_dump(by_alias=True)
         
     except HTTPException:
         raise
@@ -2694,7 +2695,8 @@ async def list_queue(
         # Format the results
         formatted_results = [format_queue_response(record) for record in results]
         
-        return [QueueResponse(**result) for result in formatted_results]
+        # Use by_alias=True to output camelCase field names (emrId, encounterPayload)
+        return [QueueResponse(**result).model_dump(by_alias=True) for result in formatted_results]
         
     except HTTPException:
         raise
