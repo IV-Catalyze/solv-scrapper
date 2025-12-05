@@ -560,7 +560,7 @@ def prepare_dashboard_patients(
         payload["source"] = "confirmed"
         results.append(decorate_patient_payload(payload))
 
-    # Sort by captured_at descending then updated_at
+    # Sort by capturedAt descending then updatedAt
     def sort_key(item: Dict[str, Any]):
         captured = parse_datetime(item.get("capturedAt") or item.get("captured_at"))
         updated = parse_datetime(item.get("updatedAt") or item.get("updated_at"))
@@ -1828,8 +1828,9 @@ async def get_patient_by_emr_id(
         }
 
         # Create model and exclude both None and unset values from serialization
+        # Use by_alias=True to output camelCase field names
         patient = PatientPayload(**filtered_payload)
-        return patient.model_dump(exclude_none=True, exclude_unset=True)
+        return patient.model_dump(exclude_none=True, exclude_unset=True, by_alias=True)
         
     except HTTPException:
         # Re-raise HTTP exceptions
@@ -1863,9 +1864,9 @@ async def get_patient_by_emr_id(
                 "application/json": {
                     "example": {
                         "message": "Patient record created successfully",
-                        "emr_id": "EMR12345",
+                        "emrId": "EMR12345",
                         "status": "created",
-                        "inserted_count": 1
+                        "insertedCount": 1
                     }
                 }
             }
@@ -1963,7 +1964,7 @@ async def create_patient(
             if existing:
                 return {
                     "message": "Patient record already exists and was updated",
-                    "emr_id": normalized['emr_id'],
+                    "emrId": normalized['emr_id'],
                     "status": "updated"
                 }
             else:
@@ -1974,9 +1975,9 @@ async def create_patient(
         
         return {
             "message": "Patient record created successfully",
-            "emr_id": normalized['emr_id'],
+            "emrId": normalized['emr_id'],
             "status": "created",
-            "inserted_count": inserted_count
+            "insertedCount": inserted_count
         }
         
     except HTTPException:
@@ -2011,10 +2012,10 @@ async def create_patient(
                 "application/json": {
                     "example": {
                         "message": "Patient status updated successfully",
-                        "emr_id": "EMR12345",
-                        "old_status": "confirmed",
-                        "new_status": "checked_in",
-                        "updated_at": "2025-11-21T10:30:00Z"
+                        "emrId": "EMR12345",
+                        "oldStatus": "confirmed",
+                        "newStatus": "checked_in",
+                        "updatedAt": "2025-11-21T10:30:00Z"
                     }
                 }
             }
@@ -2086,10 +2087,10 @@ async def update_patient_status(
         
         return {
             "message": "Patient status updated successfully",
-            "emr_id": emr_id_clean,
-            "old_status": existing.get("status"),
-            "new_status": normalized_status,
-            "updated_at": updated.get("updated_at").isoformat() if updated.get("updated_at") else None
+            "emrId": emr_id_clean,
+            "oldStatus": existing.get("status"),
+            "newStatus": normalized_status,
+            "updatedAt": updated.get("updated_at").isoformat() if updated.get("updated_at") else None
         }
         
     except HTTPException:
@@ -2657,18 +2658,18 @@ if __name__ == "__main__":
                 "application/json": {
                     "example": [
                         {
-                            "emr_id": "EMR12345",
-                            "location_id": "AXjwbE",
-                            "location_name": "Demo Clinic",
+                            "emrId": "EMR12345",
+                            "locationId": "AXjwbE",
+                            "locationName": "Demo Clinic",
                             "legalFirstName": "John",
                             "legalLastName": "Doe",
                             "dob": "1990-01-15",
                             "mobilePhone": "+1234567890",
                             "sexAtBirth": "M",
-                            "captured_at": "2025-11-21T10:30:00Z",
+                            "capturedAt": "2025-11-21T10:30:00Z",
                             "reasonForVisit": "Annual checkup",
-                            "created_at": "2025-11-21T10:30:00Z",
-                            "updated_at": "2025-11-21T10:30:00Z",
+                            "createdAt": "2025-11-21T10:30:00Z",
+                            "updatedAt": "2025-11-21T10:30:00Z",
                             "status": "confirmed"
                         }
                     ]
@@ -2737,7 +2738,8 @@ async def list_patients(
                 {k: v for k, v in patient.items() if k not in fields_to_exclude}
                 for patient in patients_raw
             ]
-            return [PatientPayload(**patient) for patient in filtered_patients]
+            # Use by_alias=True to output camelCase field names
+            return [PatientPayload(**patient).model_dump(exclude_none=True, exclude_unset=True, by_alias=True) for patient in filtered_patients]
 
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -2749,7 +2751,8 @@ async def list_patients(
                 {k: v for k, v in patient.items() if k not in fields_to_exclude}
                 for patient in patients_raw
             ]
-            return [PatientPayload(**patient) for patient in filtered_patients]
+            # Use by_alias=True to output camelCase field names
+            return [PatientPayload(**patient).model_dump(exclude_none=True, exclude_unset=True, by_alias=True) for patient in filtered_patients]
         finally:
             cursor.close()
             conn.close()
