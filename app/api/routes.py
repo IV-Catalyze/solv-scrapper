@@ -1765,7 +1765,7 @@ async def experity_chat_ui(
     },
 )
 async def get_patient_by_emr_id(
-    emrId: str = Path(..., description="EMR identifier for the patient"),
+    emrId: str,
     current_client: TokenData = get_auth_dependency()
 ) -> Dict[str, Any]:
     """
@@ -2032,8 +2032,8 @@ async def create_patient(
     },
 )
 async def update_patient_status(
-    emrId: str = Path(..., description="EMR identifier for the patient"),
-    status_data: StatusUpdateRequest = ...,
+    emrId: str,
+    status_data: StatusUpdateRequest,
     current_client: TokenData = get_auth_dependency()
 ) -> Dict[str, Any]:
     """
