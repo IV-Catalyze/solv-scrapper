@@ -3388,12 +3388,16 @@ async def map_queue_to_experity(
         raw_payload = direct_encounter
         
         # Create a queue_entry structure for processing
+        # Only set emr_id if emrId actually exists in the encounter (not clientId)
+        emr_id_value = direct_encounter.get("emrId") or direct_encounter.get("emr_id")
         queue_entry = {
             "encounter_id": encounter_id,
             "queue_id": None,
             "raw_payload": raw_payload,
-            "emr_id": direct_encounter.get("clientId")
         }
+        # Only include emr_id if it's actually an emrId (not clientId)
+        if emr_id_value:
+            queue_entry["emr_id"] = emr_id_value
     
     try:
         # Validate we have encounter data
