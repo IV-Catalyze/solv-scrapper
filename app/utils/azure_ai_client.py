@@ -466,6 +466,27 @@ def extract_experity_actions(response_json: Dict[str, Any], encounter_data: Opti
             if field not in experity_mapping:
                 logger.warning(f"Response missing expected field: {field}")
         
+        # Safety check: Ensure emrId is null if it was missing from input and LLM used clientId
+        if encounter_data:
+            input_emr_id = encounter_data.get("emrId") or encounter_data.get("emr_id")
+            input_client_id = encounter_data.get("clientId") or encounter_data.get("client_id")
+            output_emr_id = experity_mapping.get("emrId")
+            
+            # If emrId was missing from input but LLM returned clientId value, set to null
+            if not input_emr_id and input_client_id and output_emr_id == input_client_id:
+                logger.warning(
+                    f"LLM incorrectly used clientId '{input_client_id}' as emrId. "
+                    f"Setting emrId to null since emrId was missing from input."
+                )
+                experity_mapping["emrId"] = None
+            # If emrId was missing from input and output is not null (and not the clientId), still set to null
+            elif not input_emr_id and output_emr_id is not None:
+                logger.warning(
+                    f"emrId was missing from input but LLM returned '{output_emr_id}'. "
+                    f"Setting emrId to null to match input."
+                )
+                experity_mapping["emrId"] = None
+        
         return experity_mapping
         
     except AzureAIResponseError:
