@@ -851,6 +851,83 @@ def format_encounter_response(record: Dict[str, Any]) -> Dict[str, Any]:
     return formatted
 
 
+def remove_excluded_fields(encounter_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove excluded fields from encounter payload for queue storage.
+    
+    This function creates a cleaned copy of the encounter payload by removing
+    fields that should not be stored in the queue. The original encounter data
+    remains intact in the encounters table.
+    
+    Args:
+        encounter_payload: The full encounter payload dictionary
+        
+    Returns:
+        A new dictionary with excluded fields removed
+    """
+    import copy
+    
+    # Create a deep copy to avoid modifying the original
+    cleaned_payload = copy.deepcopy(encounter_payload)
+    
+    # List of top-level fields to remove
+    excluded_top_level_fields = [
+        'source',
+        'meta',
+        'esi',
+        'createdBy',
+        'createdById',
+        'deletedAt',
+        'syncedAt',
+        'originLaunchError',
+        'origin',
+        'originOrders',
+        'originObservationLabs',
+        'locationId',
+        'originPatientId',
+        'originBillingCode',
+        'originStartedAt',
+        'originBillingCodeSyncedAt',
+        'originBillingCodeFailureCount',
+        'originBillingCodeFailureMessage',
+        'originDiagnosticReportsSyncedAt',
+        'originDiagnosticReportsFailureCount',
+        'originDiagnosticReportsFailureMessage',
+        'originCsn',
+        'originAppointmentType',
+        'originDiagnosesSyncedAt',
+        'originDiagnosesFailureCount',
+        'originDiagnosesFailureMessage',
+        'originDiagnosesJobId',
+        'originDiagnosticReportsJobId',
+        'originCsnSyncedAt',
+        'originCsnFailureCount',
+        'originCsnFailureMessage',
+        'originCsnJobId',
+        'createdByUser',
+        'accessLogs',
+        'creationLog',
+    ]
+    
+    # Remove top-level excluded fields
+    for field in excluded_top_level_fields:
+        cleaned_payload.pop(field, None)
+    
+    # Remove fields from patient object if it exists
+    if 'patient' in cleaned_payload and isinstance(cleaned_payload['patient'], dict):
+        patient_excluded_fields = [
+            'firstName',
+            'lastName',
+            'encounterOriginId',
+            'mrn',
+            'emailAddress',
+            'phoneNumber',
+        ]
+        for field in patient_excluded_fields:
+            cleaned_payload['patient'].pop(field, None)
+    
+    return cleaned_payload
+
+
 def save_queue(conn, queue_data: Dict[str, Any]) -> Dict[str, Any]:
     """Save or update a queue record in the database.
     
@@ -970,9 +1047,15 @@ def save_queue(conn, queue_data: Dict[str, Any]) -> Dict[str, Any]:
 def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
     """Create a queue entry from an encounter record.
     
-    This function ensures that only encounter fields from encounter_payload are stored
-    in the queue's raw_payload. The emr_id comes from the encounter table, not from
+    This function creates a cleaned version of the encounter_payload by removing
+    excluded fields (source, meta, esi, createdBy, accessLogs, etc.) before storing
+    it in the queue's raw_payload. The original encounter_payload remains intact
+    in the encounters table. The emr_id comes from the encounter table, not from
     the payload.
+    
+    The cleaned payload stored in raw_payload is what gets returned in API responses
+    as encounterPayload. The parsed_payload is used internally only and is never
+    exposed via API responses.
     
     Args:
         conn: PostgreSQL database connection
@@ -1019,9 +1102,10 @@ def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[st
     if not isinstance(encounter_payload, dict):
         raise ValueError(f"encounter_payload must be a dictionary, got {type(encounter_payload).__name__}")
     
-    # Create a clean copy of encounter_payload for raw_payload
-    # This ensures we only store encounter fields, not any table metadata
-    raw_payload = dict(encounter_payload)
+    # Create a cleaned copy of encounter_payload for raw_payload
+    # This removes excluded fields that should not be stored in the queue
+    # The original encounter_payload remains intact in the encounters table
+    raw_payload = remove_excluded_fields(encounter_payload)
     
     # Validate that raw_payload contains expected encounter fields
     # At minimum, it should have an id or encounterId
@@ -1076,8 +1160,8 @@ def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[st
         'encounter_id': str(encounter_id),
         'emr_id': str(emr_id),  # From encounter table, not from payload
         'status': 'PENDING',
-        'raw_payload': raw_payload,  # Clean copy of encounter payload (only encounter fields)
-        'parsed_payload': parsed_payload,  # Simplified parsed structure
+        'raw_payload': raw_payload,  # Cleaned encounter payload (excluded fields removed)
+        'parsed_payload': parsed_payload,  # Simplified parsed structure (internal use only)
         'attempts': 0,
     }
     
