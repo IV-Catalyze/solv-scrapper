@@ -321,6 +321,7 @@ class PatientPayload(BaseModel):
     """Schema describing the normalized patient payload returned by the API."""
 
     emrId: Optional[str] = Field(None, description="EMR identifier for the patient.", alias="emr_id")
+    bookingId: Optional[str] = Field(None, description="Internal booking identifier.", alias="booking_id")
     locationId: Optional[str] = Field(None, description="Unique identifier for the clinic location.", alias="location_id")
     locationName: Optional[str] = Field(None, description="Display name of the clinic location.", alias="location_name")
     legalFirstName: Optional[str] = Field(None, description="Patient legal first name.")
@@ -1346,6 +1347,7 @@ def build_patient_payload(record: Dict[str, Any]) -> Dict[str, Any]:
 
     payload = {
         "emrId": record.get("emr_id"),
+        "bookingId": record.get("booking_id"),
         "locationId": record.get("location_id"),
         "locationName": record.get("location_name"),
         "legalFirstName": record.get("legal_first_name"),
@@ -1358,10 +1360,6 @@ def build_patient_payload(record: Dict[str, Any]) -> Dict[str, Any]:
         "createdAt": created,
         "updatedAt": updated,
     }
-
-    # Note: booking_id, booking_number, patient_number, appointment_date,
-    # appointment_date_at_clinic_tz, and calendar_date are intentionally excluded
-    # from the response as they are not needed
 
     status = record.get("patient_status") or record.get("status")
     if not status and isinstance(raw_payload, dict):
@@ -1398,6 +1396,7 @@ def decorate_patient_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 class PatientCreateRequest(BaseModel):
     """Request model for creating a single patient record."""
     emrId: str = Field(..., description="EMR identifier for the patient (required).", example="EMR12345", alias="emr_id")
+    bookingId: Optional[str] = Field(None, description="Internal booking identifier.", example="0Pa1Z6", alias="booking_id")
     locationId: Optional[str] = Field(None, description="Unique identifier for the clinic location (required for new patients).", example="AXjwbE", alias="location_id")
     locationName: Optional[str] = Field(None, description="Display name of the clinic location.", example="Demo Clinic", alias="location_name")
     legalFirstName: Optional[str] = Field(None, description="Patient legal first name.", example="John")
@@ -1932,6 +1931,7 @@ async def experity_chat_ui(
                 "application/json": {
                     "example": {
                         "emrId": "EMR12345",
+                        "bookingId": "0Pa1Z6",
                         "locationId": "AXjwbE",
                         "locationName": "Demo Clinic",
                         "legalFirstName": "John",
@@ -2011,7 +2011,7 @@ async def get_patient_by_emr_id(
 
         # Remove these fields completely from the response (always exclude)
         fields_to_always_exclude = [
-            "booking_id", "booking_number", "patient_number",
+            "booking_number", "patient_number",
             "appointment_date", "appointment_date_at_clinic_tz", "calendar_date",
             "status_class", "status_label", "captured_display", "source"
         ]
@@ -2059,6 +2059,7 @@ async def get_patient_by_emr_id(
                     "example": {
                         "message": "Patient record created successfully",
                         "emrId": "EMR12345",
+                        "bookingId": "0Pa1Z6",
                         "status": "created",
                         "insertedCount": 1
                     }
@@ -2159,6 +2160,7 @@ async def create_patient(
                 return {
                     "message": "Patient record already exists and was updated",
                     "emrId": normalized['emr_id'],
+                    "bookingId": normalized.get('booking_id'),
                     "status": "updated"
                 }
             else:
@@ -2170,6 +2172,7 @@ async def create_patient(
         return {
             "message": "Patient record created successfully",
             "emrId": normalized['emr_id'],
+            "bookingId": normalized.get('booking_id'),
             "status": "created",
             "insertedCount": inserted_count
         }
