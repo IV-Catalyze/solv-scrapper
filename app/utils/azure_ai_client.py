@@ -523,8 +523,9 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
             "httpx package not installed. Install it with: pip install httpx"
         )
     
-    # Build URL
-    url = f"{PROJECT_ENDPOINT}/applications/{AGENT_NAME}/protocols/openai/responses?api-version={API_VERSION}"
+    # Build URL - CORRECTED: Use project-level /openai/responses endpoint
+    # This is the correct endpoint for Azure AI Foundry Agent Service
+    url = f"{PROJECT_ENDPOINT}/openai/responses?api-version={API_VERSION}"
     
     # Get Azure token
     token_start = time.perf_counter()
@@ -557,18 +558,21 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
         encounter_data = queue_entry
         logger.warning("No raw_payload found in queue_entry, using queue_entry directly")
     
-    # Prepare request payload - send encounter data directly (not the queue_entry wrapper)
+    # Prepare request payload - CORRECTED: Use agent reference format for Azure AI Foundry
+    # Format: {"agent": {"type": "agent_reference", "name": "AgentName"}, "input": "..."}
     payload = {
-        "input": [
-            {
-                "role": "user",
-                "content": json.dumps(encounter_data)
-            }
-        ],
-        "metadata": {
-            "agentVersionId": AGENT_VERSION
-        }
+        "agent": {
+            "type": "agent_reference",
+            "name": AGENT_NAME  # "IV-Experity-Mapper-Agent"
+        },
+        "input": json.dumps(encounter_data)  # Direct string, NOT array format
     }
+    
+    logger.info(f"Azure AI request configuration:")
+    logger.info(f"   URL: {url}")
+    logger.info(f"   Agent: {AGENT_NAME}")
+    logger.info(f"   Agent Version: {AGENT_VERSION}")
+    logger.info(f"   Payload agent reference: {payload['agent']}")
     
     headers = {
         "Content-Type": "application/json",
