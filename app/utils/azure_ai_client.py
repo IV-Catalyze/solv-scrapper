@@ -38,6 +38,7 @@ PROJECT_ENDPOINT = os.getenv(
 )
 AGENT_NAME = os.getenv("AZURE_AI_AGENT_NAME", "IV-Experity-Mapper-Agent")
 AGENT_VERSION = os.getenv("AZURE_AI_AGENT_VERSION", "IV-Experity-Mapper-Agent:8")
+DEPLOYMENT_NAME = os.getenv("AZURE_AI_DEPLOYMENT_NAME", "iv-experity-mapper-gpt-4o")
 API_VERSION = os.getenv("AZURE_AI_API_VERSION", "2025-11-15-preview")
 
 # Timeout configuration
@@ -518,8 +519,12 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
             "httpx package not installed. Install it with: pip install httpx"
         )
     
-    # Build URL
-    url = f"{PROJECT_ENDPOINT}/applications/{AGENT_NAME}/protocols/openai/responses?api-version={API_VERSION}"
+    # Build URL for Agent Application endpoint with deployment
+    # URL format: {endpoint}/applications/{app_name}/deployments/{deployment_name}/protocols/openai/responses
+    url = f"{PROJECT_ENDPOINT}/applications/{AGENT_NAME}/deployments/{DEPLOYMENT_NAME}/protocols/openai/responses?api-version={API_VERSION}"
+    
+    logger.info(f"Azure AI Application URL: {url}")
+    logger.info(f"Using deployment: {DEPLOYMENT_NAME}")
     
     # Get Azure token
     token_start = time.perf_counter()
@@ -552,10 +557,7 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                 "role": "user",
                 "content": json.dumps(encounter_data)
             }
-        ],
-        "metadata": {
-            "agentVersionId": AGENT_VERSION
-        }
+        ]
     }
     
     headers = {
