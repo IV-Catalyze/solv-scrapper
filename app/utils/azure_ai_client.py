@@ -38,7 +38,6 @@ PROJECT_ENDPOINT = os.getenv(
 )
 AGENT_NAME = os.getenv("AZURE_AI_AGENT_NAME", "IV-Experity-Mapper-Agent")
 AGENT_VERSION = os.getenv("AZURE_AI_AGENT_VERSION", "IV-Experity-Mapper-Agent:8")
-DEPLOYMENT_NAME = os.getenv("AZURE_AI_DEPLOYMENT_NAME", "iv-experity-mapper-gpt-4o")
 API_VERSION = os.getenv("AZURE_AI_API_VERSION", "2025-11-15-preview")
 
 # Timeout configuration
@@ -473,18 +472,23 @@ def extract_experity_actions(response_json: Dict[str, Any], encounter_data: Opti
             input_client_id = encounter_data.get("clientId") or encounter_data.get("client_id")
             output_emr_id = experity_mapping.get("emrId")
             
-            # If emrId was missing from input but LLM returned clientId value, set to null
-            if not input_emr_id and input_client_id and output_emr_id == input_client_id:
+            # Check if input_emr_id is actually the clientId (incorrectly set)
+            # This can happen if the endpoint set emr_id to clientId in queue_entry
+            input_emr_is_client_id = input_emr_id and input_client_id and input_emr_id == input_client_id
+            
+            # If emrId was missing from input OR if input_emr_id equals clientId (incorrectly set)
+            # and LLM returned clientId value, set to null
+            if (not input_emr_id or input_emr_is_client_id) and input_client_id and output_emr_id == input_client_id:
                 logger.warning(
                     f"LLM incorrectly used clientId '{input_client_id}' as emrId. "
-                    f"Setting emrId to null since emrId was missing from input."
+                    f"Setting emrId to null since emrId was missing from original input."
                 )
                 experity_mapping["emrId"] = None
-            # If emrId was missing from input and output is not null (and not the clientId), still set to null
-            elif not input_emr_id and output_emr_id is not None:
+            # If emrId was missing from input (or equals clientId) and output is not null, set to null
+            elif (not input_emr_id or input_emr_is_client_id) and output_emr_id is not None:
                 logger.warning(
-                    f"emrId was missing from input but LLM returned '{output_emr_id}'. "
-                    f"Setting emrId to null to match input."
+                    f"emrId was missing from original input but LLM returned '{output_emr_id}'. "
+                    f"Setting emrId to null to match original input."
                 )
                 experity_mapping["emrId"] = None
         
@@ -519,12 +523,8 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
             "httpx package not installed. Install it with: pip install httpx"
         )
     
-    # Build URL for Agent Application endpoint with deployment
-    # URL format: {endpoint}/applications/{app_name}/deployments/{deployment_name}/protocols/openai/responses
-    url = f"{PROJECT_ENDPOINT}/applications/{AGENT_NAME}/deployments/{DEPLOYMENT_NAME}/protocols/openai/responses?api-version={API_VERSION}"
-    
-    logger.info(f"Azure AI Application URL: {url}")
-    logger.info(f"Using deployment: {DEPLOYMENT_NAME}")
+    # Build URL
+    url = f"{PROJECT_ENDPOINT}/applications/{AGENT_NAME}/protocols/openai/responses?api-version={API_VERSION}"
     
     # Get Azure token
     token_start = time.perf_counter()
@@ -540,11 +540,18 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
     if "raw_payload" in queue_entry and queue_entry["raw_payload"]:
         # Create a copy to avoid modifying the original
         encounter_data = dict(queue_entry["raw_payload"])
-        # Also include encounter_id and emr_id from queue_entry if not in raw_payload
+        # Also include encounter_id from queue_entry if not in raw_payload
         if "encounterId" not in encounter_data and "encounter_id" in queue_entry:
             encounter_data["encounterId"] = queue_entry["encounter_id"]
+        # Only copy emr_id from queue_entry if it's actually an emrId (not clientId)
+        # This prevents clientId from being incorrectly used as emrId
         if "emrId" not in encounter_data and "emr_id" in queue_entry:
-            encounter_data["emrId"] = queue_entry["emr_id"]
+            # Only use emr_id from queue_entry if it's not the same as clientId
+            # (This is a safety check to prevent clientId from being used as emrId)
+            client_id = encounter_data.get("clientId") or encounter_data.get("client_id")
+            emr_id_from_queue = queue_entry.get("emr_id")
+            if emr_id_from_queue and emr_id_from_queue != client_id:
+                encounter_data["emrId"] = emr_id_from_queue
     else:
         # Fallback: use queue_entry directly if no raw_payload
         encounter_data = queue_entry
@@ -557,7 +564,10 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                 "role": "user",
                 "content": json.dumps(encounter_data)
             }
-        ]
+        ],
+        "metadata": {
+            "agentVersionId": AGENT_VERSION
+        }
     }
     
     headers = {
