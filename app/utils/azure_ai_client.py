@@ -31,49 +31,18 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-def get_env_or_default(key: str, default: str) -> str:
-    """
-    Get environment variable, but treat empty string as not set.
-    This ensures that empty strings in environment variables don't prevent defaults from being used.
-    """
-    value = os.getenv(key)
-    return value if value and value.strip() else default
-
 # Azure AI Configuration from environment variables
-# Support both AZURE_AI_PROJECT_ENDPOINT and AZURE_EXISTING_AIPROJECT_ENDPOINT
 PROJECT_ENDPOINT = os.getenv(
     "AZURE_AI_PROJECT_ENDPOINT",
-    os.getenv(
-        "AZURE_EXISTING_AIPROJECT_ENDPOINT",
-        "https://iv-catalyze-openai.services.ai.azure.com/api/projects/IV-Catalyze-OpenAI-project"
-    )
+    "https://iv-catalyze-openai.services.ai.azure.com/api/projects/IV-Catalyze-OpenAI-project"
 )
 AGENT_NAME = os.getenv("AZURE_AI_AGENT_NAME", "IV-Experity-Mapper-Agent")
-
-# Priority order: AZURE_EXISTING_AGENT_ID > AZURE_AI_AGENT_VERSION > AZURE_AI_DEPLOYMENT_NAME > default
-# This matches the original working configuration where AZURE_EXISTING_AGENT_ID was used
-# Prefer agent version ID format (e.g., "IV-Experity-Mapper-Agent:34") if available
-# Otherwise use deployment name (e.g., "iv-experity-mapper-gpt-4o")
-AGENT_VERSION = get_env_or_default(
-    "AZURE_EXISTING_AGENT_ID",  # Original working format - check this first
-    get_env_or_default(
-        "AZURE_AI_AGENT_VERSION",  # Alternative agent version format
-        get_env_or_default(
-            "AZURE_AI_DEPLOYMENT_NAME",  # Fall back to deployment name
-            "IV-Experity-Mapper-Agent:34"  # Default to version 34 (from server config)
-        )
-    )
-)
-
+AGENT_VERSION = os.getenv("AZURE_AI_AGENT_VERSION", "IV-Experity-Mapper-Agent:8")
 API_VERSION = os.getenv("AZURE_AI_API_VERSION", "2025-11-15-preview")
 
-# Timeout configuration - defaults match production server settings
-REQUEST_TIMEOUT = int(os.getenv("AZURE_AI_REQUEST_TIMEOUT", "300"))  # 5 minutes for Azure AI operations
-CONNECTION_TIMEOUT = int(os.getenv("AZURE_AI_CONNECTION_TIMEOUT", "60"))  # 1 minute connection timeout
-
-# Log the deployment name being used for debugging
-logger.info(f"Azure AI Configuration - Using deployment/agent version: {AGENT_VERSION}")
-logger.debug(f"Azure AI Configuration - AGENT_NAME: {AGENT_NAME}, REQUEST_TIMEOUT: {REQUEST_TIMEOUT}s, CONNECTION_TIMEOUT: {CONNECTION_TIMEOUT}s")
+# Timeout configuration
+REQUEST_TIMEOUT = int(os.getenv("AZURE_AI_REQUEST_TIMEOUT", "120"))  # 2 minutes for file search operations
+CONNECTION_TIMEOUT = int(os.getenv("AZURE_AI_CONNECTION_TIMEOUT", "10"))
 
 # Retry configuration
 MAX_RETRIES = int(os.getenv("AZURE_AI_MAX_RETRIES", "3"))
@@ -588,14 +557,6 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
         encounter_data = queue_entry
         logger.warning("No raw_payload found in queue_entry, using queue_entry directly")
     
-    # Validate deployment/agent version is not empty
-    if not AGENT_VERSION or not AGENT_VERSION.strip():
-        raise AzureAIClientError(
-            f"Azure AI deployment/agent version is empty or not set. "
-            f"Please set AZURE_AI_DEPLOYMENT_NAME, AZURE_AI_AGENT_VERSION, or AZURE_EXISTING_AGENT_ID. "
-            f"Current value: '{AGENT_VERSION}'"
-        )
-    
     # Prepare request payload - send encounter data directly (not the queue_entry wrapper)
     payload = {
         "input": [
@@ -608,32 +569,6 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
             "agentVersionId": AGENT_VERSION
         }
     }
-    
-    # Log the payload structure (without full content to avoid huge logs)
-    logger.info(f"Making Azure AI request:")
-    logger.info(f"   - URL: {url}")
-    logger.info(f"   - AGENT_VERSION variable: '{AGENT_VERSION}'")
-    logger.info(f"   - agentVersionId in metadata: '{payload['metadata'].get('agentVersionId', 'MISSING')}'")
-    
-    # Log the full metadata structure
-    metadata_str = json.dumps(payload.get('metadata', {}), indent=2)
-    logger.info(f"   - Full metadata JSON: {metadata_str}")
-    
-    # Serialize the entire payload to see what's actually being sent
-    payload_str = json.dumps(payload, indent=2, default=str)
-    logger.debug(f"   - Full payload (first 1000 chars): {payload_str[:1000]}")
-    
-    # Double-check that agentVersionId is not empty in the actual payload
-    agent_version_in_payload = payload["metadata"].get("agentVersionId", "")
-    if not agent_version_in_payload or not str(agent_version_in_payload).strip():
-        raise AzureAIClientError(
-            f"CRITICAL: agentVersionId is empty in request payload! "
-            f"AGENT_VERSION variable: '{AGENT_VERSION}', "
-            f"payload metadata: {payload['metadata']}, "
-            f"agentVersionId type: {type(agent_version_in_payload)}"
-        )
-    
-    logger.info(f"   ✅ Verified agentVersionId is set: '{agent_version_in_payload}'")
     
     headers = {
         "Content-Type": "application/json",
@@ -653,14 +588,6 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                 
                 # Time the actual API call
                 api_call_start = time.perf_counter()
-                
-                # Log the exact metadata being sent (for debugging)
-                if attempt == 0:  # Only log on first attempt
-                    logger.info(f"📤 Sending request with metadata: {json.dumps(payload.get('metadata', {}), indent=2)}")
-                    # Verify the agentVersionId one more time right before sending
-                    agent_ver = payload.get('metadata', {}).get('agentVersionId', '')
-                    logger.info(f"📤 agentVersionId value being sent: '{agent_ver}' (type: {type(agent_ver).__name__})")
-                
                 response = await client.post(url, headers=headers, json=payload)
                 api_call_time = time.perf_counter() - api_call_start
                 logger.info(f"⏱️  Azure AI API call (attempt {attempt + 1}): {api_call_time:.3f}s")
@@ -705,17 +632,6 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                 # Handle other errors
                 if response.status_code >= 400:
                     error_text = response.text[:500]  # Limit error text length
-                    
-                    # Special handling for deployment not found errors
-                    if response.status_code == 400 and "Deployment" in error_text and "not found" in error_text:
-                        raise AzureAIClientError(
-                            f"Azure AI deployment not found (400). "
-                            f"Deployment/agent version being used: '{AGENT_VERSION}'. "
-                            f"Error: {error_text}. "
-                            f"Please verify that AZURE_AI_DEPLOYMENT_NAME or AZURE_AI_AGENT_VERSION "
-                            f"is set to a valid deployment name in your Azure AI project."
-                        )
-                    
                     raise AzureAIClientError(
                         f"Azure AI returned error {response.status_code}: {error_text}"
                     )
