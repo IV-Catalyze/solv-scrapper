@@ -36,8 +36,8 @@ PROJECT_ENDPOINT = os.getenv(
     "AZURE_AI_PROJECT_ENDPOINT",
     "https://iv-catalyze-openai.services.ai.azure.com/api/projects/IV-Catalyze-OpenAI-project"
 )
-AGENT_NAME = os.getenv("AZURE_AI_AGENT_NAME", "IV-Experity-Mapper-Agent")
-AGENT_VERSION = os.getenv("AZURE_AI_AGENT_VERSION", "IV-Experity-Mapper-Agent:8")
+AGENT_NAME = os.getenv("AZURE_AI_AGENT_NAME", "experitymapper")
+AGENT_VERSION = os.getenv("AZURE_AI_AGENT_VERSION", "experitymapper:2")
 API_VERSION = os.getenv("AZURE_AI_API_VERSION", "2025-11-15-preview")
 
 # Timeout configuration
@@ -64,9 +64,7 @@ class AzureAIAuthenticationError(AzureAIClientError):
 
 class AzureAIRateLimitError(AzureAIClientError):
     """Rate limit error from Azure AI."""
-    def __init__(self, message: str, retry_after: Optional[int] = None):
-        super().__init__(message)
-        self.retry_after = retry_after  # Retry-After header value in seconds
+    pass
 
 
 class AzureAITimeoutError(AzureAIClientError):
@@ -253,57 +251,18 @@ def extract_experity_actions(response_json: Dict[str, Any], encounter_data: Opti
                 f"Output text preview: {output_text_clean[:200]}"
             ) from e
         
-        # Handle new prompt format: full wrapper structure {success, data: {experityActions: {...}, ...}, error}
+        # Handle new prompt format: full wrapper structure {success, data: {experity_actions: {...}, ...}, error}
         if isinstance(experity_mapping, dict) and "success" in experity_mapping:
             # LLM returned full wrapper structure from new prompt
             if experity_mapping.get("success") is True and "data" in experity_mapping:
                 data = experity_mapping["data"]
-                
-                # Normalize snake_case to camelCase for all fields
-                # Convert experity_actions to experityActions
-                if "experity_actions" in data and "experityActions" not in data:
-                    data["experityActions"] = data.pop("experity_actions")
-                    logger.warning("Converted experity_actions to experityActions (snake_case to camelCase)")
-                elif "experity_actions" in data and "experityActions" in data:
-                    # Both exist - check for nested structure
-                    if isinstance(data["experity_actions"], dict) and "experityActions" in data["experity_actions"]:
-                        logger.warning("Found nested experity_actions.experityActions structure - using inner experityActions")
-                        data["experityActions"] = data["experity_actions"]["experityActions"]
-                    else:
-                        logger.warning("Both experity_actions and experityActions exist - using experityActions")
-                    del data["experity_actions"]
-                
-                # Convert encounter_id to encounterId
-                if "encounter_id" in data and "encounterId" not in data:
-                    data["encounterId"] = data.pop("encounter_id")
-                    logger.warning("Converted encounter_id to encounterId (snake_case to camelCase)")
-                elif "encounter_id" in data and "encounterId" in data:
-                    logger.warning("Removing duplicate field: encounter_id (using encounterId)")
-                    del data["encounter_id"]
-                
-                # Convert processed_at to processedAt
-                if "processed_at" in data and "processedAt" not in data:
-                    data["processedAt"] = data.pop("processed_at")
-                    logger.warning("Converted processed_at to processedAt (snake_case to camelCase)")
-                elif "processed_at" in data and "processedAt" in data:
-                    logger.warning("Removing duplicate field: processed_at (using processedAt)")
-                    del data["processed_at"]
-                
-                # Convert queue_id to queueId
-                if "queue_id" in data and "queueId" not in data:
-                    data["queueId"] = data.pop("queue_id")
-                    logger.warning("Converted queue_id to queueId (snake_case to camelCase)")
-                elif "queue_id" in data and "queueId" in data:
-                    logger.warning("Removing duplicate field: queue_id (using queueId)")
-                    del data["queue_id"]
-                
-                # Extract experityActions from data (camelCase - preferred)
-                if "experityActions" in data:
-                    experity_mapping = data["experityActions"]
-                    logger.info("Extracted experityActions from full wrapper structure (camelCase)")
+                # Extract experity_actions from data
+                if "experity_actions" in data:
+                    experity_mapping = data["experity_actions"]
+                    logger.info("Extracted experity_actions from full wrapper structure")
                 else:
-                    # If experityActions not in data, use data itself (backward compatibility)
-                    logger.warning("Full wrapper structure found but experityActions not in data, using data directly")
+                    # If experity_actions not in data, use data itself (backward compatibility)
+                    logger.warning("Full wrapper structure found but experity_actions not in data, using data directly")
                     experity_mapping = data
             elif experity_mapping.get("success") is False:
                 # LLM returned error structure
@@ -466,32 +425,6 @@ def extract_experity_actions(response_json: Dict[str, Any], encounter_data: Opti
             if field not in experity_mapping:
                 logger.warning(f"Response missing expected field: {field}")
         
-        # Safety check: Ensure emrId is null if it was missing from input and LLM used clientId
-        if encounter_data:
-            input_emr_id = encounter_data.get("emrId") or encounter_data.get("emr_id")
-            input_client_id = encounter_data.get("clientId") or encounter_data.get("client_id")
-            output_emr_id = experity_mapping.get("emrId")
-            
-            # Check if input_emr_id is actually the clientId (incorrectly set)
-            # This can happen if the endpoint set emr_id to clientId in queue_entry
-            input_emr_is_client_id = input_emr_id and input_client_id and input_emr_id == input_client_id
-            
-            # If emrId was missing from input OR if input_emr_id equals clientId (incorrectly set)
-            # and LLM returned clientId value, set to null
-            if (not input_emr_id or input_emr_is_client_id) and input_client_id and output_emr_id == input_client_id:
-                logger.warning(
-                    f"LLM incorrectly used clientId '{input_client_id}' as emrId. "
-                    f"Setting emrId to null since emrId was missing from original input."
-                )
-                experity_mapping["emrId"] = None
-            # If emrId was missing from input (or equals clientId) and output is not null, set to null
-            elif (not input_emr_id or input_emr_is_client_id) and output_emr_id is not None:
-                logger.warning(
-                    f"emrId was missing from original input but LLM returned '{output_emr_id}'. "
-                    f"Setting emrId to null to match original input."
-                )
-                experity_mapping["emrId"] = None
-        
         return experity_mapping
         
     except AzureAIResponseError:
@@ -515,23 +448,21 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
     Raises:
         AzureAIClientError: Various error types for different failure modes
     """
-    import time
-    start_time = time.perf_counter()
-    
     if not HTTPX_AVAILABLE:
         raise AzureAIClientError(
             "httpx package not installed. Install it with: pip install httpx"
         )
     
-    # Build URL
+    # Build URL - For Azure AI Agents, use /applications/{agent}/protocols/openai/responses
+    # Agent name and version are determined by the URL path (no deployment in path)
+    # The agent version is resolved server-side automatically
     url = f"{PROJECT_ENDPOINT}/applications/{AGENT_NAME}/protocols/openai/responses?api-version={API_VERSION}"
     
+    logger.info(f"Azure AI Agent URL: {url} (Agent: {AGENT_NAME}, Version ID: {AGENT_VERSION})")
+    
     # Get Azure token
-    token_start = time.perf_counter()
     try:
         token = get_azure_token()
-        token_time = time.perf_counter() - token_start
-        logger.info(f"⏱️  Azure token acquisition: {token_time:.3f}s")
     except AzureAIAuthenticationError:
         raise
     
@@ -540,35 +471,27 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
     if "raw_payload" in queue_entry and queue_entry["raw_payload"]:
         # Create a copy to avoid modifying the original
         encounter_data = dict(queue_entry["raw_payload"])
-        # Also include encounter_id from queue_entry if not in raw_payload
+        # Also include encounter_id and emr_id from queue_entry if not in raw_payload
         if "encounterId" not in encounter_data and "encounter_id" in queue_entry:
             encounter_data["encounterId"] = queue_entry["encounter_id"]
-        # Only copy emr_id from queue_entry if it's actually an emrId (not clientId)
-        # This prevents clientId from being incorrectly used as emrId
         if "emrId" not in encounter_data and "emr_id" in queue_entry:
-            # Only use emr_id from queue_entry if it's not the same as clientId
-            # (This is a safety check to prevent clientId from being used as emrId)
-            client_id = encounter_data.get("clientId") or encounter_data.get("client_id")
-            emr_id_from_queue = queue_entry.get("emr_id")
-            if emr_id_from_queue and emr_id_from_queue != client_id:
-                encounter_data["emrId"] = emr_id_from_queue
+            encounter_data["emrId"] = queue_entry["emr_id"]
     else:
         # Fallback: use queue_entry directly if no raw_payload
         encounter_data = queue_entry
         logger.warning("No raw_payload found in queue_entry, using queue_entry directly")
     
-    # Prepare request payload - send encounter data directly (not the queue_entry wrapper)
+    # Prepare request payload - no metadata needed when deployment is in URL
     payload = {
         "input": [
             {
                 "role": "user",
                 "content": json.dumps(encounter_data)
             }
-        ],
-        "metadata": {
-            "agentVersionId": AGENT_VERSION
-        }
+        ]
     }
+    
+    logger.info(f"Payload: input array with {len(payload['input'])} message(s), minimal payload (no model, no metadata)")
     
     headers = {
         "Content-Type": "application/json",
@@ -586,11 +509,7 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                     f"for encounter_id: {queue_entry.get('encounter_id', 'unknown')}"
                 )
                 
-                # Time the actual API call
-                api_call_start = time.perf_counter()
                 response = await client.post(url, headers=headers, json=payload)
-                api_call_time = time.perf_counter() - api_call_start
-                logger.info(f"⏱️  Azure AI API call (attempt {attempt + 1}): {api_call_time:.3f}s")
                 
                 # Handle rate limiting
                 if response.status_code == 429:
@@ -614,13 +533,11 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                         await asyncio.sleep(wait_time)
                         continue
                     else:
-                        # Provide helpful error message with retry_after info
-                        retry_after_seconds = int(retry_after) if retry_after and retry_after.isdigit() else None
+                        # Provide helpful error message
                         raise AzureAIRateLimitError(
                             f"Rate limit exceeded after {MAX_RETRIES} retries. "
                             f"Azure AI is throttling requests. Please wait a few minutes before trying again. "
-                            f"Consider reducing request frequency or checking your Azure AI quota limits.",
-                            retry_after=retry_after_seconds
+                            f"Consider reducing request frequency or checking your Azure AI quota limits."
                         )
                 
                 # Handle authentication errors
@@ -649,18 +566,13 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                 
                 # Extract Experity mapping response
                 # Pass encounter_data for backward compatibility conversion
-                parse_start = time.perf_counter()
                 experity_mapping = extract_experity_actions(response_json, encounter_data=encounter_data)
-                parse_time = time.perf_counter() - parse_start
-                logger.info(f"⏱️  Response parsing: {parse_time:.3f}s")
                 
                 # Log summary info
                 complaints_count = len(experity_mapping.get("complaints", []))
-                total_time = time.perf_counter() - start_time
                 logger.info(
-                    f"✅ Successfully received Experity mapping with {complaints_count} complaints "
-                    f"for encounter_id: {queue_entry.get('encounter_id', 'unknown')} "
-                    f"(Total time: {total_time:.3f}s)"
+                    f"Successfully received Experity mapping with {complaints_count} complaints "
+                    f"for encounter_id: {queue_entry.get('encounter_id', 'unknown')}"
                 )
                 
                 return experity_mapping
