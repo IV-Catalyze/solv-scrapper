@@ -2851,6 +2851,7 @@ if __name__ == "__main__":
                     "example": [
                         {
                             "emrId": "EMR12345",
+                            "bookingId": "0Pa1Z6",
                             "locationId": "AXjwbE",
                             "locationName": "Demo Clinic",
                             "legalFirstName": "John",
