@@ -3750,13 +3750,35 @@ async def map_queue_to_experity(
                 logger.warning(f"Failed to update queue status to DONE: {str(e)}")
                 # Continue even if database update fails
         
-        # Build success response with camelCase field names
-        # experity_mapping now contains the experityActions object from LLM
+        # Build success response with camelCase field names.
+        # `experity_mapping` may wrap the core actions in one or more nested
+        # `experityActions` keys (depending on how the Azure agent responded).
+        # To avoid returning `experityActions.experityActions...`, unwrap
+        # until we reach the actual payload that contains vitals/complaints/etc.
+        experity_actions_payload = experity_mapping
+        protected_keys = {"vitals", "complaints", "icdUpdates", "labOrders", "guardianAssistedInterview"}
+
+        # Iteratively unwrap while we see an `experityActions` envelope whose
+        # inner dict looks like the real payload (has any of the protected keys).
+        while (
+            isinstance(experity_actions_payload, dict)
+            and "experityActions" in experity_actions_payload
+            and isinstance(experity_actions_payload["experityActions"], dict)
+            and protected_keys.intersection(experity_actions_payload["experityActions"].keys())
+        ):
+            experity_actions_payload = experity_actions_payload["experityActions"]
+
         response_data = {
-            "experityActions": experity_mapping,
+            "experityActions": experity_actions_payload,
             "encounterId": encounter_id,
-            "processedAt": datetime.now().isoformat() + "Z"
+            "processedAt": datetime.now().isoformat() + "Z",
         }
+
+        # If the Azure response included its own queueId, prefer that when our local
+        # value is missing. This keeps the response consistent without changing the
+        # existing contract.
+        if queue_id is None and isinstance(experity_mapping, dict) and "queueId" in experity_mapping:
+            queue_id = experity_mapping.get("queueId")
         
         if queue_id:
             response_data["queueId"] = queue_id
