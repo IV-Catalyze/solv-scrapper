@@ -1179,9 +1179,9 @@ def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[st
 def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
     """Format queue record for JSON response.
     
-    Returns only: emr_id, status, attempts, encounter_payload (snake_case)
+    Returns: queue_id, emr_id, status, attempts, encounter_payload (snake_case)
     Similar to format_encounter_response structure.
-    FastAPI will serialize using field names (camelCase: emrId, encounterPayload).
+    FastAPI will serialize using field names (camelCase: queueId, emrId, encounterPayload).
     """
     import json
     
@@ -1200,9 +1200,15 @@ def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
     else:
         raw_payload = {}
     
+    # Get queue_id - convert UUID to string if needed
+    queue_id = record.get('queue_id')
+    if queue_id:
+        queue_id = str(queue_id)
+    
     # Format response using snake_case keys (matching format_encounter_response pattern)
     # FastAPI will serialize using field names (camelCase) via response_model
     formatted = {
+        'queue_id': queue_id,
         'emr_id': record.get('emr_id', ''),
         'status': record.get('status', 'PENDING'),
         'attempts': record.get('attempts', 0),
@@ -1598,6 +1604,12 @@ class QueueRequeueRequest(BaseModel):
 
 class QueueResponse(BaseModel):
     """Response model for queue records."""
+    queueId: Optional[str] = Field(
+        None,
+        description="Queue identifier (UUID)",
+        example="660e8400-e29b-41d4-a716-446655440000",
+        alias="queue_id"
+    )
     emrId: str = Field(
         ..., 
         description="EMR identifier for the patient",
@@ -1616,6 +1628,7 @@ class QueueResponse(BaseModel):
         populate_by_name = True
         json_schema_extra = {
             "example": {
+                "queueId": "660e8400-e29b-41d4-a716-446655440000",
                 "emrId": "EMR12345",
                 "status": "PENDING",
                 "attempts": 0,
