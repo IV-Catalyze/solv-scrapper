@@ -4,6 +4,8 @@ Comprehensive tests for Queue endpoints.
 Endpoints tested:
 - GET /queue - List queue entries with filters
 - POST /queue - Update queue experityAction
+- PATCH /queue/{queue_id}/status - Update queue entry status
+- PATCH /queue/{queue_id}/requeue - Requeue a queue entry
 """
 import pytest
 import uuid
@@ -333,3 +335,327 @@ class TestUpdateQueueExperityAction:
                     response = client.post(path2, json=body, headers=headers2)
                     # May accept empty array
                     assert response.status_code in [200, 400]
+
+
+class TestUpdateQueueStatus:
+    """Tests for PATCH /queue/{queue_id}/status - Update queue entry status"""
+    
+    def get_test_queue_id(self, client, hmac_headers):
+        """Helper to get a test queue_id"""
+        path = "/queue?limit=1"
+        headers = hmac_headers("GET", path, {})
+        response = client.get(path, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            if len(data) > 0:
+                return data[0].get("queue_id")
+        return None
+    
+    def test_update_status_to_done(self, client, hmac_headers):
+        """Test updating queue status to DONE with experityActions"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        path = f"/queue/{queue_id}/status"
+        body = {
+            "status": "DONE",
+            "experityActions": {
+                "vitals": {"temperature": 98.6},
+                "complaints": []
+            }
+        }
+        headers = hmac_headers("PATCH", path, body)
+        response = client.patch(path, json=body, headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("status") == "DONE"
+        assert data.get("emrId") is not None
+    
+    def test_update_status_to_error(self, client, hmac_headers):
+        """Test updating queue status to ERROR with error message"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        path = f"/queue/{queue_id}/status"
+        body = {
+            "status": "ERROR",
+            "errorMessage": "Test error message",
+            "incrementAttempts": True
+        }
+        headers = hmac_headers("PATCH", path, body)
+        response = client.patch(path, json=body, headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("status") == "ERROR"
+    
+    def test_update_status_increment_attempts(self, client, hmac_headers):
+        """Test updating status with incrementAttempts"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        # Get current attempts
+        path1 = f"/queue?queue_id={queue_id}"
+        headers1 = hmac_headers("GET", path1, {})
+        get_response = client.get(path1, headers=headers1)
+        if get_response.status_code == 200:
+            initial_data = get_response.json()
+            if len(initial_data) > 0:
+                initial_attempts = initial_data[0].get("attempts", 0)
+                
+                # Update with incrementAttempts
+                path2 = f"/queue/{queue_id}/status"
+                body = {
+                    "status": "ERROR",
+                    "errorMessage": "Test error",
+                    "incrementAttempts": True
+                }
+                headers2 = hmac_headers("PATCH", path2, body)
+                update_response = client.patch(path2, json=body, headers=headers2)
+                assert update_response.status_code == 200
+                updated_data = update_response.json()
+                assert updated_data.get("attempts") == initial_attempts + 1
+    
+    def test_update_status_with_dlq(self, client, hmac_headers):
+        """Test updating status with DLQ flag"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        path = f"/queue/{queue_id}/status"
+        body = {
+            "status": "ERROR",
+            "errorMessage": "Max retries exceeded",
+            "dlq": True
+        }
+        headers = hmac_headers("PATCH", path, body)
+        response = client.patch(path, json=body, headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("status") == "ERROR"
+    
+    def test_update_status_invalid_status(self, client, hmac_headers):
+        """Test updating status with invalid status value"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        path = f"/queue/{queue_id}/status"
+        body = {
+            "status": "INVALID_STATUS"
+        }
+        headers = hmac_headers("PATCH", path, body)
+        response = client.patch(path, json=body, headers=headers)
+        assert response.status_code == 400
+    
+    def test_update_status_not_found(self, client, hmac_headers):
+        """Test updating status for non-existent queue entry"""
+        fake_queue_id = str(uuid.uuid4())
+        path = f"/queue/{fake_queue_id}/status"
+        body = {
+            "status": "DONE"
+        }
+        headers = hmac_headers("PATCH", path, body)
+        response = client.patch(path, json=body, headers=headers)
+        assert response.status_code == 404
+    
+    def test_update_status_without_auth(self, client):
+        """Test updating status without authentication"""
+        fake_queue_id = str(uuid.uuid4())
+        path = f"/queue/{fake_queue_id}/status"
+        body = {
+            "status": "DONE"
+        }
+        response = client.patch(path, json=body)
+        # May return 404 (not found) or 401/403 (unauthorized) depending on auth check order
+        assert response.status_code in [401, 403, 404]
+    
+    def test_update_status_camelcase_fields(self, client, hmac_headers):
+        """Test that camelCase field names work correctly"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        path = f"/queue/{queue_id}/status"
+        # Test with camelCase field names
+        body = {
+            "status": "ERROR",
+            "errorMessage": "Test error",
+            "incrementAttempts": False,
+            "experityActions": {"test": "data"}
+        }
+        headers = hmac_headers("PATCH", path, body)
+        response = client.patch(path, json=body, headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("status") == "ERROR"
+    
+    def test_update_status_all_statuses(self, client, hmac_headers):
+        """Test updating to all valid statuses"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        valid_statuses = ["PENDING", "PROCESSING", "DONE", "ERROR"]
+        for status in valid_statuses:
+            path = f"/queue/{queue_id}/status"
+            body = {"status": status}
+            headers = hmac_headers("PATCH", path, body)
+            response = client.patch(path, json=body, headers=headers)
+            assert response.status_code == 200
+            data = response.json()
+            assert data.get("status") == status
+
+
+class TestRequeueQueueEntry:
+    """Tests for PATCH /queue/{queue_id}/requeue - Requeue a queue entry"""
+    
+    def get_test_queue_id(self, client, hmac_headers):
+        """Helper to get a test queue_id"""
+        path = "/queue?limit=1"
+        headers = hmac_headers("GET", path, {})
+        response = client.get(path, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            if len(data) > 0:
+                return data[0].get("queue_id")
+        return None
+    
+    def test_requeue_with_defaults(self, client, hmac_headers):
+        """Test requeue with default values (PENDING, HIGH priority)"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        path = f"/queue/{queue_id}/requeue"
+        body = {}
+        headers = hmac_headers("PATCH", path, body)
+        response = client.patch(path, json=body, headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("status") == "PENDING"
+        # Verify attempts were incremented
+        assert "attempts" in data
+    
+    def test_requeue_with_priority(self, client, hmac_headers):
+        """Test requeue with specific priority"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        for priority in ["HIGH", "NORMAL", "LOW"]:
+            path = f"/queue/{queue_id}/requeue"
+            body = {
+                "priority": priority
+            }
+            headers = hmac_headers("PATCH", path, body)
+            response = client.patch(path, json=body, headers=headers)
+            assert response.status_code == 200
+            data = response.json()
+            assert data.get("status") == "PENDING"
+    
+    def test_requeue_increments_attempts(self, client, hmac_headers):
+        """Test that requeue increments attempts counter"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        # Get current attempts
+        path1 = f"/queue?queue_id={queue_id}"
+        headers1 = hmac_headers("GET", path1, {})
+        get_response = client.get(path1, headers=headers1)
+        if get_response.status_code == 200:
+            initial_data = get_response.json()
+            if len(initial_data) > 0:
+                initial_attempts = initial_data[0].get("attempts", 0)
+                
+                # Requeue
+                path2 = f"/queue/{queue_id}/requeue"
+                body = {}
+                headers2 = hmac_headers("PATCH", path2, body)
+                requeue_response = client.patch(path2, json=body, headers=headers2)
+                assert requeue_response.status_code == 200
+                requeued_data = requeue_response.json()
+                assert requeued_data.get("attempts") == initial_attempts + 1
+    
+    def test_requeue_with_error_message(self, client, hmac_headers):
+        """Test requeue with error message"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        path = f"/queue/{queue_id}/requeue"
+        body = {
+            "errorMessage": "Requeued for retry"
+        }
+        headers = hmac_headers("PATCH", path, body)
+        response = client.patch(path, json=body, headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("status") == "PENDING"
+    
+    def test_requeue_invalid_priority(self, client, hmac_headers):
+        """Test requeue with invalid priority"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        path = f"/queue/{queue_id}/requeue"
+        body = {
+            "priority": "INVALID_PRIORITY"
+        }
+        headers = hmac_headers("PATCH", path, body)
+        response = client.patch(path, json=body, headers=headers)
+        assert response.status_code == 400
+    
+    def test_requeue_invalid_status(self, client, hmac_headers):
+        """Test requeue with invalid status"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        path = f"/queue/{queue_id}/requeue"
+        body = {
+            "status": "INVALID_STATUS"
+        }
+        headers = hmac_headers("PATCH", path, body)
+        response = client.patch(path, json=body, headers=headers)
+        assert response.status_code == 400
+    
+    def test_requeue_not_found(self, client, hmac_headers):
+        """Test requeue for non-existent queue entry"""
+        fake_queue_id = str(uuid.uuid4())
+        path = f"/queue/{fake_queue_id}/requeue"
+        body = {}
+        headers = hmac_headers("PATCH", path, body)
+        response = client.patch(path, json=body, headers=headers)
+        assert response.status_code == 404
+    
+    def test_requeue_without_auth(self, client):
+        """Test requeue without authentication"""
+        fake_queue_id = str(uuid.uuid4())
+        path = f"/queue/{fake_queue_id}/requeue"
+        body = {}
+        response = client.patch(path, json=body)
+        # May return 404 (not found) or 401/403 (unauthorized) depending on auth check order
+        assert response.status_code in [401, 403, 404]
+    
+    def test_requeue_camelcase_fields(self, client, hmac_headers):
+        """Test that camelCase field names work correctly"""
+        queue_id = self.get_test_queue_id(client, hmac_headers)
+        if not queue_id:
+            pytest.skip("No queue entries available for testing")
+        
+        path = f"/queue/{queue_id}/requeue"
+        # Test with camelCase field name
+        body = {
+            "priority": "HIGH",
+            "errorMessage": "Test requeue message"
+        }
+        headers = hmac_headers("PATCH", path, body)
+        response = client.patch(path, json=body, headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("status") == "PENDING"

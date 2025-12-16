@@ -1556,6 +1556,46 @@ class QueueUpdateRequest(BaseModel):
         extra = "forbid"
 
 
+class QueueStatusUpdateRequest(BaseModel):
+    """Request model for updating queue entry status."""
+    status: str = Field(..., description="New queue status: PENDING, PROCESSING, DONE, or ERROR", example="DONE")
+    errorMessage: Optional[str] = Field(None, description="Error message to store (for ERROR status)", example="Processing failed", alias="error_message")
+    incrementAttempts: Optional[bool] = Field(False, description="Whether to increment the attempts counter", example=False, alias="increment_attempts")
+    experityActions: Optional[Dict[str, Any]] = Field(None, description="Experity actions to store in parsed_payload (for DONE status)", alias="experity_actions")
+    dlq: Optional[bool] = Field(None, description="Mark for Dead Letter Queue (for ERROR status)", example=False)
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "status": "DONE",
+                "experityActions": {
+                    "vitals": {},
+                    "complaints": []
+                }
+            }
+        }
+        extra = "forbid"
+
+
+class QueueRequeueRequest(BaseModel):
+    """Request model for requeuing a queue entry."""
+    status: Optional[str] = Field("PENDING", description="New queue status (default: PENDING)", example="PENDING")
+    priority: Optional[str] = Field("HIGH", description="Priority level: HIGH, NORMAL, or LOW", example="HIGH")
+    errorMessage: Optional[str] = Field(None, description="Optional error message", example="Requeued for retry", alias="error_message")
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "status": "PENDING",
+                "priority": "HIGH",
+                "errorMessage": "Requeued for retry"
+            }
+        }
+        extra = "forbid"
+
+
 class QueueResponse(BaseModel):
     """Response model for queue records."""
     emrId: str = Field(
@@ -2819,6 +2859,364 @@ async def list_queue(
             detail=f"Database error: {str(e)}"
         )
     except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.patch(
+    "/queue/{queue_id}/status",
+    tags=["Queue"],
+    summary="Update queue entry status",
+    description="Update a queue entry's status, optionally increment attempts, and store error messages or experity actions.",
+    response_model=QueueResponse,
+    responses={
+        200: {
+            "description": "Queue entry status updated successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "emrId": "EMR12345",
+                        "status": "DONE",
+                        "attempts": 1,
+                        "encounterPayload": {
+                            "id": "550e8400-e29b-41d4-a716-446655440000"
+                        }
+                    }
+                }
+            }
+        },
+        400: {"description": "Invalid request data or invalid status value"},
+        401: {"description": "Authentication required"},
+        404: {"description": "Queue entry not found"},
+        500: {"description": "Server error"},
+    },
+)
+async def update_queue_status(
+    queue_id: str,
+    status_data: QueueStatusUpdateRequest,
+    current_client: TokenData = get_auth_dependency()
+) -> QueueResponse:
+    """
+    Update a queue entry's status.
+    
+    **Path Parameters:**
+    - `queue_id`: Queue identifier (UUID)
+    
+    **Request Body:**
+    - `status` (required): New status: `PENDING`, `PROCESSING`, `DONE`, or `ERROR`
+    - `errorMessage` (optional): Error message to store (for ERROR status)
+    - `incrementAttempts` (optional): Whether to increment the attempts counter (default: false)
+    - `experityActions` (optional): Experity actions to store (for DONE status)
+    - `dlq` (optional): Mark for Dead Letter Queue (for ERROR status)
+    
+    **Response:**
+    Returns the updated queue entry with `emrId`, `status`, `attempts`, and `encounterPayload`.
+    
+    **Example Request:**
+    ```json
+    {
+      "status": "DONE",
+      "experityActions": {
+        "vitals": {},
+        "complaints": []
+      }
+    }
+    ```
+    """
+    if not queue_id or not queue_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="queue_id is required in the URL path"
+        )
+    
+    queue_id_clean = queue_id.strip()
+    
+    # Validate status
+    valid_statuses = ['PENDING', 'PROCESSING', 'DONE', 'ERROR']
+    if status_data.status not in valid_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status: {status_data.status}. Must be one of: {', '.join(valid_statuses)}"
+        )
+    
+    conn = None
+    cursor = None
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Check if queue entry exists
+        cursor.execute(
+            "SELECT * FROM queue WHERE queue_id = %s",
+            (queue_id_clean,)
+        )
+        queue_entry = cursor.fetchone()
+        
+        if not queue_entry:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Queue entry with queue_id '{queue_id_clean}' not found"
+            )
+        
+        # Use the existing update function
+        # Note: experityActions can be a dict (full experityActions object) or list
+        # The function expects List[Dict[str, Any]], but we'll handle dict by storing it directly in parsed_payload
+        experity_actions_list = None
+        experity_actions_dict = None
+        if status_data.experityActions is not None:
+            if isinstance(status_data.experityActions, list):
+                experity_actions_list = status_data.experityActions
+            elif isinstance(status_data.experityActions, dict):
+                # For dict, we'll store it directly in parsed_payload after the status update
+                experity_actions_dict = status_data.experityActions
+        
+        # Update status using the existing function
+        update_queue_status_and_experity_action(
+            conn=conn,
+            queue_id=queue_id_clean,
+            status=status_data.status,
+            experity_actions=experity_actions_list,
+            error_message=status_data.errorMessage,
+            increment_attempts=status_data.incrementAttempts or False
+        )
+        
+        # Handle DLQ flag, experity_actions_dict, and errorMessage in parsed_payload
+        if status_data.dlq is not None or experity_actions_dict is not None or status_data.errorMessage:
+            cursor.execute(
+                "SELECT parsed_payload FROM queue WHERE queue_id = %s",
+                (queue_id_clean,)
+            )
+            current_entry = cursor.fetchone()
+            parsed_payload = current_entry.get('parsed_payload') if current_entry else {}
+            
+            import json
+            from psycopg2.extras import Json
+            if isinstance(parsed_payload, str):
+                try:
+                    parsed_payload = json.loads(parsed_payload)
+                except json.JSONDecodeError:
+                    parsed_payload = {}
+            elif parsed_payload is None:
+                parsed_payload = {}
+            
+            # Store experity_actions_dict if provided (for DONE status with full experityActions object)
+            if experity_actions_dict is not None:
+                parsed_payload['experityActions'] = experity_actions_dict
+            
+            if status_data.dlq:
+                parsed_payload['dlq'] = True
+            if status_data.errorMessage and status_data.status == 'ERROR':
+                parsed_payload['error_message'] = status_data.errorMessage
+            
+            cursor.execute(
+                "UPDATE queue SET parsed_payload = %s WHERE queue_id = %s",
+                (Json(parsed_payload), queue_id_clean)
+            )
+            conn.commit()
+        
+        # Get updated entry
+        cursor.execute(
+            "SELECT * FROM queue WHERE queue_id = %s",
+            (queue_id_clean,)
+        )
+        updated_entry = cursor.fetchone()
+        
+        # Format the response
+        formatted_response = format_queue_response(updated_entry)
+        queue_response = QueueResponse(**formatted_response)
+        response_dict = queue_response.model_dump(by_alias=False)
+        
+        from fastapi.responses import JSONResponse
+        return JSONResponse(content=response_dict)
+        
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.patch(
+    "/queue/{queue_id}/requeue",
+    tags=["Queue"],
+    summary="Requeue a queue entry",
+    description="Requeue a queue entry with updated priority and status. Increments attempts counter.",
+    response_model=QueueResponse,
+    responses={
+        200: {
+            "description": "Queue entry requeued successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "emrId": "EMR12345",
+                        "status": "PENDING",
+                        "attempts": 2,
+                        "encounterPayload": {
+                            "id": "550e8400-e29b-41d4-a716-446655440000"
+                        }
+                    }
+                }
+            }
+        },
+        400: {"description": "Invalid request data or invalid priority value"},
+        401: {"description": "Authentication required"},
+        404: {"description": "Queue entry not found"},
+        500: {"description": "Server error"},
+    },
+)
+async def requeue_queue_entry(
+    queue_id: str,
+    requeue_data: QueueRequeueRequest,
+    current_client: TokenData = get_auth_dependency()
+) -> QueueResponse:
+    """
+    Requeue a queue entry with updated priority.
+    
+    **Path Parameters:**
+    - `queue_id`: Queue identifier (UUID)
+    
+    **Request Body:**
+    - `status` (optional): New status (default: PENDING)
+    - `priority` (optional): Priority level: `HIGH`, `NORMAL`, or `LOW` (default: HIGH)
+    - `errorMessage` (optional): Optional error message
+    
+    **Response:**
+    Returns the updated queue entry with `emrId`, `status`, `attempts`, and `encounterPayload`.
+    The attempts counter is automatically incremented.
+    
+    **Example Request:**
+    ```json
+    {
+      "status": "PENDING",
+      "priority": "HIGH",
+      "errorMessage": "Requeued for retry"
+    }
+    ```
+    """
+    if not queue_id or not queue_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="queue_id is required in the URL path"
+        )
+    
+    queue_id_clean = queue_id.strip()
+    
+    # Validate status
+    valid_statuses = ['PENDING', 'PROCESSING', 'DONE', 'ERROR']
+    new_status = requeue_data.status or 'PENDING'
+    if new_status not in valid_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status: {new_status}. Must be one of: {', '.join(valid_statuses)}"
+        )
+    
+    # Validate priority
+    valid_priorities = ['HIGH', 'NORMAL', 'LOW']
+    priority = requeue_data.priority or 'HIGH'
+    if priority not in valid_priorities:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid priority: {priority}. Must be one of: {', '.join(valid_priorities)}"
+        )
+    
+    conn = None
+    cursor = None
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Check if queue entry exists
+        cursor.execute(
+            "SELECT * FROM queue WHERE queue_id = %s",
+            (queue_id_clean,)
+        )
+        queue_entry = cursor.fetchone()
+        
+        if not queue_entry:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Queue entry with queue_id '{queue_id_clean}' not found"
+            )
+        
+        # Get current parsed_payload
+        import json
+        from psycopg2.extras import Json
+        parsed_payload = queue_entry.get('parsed_payload')
+        if isinstance(parsed_payload, str):
+            try:
+                parsed_payload = json.loads(parsed_payload)
+            except json.JSONDecodeError:
+                parsed_payload = {}
+        elif parsed_payload is None:
+            parsed_payload = {}
+        
+        # Update priority in parsed_payload
+        parsed_payload['priority'] = priority
+        if requeue_data.errorMessage:
+            parsed_payload['requeue_message'] = requeue_data.errorMessage
+        
+        # Update queue entry: status, priority, increment attempts
+        cursor.execute(
+            """
+            UPDATE queue
+            SET status = %s,
+                parsed_payload = %s,
+                attempts = attempts + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE queue_id = %s
+            RETURNING *
+            """,
+            (new_status, Json(parsed_payload), queue_id_clean)
+        )
+        
+        updated_entry = cursor.fetchone()
+        conn.commit()
+        
+        # Format the response
+        formatted_response = format_queue_response(updated_entry)
+        queue_response = QueueResponse(**formatted_response)
+        response_dict = queue_response.model_dump(by_alias=False)
+        
+        from fastapi.responses import JSONResponse
+        return JSONResponse(content=response_dict)
+        
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error: {str(e)}"
