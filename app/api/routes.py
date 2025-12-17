@@ -3792,7 +3792,8 @@ async def vm_heartbeat(
         # Save/update the VM health record
         saved_vm_health = save_vm_health(conn, vm_health_dict)
         
-        # Format the response
+        # Format the response - pass data using field names (camelCase)
+        # The model will accept both field names and aliases due to populate_by_name=True
         response_data = {
             'success': True,
             'vmId': saved_vm_health['vm_id'],
@@ -3800,7 +3801,12 @@ async def vm_heartbeat(
             'status': saved_vm_health['status'],
         }
         
-        return VmHeartbeatResponse(**response_data)
+        # Create response model and serialize with by_alias=False to output camelCase field names
+        vm_response = VmHeartbeatResponse(**response_data)
+        response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+        
+        from fastapi.responses import JSONResponse
+        return JSONResponse(content=response_dict)
         
     except HTTPException:
         raise
