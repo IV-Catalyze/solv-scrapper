@@ -359,3 +359,73 @@ CREATE TRIGGER update_users_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+-- Create vm_health table for VM heartbeat tracking
+CREATE TABLE IF NOT EXISTS vm_health (
+    vm_id VARCHAR(255) PRIMARY KEY,
+    last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(50) DEFAULT 'healthy' CHECK (status IN ('healthy', 'unhealthy', 'idle')),
+    processing_queue_id UUID,
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indexes for vm_health table
+CREATE INDEX IF NOT EXISTS idx_vm_health_last_heartbeat ON vm_health(last_heartbeat);
+CREATE INDEX IF NOT EXISTS idx_vm_health_status ON vm_health(status);
+CREATE INDEX IF NOT EXISTS idx_vm_health_processing_queue ON vm_health(processing_queue_id);
+
+-- Ensure new columns exist (for legacy tables)
+ALTER TABLE vm_health
+    ADD COLUMN IF NOT EXISTS vm_id VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'healthy',
+    ADD COLUMN IF NOT EXISTS processing_queue_id UUID,
+    ADD COLUMN IF NOT EXISTS metadata JSONB,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+-- Add check constraint for status if it doesn't exist
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'vm_health_status_check' 
+        AND conrelid = 'vm_health'::regclass
+    ) THEN
+        ALTER TABLE vm_health 
+        ADD CONSTRAINT vm_health_status_check 
+        CHECK (status IN ('healthy', 'unhealthy', 'idle'));
+    END IF;
+END $$;
+
+-- Ensure vm_id is the primary key
+DO $$
+BEGIN
+    -- Drop existing primary key if it's on a different column
+    IF EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE table_name = 'vm_health' 
+        AND constraint_type = 'PRIMARY KEY'
+        AND constraint_name != 'vm_health_pkey'
+    ) THEN
+        ALTER TABLE vm_health DROP CONSTRAINT IF EXISTS vm_health_pkey;
+    END IF;
+    
+    -- Add primary key on vm_id if it doesn't exist
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE table_name = 'vm_health' 
+        AND constraint_type = 'PRIMARY KEY'
+    ) THEN
+        ALTER TABLE vm_health ADD PRIMARY KEY (vm_id);
+    END IF;
+END $$;
+
+-- Create trigger to automatically update updated_at for vm_health
+DROP TRIGGER IF EXISTS update_vm_health_updated_at ON vm_health;
+CREATE TRIGGER update_vm_health_updated_at
+    BEFORE UPDATE ON vm_health
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+

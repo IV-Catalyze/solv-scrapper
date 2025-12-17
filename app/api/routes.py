@@ -138,6 +138,10 @@ All API endpoints require **HMAC-SHA256 authentication** via `X-Timestamp` and `
             "name": "Summaries",
             "description": "Create and retrieve patient summaries. Summaries contain clinical notes linked to patients via EMR ID."
         },
+        {
+            "name": "VM",
+            "description": "Manage VM health and heartbeat tracking. Monitor VM worker status and processing queue assignments."
+        },
     ],
 )
 
@@ -1045,6 +1049,96 @@ def save_queue(conn, queue_data: Dict[str, Any]) -> Dict[str, Any]:
         cursor.close()
 
 
+def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Save or update a VM health record in the database.
+    
+    Args:
+        conn: PostgreSQL database connection
+        vm_data: Dictionary containing VM health data with:
+            - vm_id: string (required) - VM identifier
+            - status: string (required) - VM status: healthy, unhealthy, or idle
+            - processing_queue_id: Optional UUID - Queue ID that the VM is processing
+        
+    Returns:
+        Dictionary with the saved/updated VM health data
+        
+    Raises:
+        psycopg2.Error: If database operation fails
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        # Extract required fields
+        vm_id = vm_data.get('vm_id')
+        status = vm_data.get('status')
+        processing_queue_id = vm_data.get('processing_queue_id')
+        
+        # Validate required fields
+        if not vm_id:
+            raise ValueError("vm_id is required")
+        if not status:
+            raise ValueError("status is required")
+        
+        # Validate status
+        valid_statuses = ['healthy', 'unhealthy', 'idle']
+        if status not in valid_statuses:
+            raise ValueError(f"Invalid status: {status}. Must be one of: {', '.join(valid_statuses)}")
+        
+        # Use INSERT ... ON CONFLICT to handle duplicates (update on conflict)
+        query = """
+            INSERT INTO vm_health (
+                vm_id, last_heartbeat, status, processing_queue_id, updated_at
+            )
+            VALUES (%s, CURRENT_TIMESTAMP, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (vm_id) 
+            DO UPDATE SET
+                last_heartbeat = CURRENT_TIMESTAMP,
+                status = EXCLUDED.status,
+                processing_queue_id = EXCLUDED.processing_queue_id,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+        """
+        
+        cursor.execute(
+            query,
+            (
+                vm_id,
+                status,
+                processing_queue_id,
+            )
+        )
+        
+        result = cursor.fetchone()
+        conn.commit()
+        
+        if not result:
+            raise ValueError("Failed to save VM health record")
+        
+        # Format the result
+        formatted_result = dict(result)
+        
+        # Convert timestamps to ISO format strings
+        if formatted_result.get('last_heartbeat'):
+            if isinstance(formatted_result['last_heartbeat'], datetime):
+                formatted_result['last_heartbeat'] = formatted_result['last_heartbeat'].isoformat() + 'Z'
+        
+        if formatted_result.get('created_at'):
+            if isinstance(formatted_result['created_at'], datetime):
+                formatted_result['created_at'] = formatted_result['created_at'].isoformat() + 'Z'
+        
+        if formatted_result.get('updated_at'):
+            if isinstance(formatted_result['updated_at'], datetime):
+                formatted_result['updated_at'] = formatted_result['updated_at'].isoformat() + 'Z'
+        
+        return formatted_result
+        
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+
+
 def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
     """Create a queue entry from an encounter record.
     
@@ -1770,6 +1864,58 @@ class SummaryResponse(BaseModel):
         # Generate schema with by_alias=False to use field names (camelCase) matching model_dump(by_alias=False)
         schema = super().model_json_schema(by_alias=False, **kwargs)
         return schema
+
+
+class VmHeartbeatRequest(BaseModel):
+    """Request model for VM heartbeat."""
+    vmId: str = Field(
+        ..., 
+        description="VM identifier",
+        example="vm-worker-1",
+        alias="vm_id"
+    )
+    status: str = Field(
+        ..., 
+        description="VM status: healthy, unhealthy, or idle",
+        example="healthy",
+    )
+    processingQueueId: Optional[str] = Field(
+        None,
+        description="Optional queue ID that the VM is currently processing",
+        example="660e8400-e29b-41d4-a716-446655440000",
+        alias="processing_queue_id"
+    )
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "vmId": "vm-worker-1",
+                "status": "healthy",
+                "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
+            }
+        }
+        extra = "forbid"
+
+
+class VmHeartbeatResponse(BaseModel):
+    """Response model for VM heartbeat."""
+    success: bool = Field(..., description="Whether the heartbeat was processed successfully", example=True)
+    vmId: str = Field(..., description="VM identifier", example="vm-worker-1", alias="vm_id")
+    lastHeartbeat: str = Field(..., description="ISO 8601 timestamp of the last heartbeat", example="2025-01-21T10:30:00Z", alias="last_heartbeat")
+    status: str = Field(..., description="Current VM status", example="healthy")
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "vmId": "vm-worker-1",
+                "lastHeartbeat": "2025-01-21T10:30:00Z",
+                "status": "healthy"
+            }
+        }
+        extra = "allow"
 
 
 # Token generation endpoint removed - HMAC authentication only
@@ -3550,6 +3696,131 @@ async def get_summary(
             detail=f"Database error: {str(e)}"
         )
     except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.post(
+    "/vm/heartbeat",
+    tags=["VM"],
+    summary="Update VM heartbeat",
+    description="Receive and process VM heartbeat updates. Updates the VM health record with current status and processing queue ID.",
+    response_model=VmHeartbeatResponse,
+    status_code=200,
+    responses={
+        200: {
+            "description": "VM heartbeat processed successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "vmId": "vm-worker-1",
+                        "lastHeartbeat": "2025-01-21T10:30:00Z",
+                        "status": "healthy"
+                    }
+                }
+            }
+        },
+        400: {"description": "Invalid request data or invalid status value"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Server error"},
+    },
+)
+async def vm_heartbeat(
+    heartbeat_data: VmHeartbeatRequest,
+    current_client: TokenData = get_auth_dependency()
+) -> VmHeartbeatResponse:
+    """
+    Update VM heartbeat status.
+    
+    **Request Body:**
+    - `vmId` (required): VM identifier
+    - `status` (required): VM status: `healthy`, `unhealthy`, or `idle`
+    - `processingQueueId` (optional): Queue ID that the VM is currently processing
+    
+    **Response:**
+    Returns the updated VM health record with `success`, `vmId`, `lastHeartbeat`, and `status`.
+    
+    **Example Request:**
+    ```json
+    {
+      "vmId": "vm-worker-1",
+      "status": "healthy",
+      "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
+    }
+    ```
+    """
+    conn = None
+    
+    try:
+        # Validate required fields
+        if not heartbeat_data.vmId:
+            raise HTTPException(
+                status_code=400,
+                detail="vmId is required. Please provide a VM identifier."
+            )
+        
+        if not heartbeat_data.status:
+            raise HTTPException(
+                status_code=400,
+                detail="status is required. Please provide a VM status."
+            )
+        
+        # Validate status
+        valid_statuses = ['healthy', 'unhealthy', 'idle']
+        if heartbeat_data.status not in valid_statuses:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status: {heartbeat_data.status}. Must be one of: {', '.join(valid_statuses)}"
+            )
+        
+        # Prepare VM health data
+        vm_health_dict = {
+            'vm_id': heartbeat_data.vmId,
+            'status': heartbeat_data.status,
+            'processing_queue_id': heartbeat_data.processingQueueId,
+        }
+        
+        # Get database connection
+        conn = get_db_connection()
+        
+        # Save/update the VM health record
+        saved_vm_health = save_vm_health(conn, vm_health_dict)
+        
+        # Format the response
+        response_data = {
+            'success': True,
+            'vmId': saved_vm_health['vm_id'],
+            'lastHeartbeat': saved_vm_health['last_heartbeat'],
+            'status': saved_vm_health['status'],
+        }
+        
+        return VmHeartbeatResponse(**response_data)
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error: {str(e)}"
