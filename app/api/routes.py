@@ -253,6 +253,26 @@ def parse_datetime(value: Any) -> datetime:
 
 DEFAULT_STATUSES = ["checked_in", "confirmed"]
 
+# Active statuses shortcut - only checked_in and confirmed
+ACTIVE_STATUSES = ["checked_in", "confirmed"]
+
+# Status shortcuts that expand to multiple statuses
+STATUS_SHORTCUTS = {
+    "active": ACTIVE_STATUSES,
+}
+
+
+def expand_status_shortcuts(statuses: List[str]) -> List[str]:
+    """Expand status shortcuts like 'active' to their constituent statuses."""
+    expanded = []
+    for status in statuses:
+        normalized = status.strip().lower() if isinstance(status, str) else None
+        if normalized and normalized in STATUS_SHORTCUTS:
+            expanded.extend(STATUS_SHORTCUTS[normalized])
+        elif normalized:
+            expanded.append(normalized)
+    return list(dict.fromkeys(expanded))  # Remove duplicates while preserving order
+
 
 def ensure_client_location_access(
     location_id: Optional[str],
@@ -1983,9 +2003,11 @@ async def root(
     if statuses is None:
         normalized_statuses = DEFAULT_STATUSES.copy()
     else:
+        # First expand any shortcuts like 'active'
+        expanded_statuses = expand_status_shortcuts(statuses)
         normalized_statuses = [
             normalize_status(status)
-            for status in statuses
+            for status in expanded_statuses
             if isinstance(status, str)
         ]
         normalized_statuses = [status for status in normalized_statuses if status]
@@ -3447,27 +3469,30 @@ async def list_patients(
     statuses: Optional[List[str]] = Query(
         default=None,
         alias="statuses",
-        description="Filter by status. Defaults to checked_in, confirmed if not provided."
+        description="Filter by status. Use 'active' for active statuses (checked_in, confirmed). Defaults to checked_in, confirmed if not provided."
     ),
     current_client: TokenData = get_auth_dependency()
 ):
     """
     **Query Parameters:**
     - `locationId` (optional) - Required unless DEFAULT_LOCATION_ID is set
-    - `statuses` (optional) - Defaults to checked_in, confirmed
+    - `statuses` (optional) - Defaults to checked_in, confirmed. Use 'active' for all active statuses.
     - `limit` (optional)
     
     **Example:**
     ```
     GET /patients?locationId=AXjwbE&statuses=confirmed&limit=50
+    GET /patients?locationId=AXjwbE&statuses=active
     ```
     """
     if statuses is None:
         normalized_statuses = DEFAULT_STATUSES.copy()
     else:
+        # First expand any shortcuts like 'active'
+        expanded_statuses = expand_status_shortcuts(statuses)
         normalized_statuses = [
             normalize_status(status)
-            for status in statuses
+            for status in expanded_statuses
             if isinstance(status, str)
         ]
         normalized_statuses = [status for status in normalized_statuses if status]
