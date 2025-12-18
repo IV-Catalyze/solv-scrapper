@@ -4298,6 +4298,10 @@ async def map_queue_to_experity(
                     queue_id = str(db_queue_entry.get('queue_id'))
                 if not encounter_id:
                     encounter_id = str(db_queue_entry.get('encounter_id'))
+                # Get emr_id from database
+                db_emr_id = db_queue_entry.get('emr_id')
+                if db_emr_id:
+                    queue_entry["emr_id"] = str(db_emr_id)
                 if not raw_payload:
                     # Get raw_payload from database
                     db_raw_payload = db_queue_entry.get('raw_payload')
@@ -4602,6 +4606,11 @@ async def map_queue_to_experity(
             "encounterId": encounter_id,
             "processedAt": datetime.now().isoformat() + "Z",
         }
+
+        # Add emrId to response - get from queue_entry (which gets it from DB or direct encounter)
+        emr_id = queue_entry.get("emr_id")
+        if emr_id:
+            response_data["emrId"] = emr_id
 
         # If the Azure response included its own queueId, prefer that when our local
         # value is missing. This keeps the response consistent without changing the
