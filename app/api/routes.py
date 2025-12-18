@@ -3469,20 +3469,20 @@ async def list_patients(
     statuses: Optional[List[str]] = Query(
         default=None,
         alias="statuses",
-        description="Filter by status. Use 'active' for active statuses (checked_in, confirmed) captured within the last 24 hours. Defaults to checked_in, confirmed if not provided."
+        description="Filter by status. Use 'active' for active statuses (checked_in, confirmed). Defaults to checked_in, confirmed if not provided."
     ),
     current_client: TokenData = get_auth_dependency()
 ):
     """
     **Query Parameters:**
     - `locationId` (optional) - Required unless DEFAULT_LOCATION_ID is set
-    - `statuses` (optional) - Defaults to checked_in, confirmed. Use 'active' for patients with checked_in/confirmed status captured within the last 24 hours.
+    - `statuses` (optional) - Defaults to checked_in, confirmed. Use 'active' for patients with checked_in/confirmed status.
     - `limit` (optional)
     
     **Example:**
     ```
     GET /patients?locationId=AXjwbE&statuses=confirmed&limit=50
-    GET /patients?locationId=AXjwbE&statuses=active  # Returns only patients from last 24 hours
+    GET /patients?locationId=AXjwbE&statuses=active
     ```
     """
     # Check if 'active' shortcut was requested (for 24h filter)
