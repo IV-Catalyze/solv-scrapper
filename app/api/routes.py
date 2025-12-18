@@ -3469,22 +3469,27 @@ async def list_patients(
     statuses: Optional[List[str]] = Query(
         default=None,
         alias="statuses",
-        description="Filter by status. Use 'active' for active statuses (checked_in, confirmed). Defaults to checked_in, confirmed if not provided."
+        description="Filter by status. Use 'active' for active statuses (checked_in, confirmed) captured within the last 24 hours. Defaults to checked_in, confirmed if not provided."
     ),
     current_client: TokenData = get_auth_dependency()
 ):
     """
     **Query Parameters:**
     - `locationId` (optional) - Required unless DEFAULT_LOCATION_ID is set
-    - `statuses` (optional) - Defaults to checked_in, confirmed. Use 'active' for all active statuses.
+    - `statuses` (optional) - Defaults to checked_in, confirmed. Use 'active' for patients with checked_in/confirmed status captured within the last 24 hours.
     - `limit` (optional)
     
     **Example:**
     ```
     GET /patients?locationId=AXjwbE&statuses=confirmed&limit=50
-    GET /patients?locationId=AXjwbE&statuses=active
+    GET /patients?locationId=AXjwbE&statuses=active  # Returns only patients from last 24 hours
     ```
     """
+    # Check if 'active' shortcut was requested (for 24h filter)
+    is_active_filter = statuses is not None and any(
+        s.strip().lower() == "active" for s in statuses if isinstance(s, str)
+    )
+    
     if statuses is None:
         normalized_statuses = DEFAULT_STATUSES.copy()
     else:
@@ -3499,6 +3504,48 @@ async def list_patients(
         if not normalized_statuses:
             raise HTTPException(status_code=400, detail="At least one valid status must be provided")
 
+    def filter_within_24h(patients: list) -> list:
+        """Filter patients to only include those captured within the last 24 hours."""
+        from datetime import timedelta
+        cutoff = datetime.now() - timedelta(hours=24)
+        
+        filtered = []
+        for patient in patients:
+            captured_at = patient.get("captured_at") or patient.get("capturedAt")
+            if captured_at:
+                if isinstance(captured_at, str):
+                    # Parse ISO format timestamp
+                    try:
+                        ts = captured_at.replace("Z", "+00:00")
+                        captured_dt = datetime.fromisoformat(ts).replace(tzinfo=None)
+                    except ValueError:
+                        captured_dt = None
+                elif isinstance(captured_at, datetime):
+                    captured_dt = captured_at.replace(tzinfo=None) if captured_at.tzinfo else captured_at
+                else:
+                    captured_dt = None
+                
+                if captured_dt and captured_dt >= cutoff:
+                    filtered.append(patient)
+            # If no captured_at, check created_at as fallback
+            else:
+                created_at = patient.get("created_at") or patient.get("createdAt")
+                if created_at:
+                    if isinstance(created_at, str):
+                        try:
+                            ts = created_at.replace("Z", "+00:00")
+                            created_dt = datetime.fromisoformat(ts).replace(tzinfo=None)
+                        except ValueError:
+                            created_dt = None
+                    elif isinstance(created_at, datetime):
+                        created_dt = created_at.replace(tzinfo=None) if created_at.tzinfo else created_at
+                    else:
+                        created_dt = None
+                    
+                    if created_dt and created_dt >= cutoff:
+                        filtered.append(patient)
+        return filtered
+
     try:
         normalized_location_id = resolve_location_id(locationId, required=False)
         normalized_location_id = ensure_client_location_access(normalized_location_id, current_client)
@@ -3507,6 +3554,11 @@ async def list_patients(
         if use_remote_reads and normalized_location_id:
             # Fetch patients directly from production API
             patients_raw = await fetch_remote_patients(normalized_location_id, normalized_statuses, limit)
+            
+            # Apply 24h filter if 'active' shortcut was used
+            if is_active_filter:
+                patients_raw = filter_within_24h(patients_raw)
+            
             # Remove excluded fields
             fields_to_exclude = ["status_class", "status_label", "captured_display", "source"]
             filtered_patients = [
@@ -3520,6 +3572,11 @@ async def list_patients(
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         try:
             patients_raw = get_local_patients(cursor, normalized_location_id, normalized_statuses, limit)
+            
+            # Apply 24h filter if 'active' shortcut was used
+            if is_active_filter:
+                patients_raw = filter_within_24h(patients_raw)
+            
             # Remove excluded fields
             fields_to_exclude = ["status_class", "status_label", "captured_display", "source"]
             filtered_patients = [
