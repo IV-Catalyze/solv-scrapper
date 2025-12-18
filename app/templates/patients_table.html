@@ -436,55 +436,62 @@
         table {
             width: 100%;
             border-collapse: collapse;
-            table-layout: fixed;
         }
 
         th.col-emr,
         td.col-emr {
-            width: 6%;
             white-space: nowrap;
-            padding-left: 0.75rem;
-            padding-right: 0.5rem;
+            max-width: 120px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        td.col-emr {
+            cursor: default;
         }
 
         th.col-booking,
         td.col-booking {
-            width: 7%;
             white-space: nowrap;
+            max-width: 120px;
+            overflow: hidden;
+            text-overflow: ellipsis;
             font-family: monospace;
             font-size: 0.9em;
-            padding-left: 0.5rem;
-            padding-right: 0.5rem;
+        }
+
+        td.col-booking {
+            cursor: default;
         }
 
         th.col-patient,
         td.col-patient {
-            width: 15%;
+            min-width: 140px;
         }
 
         th.col-visit,
         td.col-visit {
-            width: 22%;
+            min-width: 180px;
         }
 
         th.col-location,
         td.col-location {
-            width: 18%;
+            min-width: 120px;
         }
 
         th.col-status,
         td.col-status {
-            width: 8%;
+            white-space: nowrap;
         }
 
         th.col-captured,
         td.col-captured {
-            width: 14%;
+            min-width: 100px;
         }
 
         th.col-contact,
         td.col-contact {
-            width: 10%;
+            white-space: nowrap;
         }
 
         thead {
@@ -841,10 +848,10 @@
                 <tbody>
                 {% for patient in patients %}
                     <tr data-captured="{{ patient.capturedAt or patient.captured_at or '' }}">
-                        <td class="col-emr">
+                        <td class="col-emr" title="{{ patient.emrId or patient.emr_id or '' }}">
                             <strong>{{ patient.emrId or patient.emr_id or "—" }}</strong>
                         </td>
-                        <td class="col-booking">
+                        <td class="col-booking" title="{{ patient.bookingId or patient.booking_id or '' }}">
                             {% if patient.bookingId or patient.booking_id %}
                                 <strong>{{ patient.bookingId or patient.booking_id }}</strong>
                             {% else %}
