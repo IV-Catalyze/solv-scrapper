@@ -2955,6 +2955,11 @@ async def list_queue(
         alias="limit",
         description="Maximum number of records to return"
     ),
+    claim: bool = Query(
+        default=False,
+        alias="claim",
+        description="If true, atomically claim a PENDING item using FOR UPDATE SKIP LOCKED (sets status to PROCESSING). Requires status=PENDING and limit=1."
+    ),
     current_client: TokenData = get_auth_dependency()
 ) -> List[QueueResponse]:
     """
@@ -2964,16 +2969,25 @@ async def list_queue(
     - `status`: Filter by status: `PENDING`, `PROCESSING`, `DONE`, `ERROR`
     - `emr_id`: Filter by EMR identifier
     - `limit`: Maximum number of records to return (must be >= 1)
+    - `claim`: If `true`, atomically claim a PENDING item (sets status to PROCESSING). 
+      Uses `FOR UPDATE SKIP LOCKED` for safe concurrent access. Requires `status=PENDING` and `limit=1`.
     
     **Example:**
     ```
     GET /queue?status=PENDING&limit=10
     GET /queue?encounter_id=550e8400-e29b-41d4-a716-446655440000
+    GET /queue?status=PENDING&limit=1&claim=true  # Atomically claim next PENDING item
     ```
     
     **Response:**
     Returns an array of queue entries. Each entry contains `emrId`, `status`, `attempts`, and `encounterPayload`.
-    Results are ordered by creation time (newest first).
+    Results are ordered by creation time (newest first), except when `claim=true` (FIFO ordering).
+    
+    **Claim Mode (claim=true):**
+    - Uses `FOR UPDATE SKIP LOCKED` to prevent race conditions
+    - Automatically updates claimed item's status to `PROCESSING`
+    - Returns empty array if no PENDING items available (all locked or none exist)
+    - Safe for multiple concurrent workers
     """
     conn = None
     cursor = None
@@ -2986,39 +3000,83 @@ async def list_queue(
                 detail=f"Invalid status: {status}. Must be one of: PENDING, PROCESSING, DONE, ERROR"
             )
         
+        # Validate claim mode requirements
+        if claim:
+            if status != 'PENDING':
+                raise HTTPException(
+                    status_code=400,
+                    detail="claim=true requires status=PENDING"
+                )
+            if limit != 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail="claim=true requires limit=1"
+                )
+        
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Build query with filters
-        query = "SELECT * FROM queue WHERE 1=1"
-        params: List[Any] = []
-        
-        if queue_id:
-            query += " AND queue_id = %s"
-            params.append(queue_id)
-        
-        if encounter_id:
-            query += " AND encounter_id = %s"
-            params.append(encounter_id)
-        
-        if status:
-            query += " AND status = %s"
-            params.append(status)
-        
-        if emr_id:
-            query += " AND emr_id = %s"
-            params.append(emr_id)
-        
-        # Order by created_at descending
-        query += " ORDER BY created_at DESC"
-        
-        # Apply limit if provided
-        if limit is not None:
-            query += " LIMIT %s"
-            params.append(limit)
-        
-        cursor.execute(query, tuple(params))
-        results = cursor.fetchall()
+        if claim:
+            # CLAIM MODE: Atomic claim with FOR UPDATE SKIP LOCKED
+            # Uses FIFO ordering (ASC) for fair queue processing
+            query = """
+                SELECT * FROM queue 
+                WHERE status = 'PENDING' 
+                ORDER BY created_at ASC 
+                LIMIT 1 
+                FOR UPDATE SKIP LOCKED
+            """
+            cursor.execute(query)
+            result = cursor.fetchone()
+            
+            if result:
+                # Immediately update status to PROCESSING
+                cursor.execute(
+                    """
+                    UPDATE queue 
+                    SET status = 'PROCESSING', updated_at = CURRENT_TIMESTAMP 
+                    WHERE queue_id = %s 
+                    RETURNING *
+                    """,
+                    (result['queue_id'],)
+                )
+                result = cursor.fetchone()
+                conn.commit()
+                results = [result] if result else []
+            else:
+                # No PENDING items available (all locked or none exist)
+                results = []
+        else:
+            # NORMAL MODE: Standard list/filter behavior (unchanged)
+            query = "SELECT * FROM queue WHERE 1=1"
+            params: List[Any] = []
+            
+            if queue_id:
+                query += " AND queue_id = %s"
+                params.append(queue_id)
+            
+            if encounter_id:
+                query += " AND encounter_id = %s"
+                params.append(encounter_id)
+            
+            if status:
+                query += " AND status = %s"
+                params.append(status)
+            
+            if emr_id:
+                query += " AND emr_id = %s"
+                params.append(emr_id)
+            
+            # Order by created_at descending
+            query += " ORDER BY created_at DESC"
+            
+            # Apply limit if provided
+            if limit is not None:
+                query += " LIMIT %s"
+                params.append(limit)
+            
+            cursor.execute(query, tuple(params))
+            results = cursor.fetchall()
         
         # Format the results
         formatted_results = [format_queue_response(record) for record in results]
