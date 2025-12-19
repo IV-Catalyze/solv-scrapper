@@ -16,8 +16,9 @@ from typing import Optional, Dict, Any, List
 logger = logging.getLogger(__name__)
 
 try:
-    from fastapi import FastAPI, HTTPException, Query, Request, Depends, Path, Body, UploadFile, File
-    from fastapi.responses import HTMLResponse, JSONResponse
+    from fastapi import FastAPI, HTTPException, Query, Request, Depends, Body, UploadFile, File
+    from fastapi import Path as PathParam
+    from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
     from fastapi.templating import Jinja2Templates
     from pydantic import BaseModel, Field, field_validator, model_validator
     import psycopg2
@@ -271,1755 +272,67 @@ app.openapi = custom_openapi
 if SESSION_AUTH_ENABLED and auth_router:
     app.include_router(auth_router)
 
-def normalize_status(value: Optional[str]) -> Optional[str]:
-    if not value:
-        return None
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        return normalized or None
-    return None
-
-
-def parse_datetime(value: Any) -> datetime:
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return datetime.min
-        # Handle trailing Z (Zulu time) which datetime.fromisoformat can't parse directly
-        if text.endswith("Z"):
-            text = text[:-1] + "+00:00"
-        try:
-            return datetime.fromisoformat(text)
-        except ValueError:
-            pass
-    return datetime.min
-
-DEFAULT_STATUSES = ["checked_in", "confirmed"]
-
-# Active statuses shortcut - only checked_in and confirmed
-ACTIVE_STATUSES = ["checked_in", "confirmed"]
-
-# Status shortcuts that expand to multiple statuses
-STATUS_SHORTCUTS = {
-    "active": ACTIVE_STATUSES,
-}
-
-
-def expand_status_shortcuts(statuses: List[str]) -> List[str]:
-    """Expand status shortcuts like 'active' to their constituent statuses."""
-    expanded = []
-    for status in statuses:
-        normalized = status.strip().lower() if isinstance(status, str) else None
-        if normalized and normalized in STATUS_SHORTCUTS:
-            expanded.extend(STATUS_SHORTCUTS[normalized])
-        elif normalized:
-            expanded.append(normalized)
-    return list(dict.fromkeys(expanded))  # Remove duplicates while preserving order
-
-
-def ensure_client_location_access(
-    location_id: Optional[str],
-    current_client: Optional[TokenData],
-) -> Optional[str]:
-    """
-    Ensure the authenticated client is permitted to access the requested location.
-
-    Returns the effective location ID (may inject the client's sole allowed ID)
-    or raises HTTPException when the access rules would be violated.
-    """
-    if not current_client or current_client.allowed_location_ids is None:
-        return location_id
-
-    allowed = current_client.allowed_location_ids
-    if not allowed:
-        raise HTTPException(status_code=403, detail="No locations are enabled for this client.")
-
-    if location_id:
-        if location_id not in allowed:
-            raise HTTPException(status_code=403, detail="This client is not permitted to access the requested location.")
-        return location_id
-
-    if len(allowed) == 1:
-        # Auto-select the only available location for convenience.
-        return allowed[0]
-
-    raise HTTPException(
-        status_code=403,
-        detail="locationId is required for this client. Provide a permitted location ID explicitly.",
-    )
-
-
-def resolve_location_id(location_id: Optional[str], *, required: bool = True) -> Optional[str]:
-    """
-    Normalize `locationId` from the query string with support for a default
-    value defined via the DEFAULT_LOCATION_ID environment variable.
-    """
-    normalized = location_id.strip() if location_id else None
-    if normalized:
-        return normalized
-
-    env_location_id = os.getenv("DEFAULT_LOCATION_ID", "").strip()
-    if env_location_id:
-        return env_location_id
-
-    if required:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "locationId query parameter is required. "
-                "Provide ?locationId=<ID> or configure DEFAULT_LOCATION_ID."
-            ),
-        )
-
-    return None
-
-
-def use_remote_api_for_reads() -> bool:
-    """
-    Determine whether to read queue data from the remote production API
-    instead of the local database.
-
-    Controlled by USE_REMOTE_API_FOR_READS env var (default: false).
-    """
-    return os.getenv("USE_REMOTE_API_FOR_READS", "false").strip().lower() in {"1", "true", "yes", "on"}
-
-
-class PatientPayload(BaseModel):
-    """Schema describing the normalized patient payload returned by the API."""
-
-    emrId: Optional[str] = Field(None, description="EMR identifier for the patient.", alias="emr_id")
-    bookingId: Optional[str] = Field(None, description="Internal booking identifier.", alias="booking_id")
-    locationId: Optional[str] = Field(None, description="Unique identifier for the clinic location.", alias="location_id")
-    locationName: Optional[str] = Field(None, description="Display name of the clinic location.", alias="location_name")
-    legalFirstName: Optional[str] = Field(None, description="Patient legal first name.")
-    legalLastName: Optional[str] = Field(None, description="Patient legal last name.")
-    dob: Optional[str] = Field(None, description="Date of birth in ISO 8601 format.")
-    mobilePhone: Optional[str] = Field(None, description="Primary phone number on file.")
-    sexAtBirth: Optional[str] = Field(None, description="Sex at birth or recorded gender marker.")
-    capturedAt: Optional[str] = Field(None, description="Timestamp indicating when the record was captured.", alias="captured_at")
-    reasonForVisit: Optional[str] = Field(None, description="Reason provided for the visit.")
-    createdAt: Optional[str] = Field(None, description="Record creation timestamp.", alias="created_at")
-    updatedAt: Optional[str] = Field(None, description="Record last update timestamp.", alias="updated_at")
-    status: Optional[str] = Field(None, description="Current queue status for the patient.")
-
-    class Config:
-        extra = "allow"
-        populate_by_name = True
-
-
-def fetch_locations(cursor) -> List[Dict[str, Optional[str]]]:
-    cursor.execute(
-        """
-        SELECT DISTINCT
-            location_id,
-            location_name
-        FROM (
-            SELECT location_id, location_name FROM pending_patients WHERE location_id IS NOT NULL
-            UNION
-            SELECT location_id, location_name FROM patients WHERE location_id IS NOT NULL
-        ) AS combined
-        ORDER BY location_name NULLS LAST, location_id
-        """
-    )
-    rows = cursor.fetchall()
-    locations: List[Dict[str, Optional[str]]] = []
-    for row in rows:
-        loc_id = row.get("location_id")
-        if not loc_id:
-            continue
-        locations.append(
-            {
-                "location_id": loc_id,
-                "location_name": row.get("location_name"),
-            }
-        )
-    return locations
-
-
-async def fetch_remote_patients(
-    location_id: str,
-    statuses: List[str],
-    limit: Optional[int],
-) -> List[Dict[str, Any]]:
-    """
-    Fetch patient queue data from the remote production API instead of the local DB.
-
-    Uses API_URL /patients endpoint with the same query parameters that this API exposes.
-    """
-    if not HTTPX_AVAILABLE:
-        raise HTTPException(status_code=500, detail="httpx is required for remote API reads")
-
-    api_url_env = os.getenv("API_URL")
-    if not api_url_env or not api_url_env.strip():
-        raise HTTPException(status_code=500, detail="API_URL must be set for remote API reads")
-
-    api_base_url = api_url_env.strip().rstrip("/")
-    url = f"{api_base_url}/patients"
-
-    params: Dict[str, Any] = {"locationId": location_id}
-    if statuses:
-        # Repeat statuses param for each value to match existing API contract
-        params["statuses"] = statuses
-    if limit is not None:
-        params["limit"] = limit
-
-    api_key = os.getenv("API_KEY")
-    api_token = os.getenv("API_TOKEN")
-
-    headers: Dict[str, str] = {"Content-Type": "application/json"}
-
-    # Prefer API key if present; otherwise use token / auto-token
-    if api_key:
-        headers["X-API-Key"] = api_key
-    else:
-        if not api_token:
-            # Auto-fetch token using same helper as monitor/api_client
-            token = await get_api_token(api_base_url)
-            api_token = token or ""
-        if api_token:
-            headers["Authorization"] = f"Bearer {api_token}"
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:  # type: ignore[attr-defined]
-            response = await client.get(url, params=params, headers=headers)
-
-        if response.status_code != 200:
-            detail = None
-            try:
-                data = response.json()
-                detail = data.get("detail")
-            except Exception:
-                pass
-            msg = detail or f"Remote API returned {response.status_code}"
-            raise HTTPException(status_code=502, detail=msg)
-
-        data = response.json()
-        if not isinstance(data, list):
-            raise HTTPException(status_code=502, detail="Remote API /patients response is not a list")
-
-        # Data should already be in PatientPayload shape; normalize minimally
-        return data
-
-    except httpx.TimeoutException:  # type: ignore[attr-defined]
-        raise HTTPException(status_code=504, detail="Remote API request timed out")
-    except httpx.RequestError as e:  # type: ignore[attr-defined]
-        raise HTTPException(status_code=502, detail=f"Error calling remote API: {e}")
-
-
-def fetch_pending_records(
-    cursor,
-    location_id: Optional[str],
-    limit: Optional[int],
-) -> List[Dict[str, Any]]:
-    query = """
-        SELECT 
-            pending_id AS id,
-            emr_id,
-            booking_id,
-            booking_number,
-            patient_number,
-            location_id,
-            location_name,
-            legal_first_name,
-            legal_last_name,
-            dob,
-            mobile_phone,
-            sex_at_birth,
-            captured_at,
-            reason_for_visit,
-            created_at,
-            updated_at,
-            raw_payload,
-            status,
-            raw_payload->>'status' AS patient_status,
-            raw_payload->>'appointment_date' AS appointment_date,
-            raw_payload->>'appointment_date_at_clinic_tz' AS appointment_date_at_clinic_tz,
-            raw_payload->>'calendar_date' AS calendar_date
-        FROM pending_patients
-    """
-
-    conditions: List[str] = []
-    params: List[Any] = []
-
-    if location_id:
-        conditions.append("location_id = %s")
-        params.append(location_id)
-
-    if conditions:
-        query += " WHERE " + " AND ".join(conditions)
-
-    query += " ORDER BY captured_at DESC NULLS LAST, updated_at DESC"
-
-    if limit is not None:
-        query += " LIMIT %s"
-        params.append(limit)
-
-    cursor.execute(query, tuple(params))
-    return cursor.fetchall()
-
-
-def fetch_confirmed_records(
-    cursor,
-    location_id: Optional[str],
-    limit: Optional[int],
-) -> List[Dict[str, Any]]:
-    query = """
-        SELECT 
-            id,
-            emr_id,
-            booking_id,
-            booking_number,
-            patient_number,
-            location_id,
-            location_name,
-            status,
-            legal_first_name,
-            legal_last_name,
-            dob,
-            mobile_phone,
-            sex_at_birth,
-            captured_at,
-            reason_for_visit,
-            created_at,
-            updated_at
-        FROM patients
-    """
-
-    conditions: List[str] = []
-    params: List[Any] = []
-
-    if location_id:
-        conditions.append("location_id = %s")
-        params.append(location_id)
-
-    if conditions:
-        query += " WHERE " + " AND ".join(conditions)
-
-    query += " ORDER BY captured_at DESC NULLS LAST, updated_at DESC"
-
-    if limit is not None:
-        query += " LIMIT %s"
-        params.append(limit)
-
-    cursor.execute(query, tuple(params))
-    return cursor.fetchall()
-
-
-def prepare_dashboard_patients(
-    cursor,
-    location_id: Optional[str],
-    statuses: List[str],
-    limit: Optional[int],
-) -> List[Dict[str, Any]]:
-    selected = [normalize_status(status) for status in statuses if normalize_status(status)]
-    selected_set = set(selected)
-    results: List[Dict[str, Any]] = []
-
-    confirmed_records = fetch_confirmed_records(
-        cursor,
-        location_id,
-        limit,
-    )
-    for record in confirmed_records:
-        payload = build_patient_payload(record)
-        status = normalize_status(payload.get("status")) or "confirmed"
-        payload["status"] = status
-        if selected_set and status not in selected_set:
-            continue
-        payload["source"] = "confirmed"
-        results.append(decorate_patient_payload(payload))
-
-    # Sort by capturedAt descending then updatedAt
-    def sort_key(item: Dict[str, Any]):
-        captured = parse_datetime(item.get("capturedAt") or item.get("captured_at"))
-        updated = parse_datetime(item.get("updatedAt") or item.get("updated_at"))
-        return (captured, updated)
-
-    results.sort(key=sort_key, reverse=True)
-
-    if limit is not None:
-        results = results[:limit]
-
-    return results
-
-
-def fetch_pending_payloads(
-    cursor,
-    location_id: Optional[str],
-    statuses: List[str],
-    limit: Optional[int],
-) -> List[Dict[str, Any]]:
-    selected = [normalize_status(status) for status in statuses if normalize_status(status)]
-    selected_set = set(selected)
-    records = fetch_pending_records(cursor, location_id, None)
-    payloads: List[Dict[str, Any]] = []
-
-    for record in records:
-        payload = build_patient_payload(record)
-        status = normalize_status(payload.get("status")) or normalize_status(record.get("status")) or "checked_in"
-        if selected_set and status not in selected_set:
-            continue
-        payload["status"] = status
-        payload["source"] = "pending"
-        payloads.append(decorate_patient_payload(payload))
-        if limit is not None and len(payloads) >= limit:
-            break
-
-    return payloads
-
-
-def filter_patients_by_search(
-    patients: List[Dict[str, Any]],
-    search_query: str,
-) -> List[Dict[str, Any]]:
-    """
-    Filter patients by search query (searches name, EMR ID, and phone number).
-    
-    Args:
-        patients: List of patient dictionaries
-        search_query: Search term to match against patient data
-        
-    Returns:
-        Filtered list of patients matching the search query
-    """
-    if not search_query:
-        return patients
-    
-    search_lower = search_query.lower().strip()
-    filtered = []
-    
-    for patient in patients:
-        # Search in name fields
-        first_name = (patient.get("legalFirstName") or "").lower()
-        last_name = (patient.get("legalLastName") or "").lower()
-        full_name = f"{first_name} {last_name}".strip()
-        
-        # Search in EMR ID (support both camelCase and snake_case for backward compatibility)
-        emr_id = (patient.get("emrId") or patient.get("emr_id") or "").lower()
-        
-        # Search in phone number
-        phone = (patient.get("mobilePhone") or "").replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
-        
-        # Check if search query matches any field
-        if (search_lower in first_name or 
-            search_lower in last_name or 
-            search_lower in full_name or
-            search_lower in emr_id or
-            search_lower in phone):
-            filtered.append(patient)
-    
-    return filtered
-
-
-def get_local_patients(
-    cursor,
-    location_id: Optional[str],
-    statuses: List[str],
-    limit: Optional[int],
-) -> List[Dict[str, Any]]:
-    """
-    Gather patient payloads from the local database (confirmed + pending) to
-    mirror the remote API shape.
-    """
-    confirmed = prepare_dashboard_patients(cursor, location_id, statuses, None)
-    pending = fetch_pending_payloads(cursor, location_id, statuses, None)
-
-    combined = confirmed + pending
-
-    def sort_key(item: Dict[str, Any]):
-        captured = parse_datetime(item.get("capturedAt") or item.get("captured_at"))
-        updated = parse_datetime(item.get("updatedAt") or item.get("updated_at"))
-        return (captured, updated)
-
-    combined.sort(key=sort_key, reverse=True)
-
-    if limit is not None:
-        combined = combined[:limit]
-
-    return combined
-
-
-def get_db_connection():
-    """Get PostgreSQL database connection from environment variables.
-    
-    Supports two methods:
-    1. DATABASE_URL (recommended for cloud deployments like Aptible)
-       Format: postgresql://user:password@host:port/database
-    2. Individual environment variables (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD)
-    """
-    # Check if DATABASE_URL is set (preferred for cloud deployments)
-    database_url = os.getenv('DATABASE_URL')
-    
-    if database_url:
-        # Parse the connection URL
-        try:
-            from urllib.parse import urlparse
-            # Handle postgres:// and postgresql:// URLs
-            if database_url.startswith('postgres://'):
-                database_url = database_url.replace('postgres://', 'postgresql://', 1)
-            
-            parsed = urlparse(database_url)
-            
-            db_config = {
-                'host': parsed.hostname,
-                'port': parsed.port or 5432,
-                'database': parsed.path.lstrip('/'),
-                'user': parsed.username,
-                'password': parsed.password or ''
-            }
-            # Enable SSL for remote databases (Aptible requires SSL)
-            if parsed.hostname and parsed.hostname not in ('localhost', '127.0.0.1', '::1'):
-                db_config['sslmode'] = 'require'
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error parsing DATABASE_URL: {str(e)}. Format should be: postgresql://user:password@host:port/database"
-            )
-    else:
-        # Fall back to individual environment variables
-        import getpass
-        default_user = os.getenv('USER', os.getenv('USERNAME', getpass.getuser()))
-        db_host = os.getenv('DB_HOST', 'localhost')
-        db_config = {
-            'host': db_host,
-            'port': os.getenv('DB_PORT', '5432'),
-            'database': os.getenv('DB_NAME', 'solvhealth_patients'),
-            'user': os.getenv('DB_USER', default_user),
-            'password': os.getenv('DB_PASSWORD', '')
-        }
-        # Enable SSL for remote databases (Aptible requires SSL)
-        if db_host and db_host not in ('localhost', '127.0.0.1', '::1'):
-            db_config['sslmode'] = 'require'
-    
-    try:
-        conn = psycopg2.connect(**db_config)
-        return conn
-    except psycopg2.Error as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Database connection error: {str(e)}"
-        )
-
-
-def format_patient_record(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Format patient record for JSON response."""
-    formatted = {}
-    for key, value in record.items():
-        # Convert datetime objects to ISO format strings
-        if isinstance(value, datetime):
-            formatted[key] = value.isoformat()
-        # Convert date objects to ISO format strings
-        elif hasattr(value, 'isoformat') and hasattr(value, 'year'):
-            formatted[key] = value.isoformat()
-        else:
-            formatted[key] = value
-    return formatted
-
-
-def save_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Save or update an encounter record in the database.
-    
-    Args:
-        conn: PostgreSQL database connection
-        encounter_data: Dictionary containing encounter data with:
-            - encounter_id: UUID (required)
-            - emr_id: string (required)
-            - encounter_payload: JSONB (required) - full encounter JSON payload
-        
-    Returns:
-        Dictionary with the saved encounter data
-        
-    Raises:
-        psycopg2.Error: If database operation fails
-    """
-    import json
-    from psycopg2.extras import Json
-    
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
-    
-    try:
-        # Extract required fields
-        encounter_id = encounter_data.get('encounter_id')
-        emr_id = encounter_data.get('emr_id')
-        encounter_payload = encounter_data.get('encounter_payload')
-        
-        # Validate required fields
-        if not encounter_id:
-            raise ValueError("encounter_id is required")
-        if not emr_id:
-            raise ValueError("emr_id is required")
-        if not encounter_payload:
-            raise ValueError("encounter_payload is required")
-        
-        # Convert encounter_payload to JSONB
-        encounter_payload_json = Json(encounter_payload)
-        
-        # Use INSERT ... ON CONFLICT to handle duplicates (update on conflict)
-        query = """
-            INSERT INTO encounters (
-                encounter_id, emr_id, encounter_payload
-            )
-            VALUES (%s, %s, %s)
-            ON CONFLICT (encounter_id) 
-            DO UPDATE SET
-                emr_id = EXCLUDED.emr_id,
-                encounter_payload = EXCLUDED.encounter_payload
-            RETURNING *
-        """
-        
-        cursor.execute(
-            query,
-            (
-                encounter_id,
-                emr_id,
-                encounter_payload_json,
-            )
-        )
-        
-        result = cursor.fetchone()
-        conn.commit()
-        
-        # Format the result for response
-        formatted_result = format_patient_record(result)
-        
-        # Convert encounter_payload JSONB back to dict if present
-        if formatted_result.get('encounter_payload'):
-            if isinstance(formatted_result['encounter_payload'], str):
-                try:
-                    formatted_result['encounter_payload'] = json.loads(formatted_result['encounter_payload'])
-                except json.JSONDecodeError:
-                    pass  # Keep as string if not valid JSON
-        
-        return formatted_result
-        
-    except psycopg2.Error as e:
-        conn.rollback()
-        raise e
-    finally:
-        cursor.close()
-
-
-def format_encounter_response(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Format encounter record for JSON response."""
-    import json
-    
-    formatted = {
-        'emr_id': record.get('emr_id', ''),
-        'encounter_payload': record.get('encounter_payload', {}),
-    }
-    
-    # Handle encounter_payload JSONB - convert from string if needed
-    if formatted.get('encounter_payload'):
-        if isinstance(formatted['encounter_payload'], str):
-            try:
-                formatted['encounter_payload'] = json.loads(formatted['encounter_payload'])
-            except json.JSONDecodeError:
-                formatted['encounter_payload'] = {}
-    
-    return formatted
-
-
-def remove_excluded_fields(encounter_payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Remove excluded fields from encounter payload for queue storage.
-    
-    This function creates a cleaned copy of the encounter payload by removing
-    fields that should not be stored in the queue. The original encounter data
-    remains intact in the encounters table.
-    
-    Args:
-        encounter_payload: The full encounter payload dictionary
-        
-    Returns:
-        A new dictionary with excluded fields removed
-    """
-    import copy
-    
-    # Create a deep copy to avoid modifying the original
-    cleaned_payload = copy.deepcopy(encounter_payload)
-    
-    # List of top-level fields to remove
-    excluded_top_level_fields = [
-        'source',
-        'meta',
-        'esi',
-        'createdBy',
-        'createdById',
-        'deletedAt',
-        'syncedAt',
-        'originLaunchError',
-        'origin',
-        'originOrders',
-        'originObservationLabs',
-        'locationId',
-        'originPatientId',
-        'originBillingCode',
-        'originStartedAt',
-        'originBillingCodeSyncedAt',
-        'originBillingCodeFailureCount',
-        'originBillingCodeFailureMessage',
-        'originDiagnosticReportsSyncedAt',
-        'originDiagnosticReportsFailureCount',
-        'originDiagnosticReportsFailureMessage',
-        'originCsn',
-        'originAppointmentType',
-        'originDiagnosesSyncedAt',
-        'originDiagnosesFailureCount',
-        'originDiagnosesFailureMessage',
-        'originDiagnosesJobId',
-        'originDiagnosticReportsJobId',
-        'originCsnSyncedAt',
-        'originCsnFailureCount',
-        'originCsnFailureMessage',
-        'originCsnJobId',
-        'createdByUser',
-        'accessLogs',
-        'creationLog',
-    ]
-    
-    # Remove top-level excluded fields
-    for field in excluded_top_level_fields:
-        cleaned_payload.pop(field, None)
-    
-    # Remove fields from patient object if it exists
-    if 'patient' in cleaned_payload and isinstance(cleaned_payload['patient'], dict):
-        patient_excluded_fields = [
-            'firstName',
-            'lastName',
-            'encounterOriginId',
-            'mrn',
-            'emailAddress',
-            'phoneNumber',
-        ]
-        for field in patient_excluded_fields:
-            cleaned_payload['patient'].pop(field, None)
-    
-    return cleaned_payload
-
-
-def save_queue(conn, queue_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Save or update a queue record in the database.
-    
-    Args:
-        conn: PostgreSQL database connection
-        queue_data: Dictionary containing queue data with:
-            - queue_id: Optional UUID (will be generated if not provided)
-            - encounter_id: UUID (required)
-            - emr_id: Optional string
-            - status: Optional string (default: 'PENDING')
-            - raw_payload: Optional JSON payload (JSONB)
-            - parsed_payload: Optional parsed JSON payload (JSONB)
-            - attempts: Optional integer (default: 0)
-        
-    Returns:
-        Dictionary with the saved queue data
-        
-    Raises:
-        psycopg2.Error: If database operation fails
-    """
-    import json
-    import uuid
-    from psycopg2.extras import Json
-    
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
-    
-    try:
-        # Generate queue_id if not provided
-        queue_id = queue_data.get('queue_id')
-        if not queue_id:
-            queue_id = str(uuid.uuid4())
-        
-        encounter_id = queue_data.get('encounter_id')
-        if not encounter_id:
-            raise ValueError("encounter_id is required for queue entries")
-        
-        # Get status, default to PENDING
-        status = queue_data.get('status', 'PENDING')
-        if status not in ['PENDING', 'PROCESSING', 'DONE', 'ERROR']:
-            status = 'PENDING'
-        
-        # Get attempts, default to 0
-        attempts = queue_data.get('attempts', 0)
-        if not isinstance(attempts, int):
-            attempts = 0
-        
-        # Extract raw_payload and parsed_payload if provided
-        raw_payload_json = None
-        if queue_data.get('raw_payload'):
-            raw_payload_json = Json(queue_data['raw_payload'])
-        
-        parsed_payload_json = None
-        if queue_data.get('parsed_payload'):
-            parsed_payload_json = Json(queue_data['parsed_payload'])
-        
-        # Use INSERT ... ON CONFLICT to handle duplicates (update on conflict)
-        query = """
-            INSERT INTO queue (
-                queue_id, encounter_id, emr_id, status,
-                raw_payload, parsed_payload, attempts
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (encounter_id) 
-            DO UPDATE SET
-                emr_id = EXCLUDED.emr_id,
-                status = EXCLUDED.status,
-                raw_payload = EXCLUDED.raw_payload,
-                parsed_payload = EXCLUDED.parsed_payload,
-                attempts = EXCLUDED.attempts,
-                updated_at = CURRENT_TIMESTAMP
-            RETURNING *
-        """
-        
-        cursor.execute(
-            query,
-            (
-                queue_id,
-                encounter_id,
-                queue_data.get('emr_id'),
-                status,
-                raw_payload_json,
-                parsed_payload_json,
-                attempts,
-            )
-        )
-        
-        result = cursor.fetchone()
-        conn.commit()
-        
-        # Format the result for response
-        formatted_result = format_patient_record(result)
-        
-        # Convert raw_payload and parsed_payload JSONB back to dicts if present
-        if formatted_result.get('raw_payload'):
-            if isinstance(formatted_result['raw_payload'], str):
-                try:
-                    formatted_result['raw_payload'] = json.loads(formatted_result['raw_payload'])
-                except json.JSONDecodeError:
-                    pass  # Keep as string if not valid JSON
-        
-        if formatted_result.get('parsed_payload'):
-            if isinstance(formatted_result['parsed_payload'], str):
-                try:
-                    formatted_result['parsed_payload'] = json.loads(formatted_result['parsed_payload'])
-                except json.JSONDecodeError:
-                    pass  # Keep as string if not valid JSON
-        
-        return formatted_result
-        
-    except psycopg2.Error as e:
-        conn.rollback()
-        raise e
-    finally:
-        cursor.close()
-
-
-def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Save or update a VM health record in the database.
-    
-    Args:
-        conn: PostgreSQL database connection
-        vm_data: Dictionary containing VM health data with:
-            - vm_id: string (required) - VM identifier
-            - status: string (required) - VM status: healthy, unhealthy, or idle
-            - processing_queue_id: Optional UUID - Queue ID that the VM is processing
-        
-    Returns:
-        Dictionary with the saved/updated VM health data
-        
-    Raises:
-        psycopg2.Error: If database operation fails
-    """
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
-    
-    try:
-        # Extract required fields
-        vm_id = vm_data.get('vm_id')
-        status = vm_data.get('status')
-        processing_queue_id = vm_data.get('processing_queue_id')
-        
-        # Validate required fields
-        if not vm_id:
-            raise ValueError("vm_id is required")
-        if not status:
-            raise ValueError("status is required")
-        
-        # Validate status
-        valid_statuses = ['healthy', 'unhealthy', 'idle']
-        if status not in valid_statuses:
-            raise ValueError(f"Invalid status: {status}. Must be one of: {', '.join(valid_statuses)}")
-        
-        # Use INSERT ... ON CONFLICT to handle duplicates (update on conflict)
-        query = """
-            INSERT INTO vm_health (
-                vm_id, last_heartbeat, status, processing_queue_id, updated_at
-            )
-            VALUES (%s, CURRENT_TIMESTAMP, %s, %s, CURRENT_TIMESTAMP)
-            ON CONFLICT (vm_id) 
-            DO UPDATE SET
-                last_heartbeat = CURRENT_TIMESTAMP,
-                status = EXCLUDED.status,
-                processing_queue_id = EXCLUDED.processing_queue_id,
-                updated_at = CURRENT_TIMESTAMP
-            RETURNING *
-        """
-        
-        cursor.execute(
-            query,
-            (
-                vm_id,
-                status,
-                processing_queue_id,
-            )
-        )
-        
-        result = cursor.fetchone()
-        conn.commit()
-        
-        if not result:
-            raise ValueError("Failed to save VM health record")
-        
-        # Format the result
-        formatted_result = dict(result)
-        
-        # Convert timestamps to ISO format strings
-        if formatted_result.get('last_heartbeat'):
-            if isinstance(formatted_result['last_heartbeat'], datetime):
-                formatted_result['last_heartbeat'] = formatted_result['last_heartbeat'].isoformat() + 'Z'
-        
-        if formatted_result.get('created_at'):
-            if isinstance(formatted_result['created_at'], datetime):
-                formatted_result['created_at'] = formatted_result['created_at'].isoformat() + 'Z'
-        
-        if formatted_result.get('updated_at'):
-            if isinstance(formatted_result['updated_at'], datetime):
-                formatted_result['updated_at'] = formatted_result['updated_at'].isoformat() + 'Z'
-        
-        return formatted_result
-        
-    except psycopg2.Error as e:
-        conn.rollback()
-        raise e
-    finally:
-        cursor.close()
-
-
-def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a queue entry from an encounter record.
-    
-    This function creates a cleaned version of the encounter_payload by removing
-    excluded fields (source, meta, esi, createdBy, accessLogs, etc.) before storing
-    it in the queue's raw_payload. The original encounter_payload remains intact
-    in the encounters table. The emr_id comes from the encounter table, not from
-    the payload.
-    
-    The cleaned payload stored in raw_payload is what gets returned in API responses
-    as encounterPayload. The parsed_payload is used internally only and is never
-    exposed via API responses.
-    
-    Args:
-        conn: PostgreSQL database connection
-        encounter_data: Dictionary containing encounter data (from save_encounter result)
-            Expected structure:
-            - encounter_id: UUID (from encounters table)
-            - emr_id: string (from encounters table)
-            - encounter_payload: dict (the actual encounter JSON object)
-        
-    Returns:
-        Dictionary with the created queue data
-        
-    Raises:
-        ValueError: If required fields are missing or invalid
-    """
-    import json
-    import logging
-    
-    logger = logging.getLogger(__name__)
-    
-    # Extract data from encounter table (not from payload)
-    encounter_id = encounter_data.get('encounter_id')
-    if not encounter_id:
-        raise ValueError("encounter_id is required to create queue entry")
-    
-    # Get emr_id from encounter table (not from payload)
-    emr_id = encounter_data.get('emr_id', '')
-    if not emr_id:
-        logger.warning(f"emr_id is empty for encounter {encounter_id}")
-    
-    # Get encounter_payload from encounter
-    encounter_payload = encounter_data.get('encounter_payload')
-    if not encounter_payload:
-        raise ValueError("encounter_payload is required to create queue entry")
-    
-    # If encounter_payload is a string, parse it
-    if isinstance(encounter_payload, str):
-        try:
-            encounter_payload = json.loads(encounter_payload)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"encounter_payload must be valid JSON: {str(e)}")
-    
-    # Validate that encounter_payload is a dictionary
-    if not isinstance(encounter_payload, dict):
-        raise ValueError(f"encounter_payload must be a dictionary, got {type(encounter_payload).__name__}")
-    
-    # Create a cleaned copy of encounter_payload for raw_payload
-    # This removes excluded fields that should not be stored in the queue
-    # The original encounter_payload remains intact in the encounters table
-    raw_payload = remove_excluded_fields(encounter_payload)
-    
-    # Validate that raw_payload contains expected encounter fields
-    # At minimum, it should have an id or encounterId
-    encounter_id_in_payload = (
-        raw_payload.get('id') or 
-        raw_payload.get('encounterId') or 
-        raw_payload.get('encounter_id')
-    )
-    
-    if not encounter_id_in_payload:
-        logger.warning(
-            f"encounter_payload for encounter {encounter_id} does not contain "
-            "id, encounterId, or encounter_id field"
-        )
-    
-    # Ensure the encounter_id in payload matches the table encounter_id
-    if encounter_id_in_payload and str(encounter_id_in_payload) != str(encounter_id):
-        logger.warning(
-            f"encounter_id mismatch: table has {encounter_id}, "
-            f"payload has {encounter_id_in_payload}"
-        )
-    
-    # Remove emr_id from raw_payload if it exists (it should come from table, not payload)
-    # This ensures consistency - emr_id always comes from the encounter table
-    if 'emrId' in raw_payload or 'emr_id' in raw_payload:
-        payload_emr_id = raw_payload.pop('emrId', None) or raw_payload.pop('emr_id', None)
-        if payload_emr_id and payload_emr_id != emr_id:
-            logger.warning(
-                f"emr_id mismatch: table has '{emr_id}', payload had '{payload_emr_id}'. "
-                "Using table emr_id."
-            )
-    
-    # Extract chief_complaints and trauma_type from encounter_payload for parsed_payload
-    # Check both camelCase and snake_case versions
-    chief_complaints = raw_payload.get('chiefComplaints') or raw_payload.get('chief_complaints', [])
-    trauma_type = raw_payload.get('traumaType') or raw_payload.get('trauma_type')
-    
-    # Validate chief_complaints is a list
-    if not isinstance(chief_complaints, list):
-        logger.warning(f"chief_complaints is not a list for encounter {encounter_id}, converting to empty list")
-        chief_complaints = []
-    
-    # CRITICAL: Ensure chiefComplaints is always present in raw_payload for queue entry
-    # This ensures UiPath and other consumers can always access chiefComplaints
-    # Use camelCase (chiefComplaints) as the standard format
-    if 'chiefComplaints' not in raw_payload and 'chief_complaints' not in raw_payload:
-        logger.warning(
-            f"chiefComplaints missing from encounter {encounter_id} payload. "
-            f"Adding empty array to ensure field is always present."
-        )
-        raw_payload['chiefComplaints'] = chief_complaints
-    elif 'chiefComplaints' not in raw_payload and 'chief_complaints' in raw_payload:
-        # Convert snake_case to camelCase for consistency
-        raw_payload['chiefComplaints'] = raw_payload.pop('chief_complaints')
-        logger.info(f"Converted chief_complaints to chiefComplaints for encounter {encounter_id}")
-    elif 'chiefComplaints' in raw_payload:
-        # Ensure it's the correct type
-        if not isinstance(raw_payload['chiefComplaints'], list):
-            logger.warning(
-                f"chiefComplaints in raw_payload is not a list for encounter {encounter_id}, "
-                f"replacing with validated list"
-            )
-            raw_payload['chiefComplaints'] = chief_complaints
-    
-    # Log if chiefComplaints is empty (for debugging)
-    if len(chief_complaints) == 0:
-        logger.warning(
-            f"encounter {encounter_id} has empty chiefComplaints array. "
-            f"This may indicate an issue with encounter creation."
-        )
-    
-    # Create parsed_payload structure with experityAction set to empty array
-    parsed_payload = {
-        'trauma_type': trauma_type,
-        'chief_complaints': chief_complaints,
-        'experityAction': []
-    }
-    
-    # Build queue data
-    # Note: emr_id comes from encounter_data (table), not from raw_payload
-    queue_data = {
-        'encounter_id': str(encounter_id),
-        'emr_id': str(emr_id),  # From encounter table, not from payload
-        'status': 'PENDING',
-        'raw_payload': raw_payload,  # Cleaned encounter payload (excluded fields removed)
-        'parsed_payload': parsed_payload,  # Simplified parsed structure (internal use only)
-        'attempts': 0,
-    }
-    
-    logger.info(
-        f"Creating queue entry for encounter {encounter_id} "
-        f"(emr_id: {emr_id}, trauma_type: {trauma_type}, "
-        f"chief_complaints count: {len(chief_complaints)})"
-    )
-    
-    # Save queue entry
-    return save_queue(conn, queue_data)
-
-
-def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Format queue record for JSON response.
-    
-    Returns: queue_id, emr_id, status, attempts, encounter_payload (snake_case)
-    Similar to format_encounter_response structure.
-    FastAPI will serialize using field names (camelCase: queueId, emrId, encounterPayload).
-    """
-    import json
-    
-    # Get raw_payload (encounter data) - this becomes encounter_payload
-    raw_payload = record.get('raw_payload')
-    
-    # Handle JSONB field - convert from string if needed
-    if raw_payload:
-        if isinstance(raw_payload, str):
-            try:
-                raw_payload = json.loads(raw_payload)
-            except json.JSONDecodeError:
-                raw_payload = {}
-        elif not isinstance(raw_payload, dict):
-            raw_payload = {}
-    else:
-        raw_payload = {}
-    
-    # Get queue_id - convert UUID to string if needed
-    queue_id = record.get('queue_id')
-    if queue_id:
-        queue_id = str(queue_id)
-    
-    # Format response using snake_case keys (matching format_encounter_response pattern)
-    # FastAPI will serialize using field names (camelCase) via response_model
-    # Handle emr_id - convert to string if present, otherwise keep as None
-    emr_id = record.get('emr_id')
-    if emr_id is not None:
-        emr_id = str(emr_id)
-    
-    formatted = {
-        'queue_id': queue_id,
-        'emr_id': emr_id,
-        'status': record.get('status', 'PENDING'),
-        'attempts': record.get('attempts', 0),
-        'encounter_payload': raw_payload,
-    }
-    
-    return formatted
-
-
-def save_summary(conn, summary_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Save a summary record in the database.
-    
-    Args:
-        conn: PostgreSQL database connection
-        summary_data: Dictionary containing summary data with:
-            - emr_id: EMR identifier (required)
-            - note: Summary note text (required)
-        
-    Returns:
-        Dictionary with the saved summary data
-        
-    Raises:
-        psycopg2.Error: If database operation fails
-    """
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
-    
-    try:
-        emr_id = summary_data.get('emr_id')
-        note = summary_data.get('note')
-        
-        if not emr_id:
-            raise ValueError("emr_id is required for summary entries")
-        if not note:
-            raise ValueError("note is required for summary entries")
-        
-        # Insert new summary record
-        query = """
-            INSERT INTO summaries (emr_id, note)
-            VALUES (%s, %s)
-            RETURNING *
-        """
-        
-        cursor.execute(query, (emr_id, note))
-        
-        result = cursor.fetchone()
-        conn.commit()
-        
-        # Format the result for response
-        formatted_result = format_patient_record(result)
-        
-        return formatted_result
-        
-    except psycopg2.Error as e:
-        conn.rollback()
-        raise e
-    finally:
-        cursor.close()
-
-
-def get_summary_by_emr_id(conn, emr_id: str) -> Optional[Dict[str, Any]]:
-    """
-    Retrieve a summary record by EMR ID.
-    
-    Args:
-        conn: PostgreSQL database connection
-        emr_id: EMR identifier to search for
-        
-    Returns:
-        Dictionary with the summary data, or None if not found
-        
-    Raises:
-        psycopg2.Error: If database operation fails
-    """
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
-    
-    try:
-        query = """
-            SELECT * FROM summaries
-            WHERE emr_id = %s
-            ORDER BY updated_at DESC
-            LIMIT 1
-        """
-        
-        cursor.execute(query, (emr_id,))
-        result = cursor.fetchone()
-        
-        if not result:
-            return None
-        
-        # Format the result for response
-        formatted_result = format_patient_record(result)
-        
-        return formatted_result
-        
-    except psycopg2.Error as e:
-        raise e
-    finally:
-        cursor.close()
-
-
-def format_summary_response(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Format summary record for JSON response with camelCase field names."""
-    formatted = {
-        'id': record.get('id'),
-        'emrId': record.get('emr_id', ''),
-        'note': record.get('note', ''),
-        'createdAt': None,
-        'updatedAt': None,
-    }
-    
-    # Convert datetime objects to ISO format strings
-    if record.get('created_at'):
-        created_at = record['created_at']
-        if isinstance(created_at, datetime):
-            formatted['createdAt'] = created_at.isoformat()
-        elif isinstance(created_at, str):
-            formatted['createdAt'] = created_at
-    
-    if record.get('updated_at'):
-        updated_at = record['updated_at']
-        if isinstance(updated_at, datetime):
-            formatted['updatedAt'] = updated_at.isoformat()
-        elif isinstance(updated_at, str):
-            formatted['updatedAt'] = updated_at
-    
-    return formatted
-
-
-def build_patient_payload(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Build patient response payload in normalized structure with camelCase field names."""
-    captured = record.get("captured_at")
-    if isinstance(captured, datetime):
-        captured = captured.isoformat()
-    created = record.get("created_at")
-    if isinstance(created, datetime):
-        created = created.isoformat()
-    updated = record.get("updated_at")
-    if isinstance(updated, datetime):
-        updated = updated.isoformat()
-    raw_payload = record.get("raw_payload")
-
-    payload = {
-        "emrId": record.get("emr_id"),
-        "bookingId": record.get("booking_id"),
-        "locationId": record.get("location_id"),
-        "locationName": record.get("location_name"),
-        "legalFirstName": record.get("legal_first_name"),
-        "legalLastName": record.get("legal_last_name"),
-        "dob": record.get("dob"),
-        "mobilePhone": record.get("mobile_phone"),
-        "sexAtBirth": record.get("sex_at_birth"),
-        "capturedAt": captured,
-        "reasonForVisit": record.get("reason_for_visit"),
-        "createdAt": created,
-        "updatedAt": updated,
-    }
-
-    status = record.get("patient_status") or record.get("status")
-    if not status and isinstance(raw_payload, dict):
-        status = raw_payload.get("status")
-    if status:
-        payload["status"] = status
-
-    return payload
-
-
-def decorate_patient_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Add presentation-friendly fields to the patient payload."""
-    # Note: status_class, status_label, and captured_display are only added
-    # for dashboard/list endpoints, not for single patient retrieval
-    # This function is kept for backward compatibility with list endpoints
-    status_class = normalize_status(payload.get("status")) or "unknown"
-    payload["status_class"] = status_class
-    payload["status_label"] = status_class.replace("_", " ").title()
-
-    captured_display = None
-    captured_raw = payload.get("capturedAt") or payload.get("captured_at")
-    captured_dt = parse_datetime(captured_raw)
-    if captured_dt > datetime.min:
-        captured_display = captured_dt.strftime("%b %d, %Y %I:%M %p").lstrip("0").replace(" 0", " ")
-    payload["captured_display"] = captured_display
-
-    return payload
-
-
-# Token generation endpoint removed - HMAC authentication only
-
-
-# Patient data submission models
-class PatientCreateRequest(BaseModel):
-    """Request model for creating a single patient record."""
-    emrId: str = Field(..., description="EMR identifier for the patient (required).", example="EMR12345", alias="emr_id")
-    bookingId: Optional[str] = Field(None, description="Internal booking identifier.", example="0Pa1Z6", alias="booking_id")
-    locationId: Optional[str] = Field(None, description="Unique identifier for the clinic location (required for new patients).", example="AXjwbE", alias="location_id")
-    locationName: Optional[str] = Field(None, description="Display name of the clinic location.", example="Demo Clinic", alias="location_name")
-    legalFirstName: Optional[str] = Field(None, description="Patient legal first name.", example="John")
-    legalLastName: Optional[str] = Field(None, description="Patient legal last name.", example="Doe")
-    dob: Optional[str] = Field(None, description="Date of birth in ISO 8601 format.", example="1990-01-15")
-    mobilePhone: Optional[str] = Field(None, description="Primary phone number on file.", example="+1234567890")
-    sexAtBirth: Optional[str] = Field(None, description="Sex at birth or recorded gender marker.", example="M")
-    reasonForVisit: Optional[str] = Field(None, description="Reason provided for the visit.", example="Annual checkup")
-    status: Optional[str] = Field(None, description="Current queue status for the patient.", example="confirmed")
-    capturedAt: Optional[str] = Field(None, description="Timestamp indicating when the record was captured in ISO 8601 format.", example="2025-11-21T10:30:00Z", alias="captured_at")
-    createdAt: Optional[str] = Field(None, description="Record creation timestamp in ISO 8601 format.", example="2025-11-21T10:30:00Z", alias="created_at")
-    updatedAt: Optional[str] = Field(None, description="Record last update timestamp in ISO 8601 format.", example="2025-11-21T10:30:00Z", alias="updated_at")
-    
-    class Config:
-        populate_by_name = True
-        extra = "allow"
-        json_schema_extra = {
-            "example": {
-                "emrId": "EMR12345",
-                "locationId": "AXjwbE",
-                "locationName": "Demo Clinic",
-                "legalFirstName": "John",
-                "legalLastName": "Doe",
-                "dob": "1990-01-15",
-                "mobilePhone": "+1234567890",
-                "sexAtBirth": "M",
-                "capturedAt": "2025-11-21T10:30:00Z",
-                "reasonForVisit": "Annual checkup",
-                "createdAt": "2025-11-21T10:30:00Z",
-                "updatedAt": "2025-11-21T10:30:00Z",
-                "status": "confirmed"
-            }
-        }
-    
-    @classmethod
-    def model_json_schema(cls, **kwargs):
-        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
-        # Generate schema with by_alias=False to use field names (camelCase)
-        schema = super().model_json_schema(by_alias=False, **kwargs)
-        return schema
-
-
-class PatientBatchRequest(BaseModel):
-    """Request model for creating multiple patient records."""
-    patients: List[PatientCreateRequest] = Field(..., description="List of patient records to create.")
-
-
-class StatusUpdateRequest(BaseModel):
-    """Request model for updating patient status."""
-    status: str = Field(..., description="New queue status for the patient. Common values: confirmed, checked_in, pending, completed, cancelled.", example="checked_in")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "status": "checked_in"
-            }
-        }
-
-
-# Encounter data submission models
-class EncounterCreateRequest(BaseModel):
-    """Request model for creating an encounter record."""
-    emrId: str = Field(
-        ..., 
-        description="EMR identifier for the patient",
-        example="EMR12345",
-        alias="emr_id"
-    )
-    encounterPayload: Dict[str, Any] = Field(
-        ..., 
-        description="Full encounter JSON payload. Must contain 'id' or 'encounterId' field to identify the encounter.",
-        example={
-            "id": "550e8400-e29b-41d4-a716-446655440000",
-            "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-            "attributes": {"gender": "male", "ageYears": 69},
-            "chiefComplaints": [{"id": "00f9612e-f37d-451b-9172-25cbddee58a9", "description": "cough"}],
-            "status": "COMPLETE"
-        },
-        alias="encounter_payload"
-    )
-    
-    class Config:
-        populate_by_name = True
-        json_schema_extra = {
-            "example": {
-                "emrId": "EMR12345",
-                "encounterPayload": {
-                    "id": "550e8400-e29b-41d4-a716-446655440000",
-                    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-                    "attributes": {"gender": "male", "ageYears": 69},
-                    "chiefComplaints": [{"id": "00f9612e-f37d-451b-9172-25cbddee58a9", "description": "cough"}],
-                    "status": "COMPLETE"
-                }
-            }
-        }
-
-
-class EncounterResponse(BaseModel):
-    """Response model for encounter records."""
-    emrId: str = Field(
-        ..., 
-        description="EMR identifier for the patient",
-        example="EMR12345",
-        alias="emr_id"
-    )
-    encounterPayload: Dict[str, Any] = Field(
-        ..., 
-        description="Full encounter JSON payload as stored",
-        alias="encounter_payload"
-    )
-    
-    class Config:
-        populate_by_name = True
-        json_schema_extra = {
-            "example": {
-                "emrId": "EMR12345",
-                "encounterPayload": {
-                    "id": "550e8400-e29b-41d4-a716-446655440000",
-                    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-                    "attributes": {"gender": "male", "ageYears": 69},
-                    "chiefComplaints": [{"id": "00f9612e-f37d-451b-9172-25cbddee58a9", "description": "cough"}],
-                    "status": "COMPLETE"
-                }
-            }
-        }
-
-
-# Queue data submission models
-class QueueUpdateRequest(BaseModel):
-    """Request model for updating queue entry."""
-    queue_id: Optional[str] = Field(None, description="Queue identifier (UUID). Either queue_id or encounter_id must be provided.", example="660e8400-e29b-41d4-a716-446655440000")
-    encounter_id: Optional[str] = Field(None, description="Encounter identifier (UUID). Either queue_id or encounter_id must be provided.", example="550e8400-e29b-41d4-a716-446655440000")
-    experityAction: Optional[List[Dict[str, Any]]] = Field(None, description="Array of Experity action objects to store in parsed_payload.")
-    
-    @model_validator(mode='after')
-    def validate_at_least_one_identifier(self):
-        """Ensure at least one identifier is provided."""
-        if not self.queue_id and not self.encounter_id:
-            raise ValueError('Either queue_id or encounter_id must be provided.')
-        return self
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "encounter_id": "550e8400-e29b-41d4-a716-446655440000",
-                "experityAction": [
-                    {
-                        "action": "UPDATE_VITALS",
-                        "data": {
-                            "temperature": 98.6,
-                            "bloodPressure": "120/80"
-                        }
-                    }
-                ]
-            }
-        }
-        extra = "forbid"
-
-
-class QueueStatusUpdateRequest(BaseModel):
-    """Request model for updating queue entry status."""
-    status: str = Field(..., description="New queue status: PENDING, PROCESSING, DONE, or ERROR", example="DONE")
-    errorMessage: Optional[str] = Field(None, description="Error message to store (for ERROR status)", example="Processing failed", alias="error_message")
-    incrementAttempts: Optional[bool] = Field(False, description="Whether to increment the attempts counter", example=False, alias="increment_attempts")
-    experityActions: Optional[Dict[str, Any]] = Field(None, description="Experity actions to store in parsed_payload (for DONE status)", alias="experity_actions")
-    dlq: Optional[bool] = Field(None, description="Mark for Dead Letter Queue (for ERROR status)", example=False)
-    
-    class Config:
-        populate_by_name = True
-        json_schema_extra = {
-            "example": {
-                "status": "DONE",
-                "experityActions": {
-                    "vitals": {},
-                    "complaints": []
-                }
-            }
-        }
-        extra = "forbid"
-
-
-class QueueRequeueRequest(BaseModel):
-    """Request model for requeuing a queue entry."""
-    status: Optional[str] = Field("PENDING", description="New queue status (default: PENDING)", example="PENDING")
-    priority: Optional[str] = Field("HIGH", description="Priority level: HIGH, NORMAL, or LOW", example="HIGH")
-    errorMessage: Optional[str] = Field(None, description="Optional error message", example="Requeued for retry", alias="error_message")
-    
-    class Config:
-        populate_by_name = True
-        json_schema_extra = {
-            "example": {
-                "status": "PENDING",
-                "priority": "HIGH",
-                "errorMessage": "Requeued for retry"
-            }
-        }
-        extra = "forbid"
-
-
-class QueueResponse(BaseModel):
-    """Response model for queue records."""
-    queueId: Optional[str] = Field(
-        None,
-        description="Queue identifier (UUID)",
-        example="660e8400-e29b-41d4-a716-446655440000",
-        alias="queue_id"
-    )
-    emrId: Optional[str] = Field(
-        None,
-        description="EMR identifier for the patient",
-        example="EMR12345",
-        alias="emr_id"
-    )
-    status: str = Field(..., description="Queue status: PENDING, PROCESSING, DONE, or ERROR.")
-    attempts: int = Field(default=0, description="Number of processing attempts.")
-    encounterPayload: Dict[str, Any] = Field(
-        ..., 
-        description="Full encounter JSON payload (raw_payload from queue)",
-        alias="encounter_payload"
-    )
-    
-    class Config:
-        populate_by_name = True
-        json_schema_extra = {
-            "example": {
-                "queueId": "660e8400-e29b-41d4-a716-446655440000",
-                "emrId": "EMR12345",
-                "status": "PENDING",
-                "attempts": 0,
-                "encounterPayload": {
-                    "id": "550e8400-e29b-41d4-a716-446655440000",
-                    "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
-                    "traumaType": "BURN",
-                    "chiefComplaints": [{"id": "00f9612e-f37d-451b-9172-25cbddee58a9", "description": "cough"}],
-                    "status": "COMPLETE"
-                }
-            }
-        }
-        extra = "allow"
-
-
-# Experity mapping endpoint models
-class ExperityMapRequest(BaseModel):
-    """Request model for mapping queue entry to Experity actions via Azure AI.
-    
-    Supports two input formats:
-    1. Queue entry wrapper: {"queue_entry": {"encounter_id": "...", "raw_payload": {...}}}
-    2. Direct encounter object: {"id": "...", "clientId": "...", "attributes": {...}, ...}
-    """
-    queue_entry: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Queue entry wrapper containing either encounter_id or queue_id (optional), and optionally raw_payload (will be fetched from database if not provided)."
-    )
-    
-    # Allow root-level fields for direct encounter format
-    class Config:
-        extra = "allow"
-    
-    @field_validator("queue_entry")
-    @classmethod
-    def validate_queue_entry(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Validate queue entry has required fields if provided.
-        
-        Either encounter_id or queue_id must be provided in queue_entry.
-        raw_payload is optional - if not provided, will be fetched from database.
-        """
-        if v is None:
-            return v
-        
-        if not isinstance(v, dict):
-            raise ValueError("queue_entry must be a dictionary")
-        
-        # Either encounter_id or queue_id must be provided
-        if not v.get("encounter_id") and not v.get("queue_id"):
-            raise ValueError("queue_entry must contain either 'encounter_id' or 'queue_id' field")
-        
-        # raw_payload is optional - will be fetched from DB if not provided
-        # This allows the endpoint to work with GET /queue responses (encounterPayload)
-        
-        return v
-
-
-class ExperityAction(BaseModel):
-    """Model for a single Experity action."""
-    template: str = Field(..., description="Template name.")
-    bodyAreaKey: str = Field(..., description="Body area key.")
-    coordKey: Optional[str] = Field(None, description="Coordinate key.")
-    bodyMapSide: Optional[str] = Field(None, description="Body map side (front/back).")
-    ui: Optional[Dict[str, Any]] = Field(None, description="UI data including bodyMapClick coordinates.")
-    mainProblem: str = Field(..., description="Main problem description.")
-    notesTemplateKey: Optional[str] = Field(None, description="Notes template key.")
-    notesPayload: Optional[Dict[str, Any]] = Field(None, description="Notes payload data.")
-    reasoning: Optional[str] = Field(None, description="Reasoning for the mapping.")
-    
-    class Config:
-        extra = "allow"
-
-
-class ExperityMapResponse(BaseModel):
-    """Response model for Experity mapping endpoint."""
-    success: bool = Field(..., description="Whether the mapping was successful.")
-    data: Optional[Dict[str, Any]] = Field(None, description="Response data containing experityActions.")
-    error: Optional[Dict[str, Any]] = Field(None, description="Error details if success is false.")
-    
-    class Config:
-        extra = "allow"
-
-
-# Summary data submission models
-class SummaryRequest(BaseModel):
-    """Request model for creating or updating a summary record."""
-    emrId: str = Field(
-        ..., 
-        description="EMR identifier for the patient",
-        example="EMR12345",
-        alias="emr_id"
-    )
-    note: str = Field(
-        ..., 
-        description="Summary note text containing clinical information",
-        example="Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days."
-    )
-    
-    class Config:
-        populate_by_name = True
-        json_schema_extra = {
-            "example": {
-                "emrId": "EMR12345",
-                "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days."
-            }
-        }
-    
-    @classmethod
-    def model_json_schema(cls, **kwargs):
-        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
-        # Generate schema with by_alias=False to use field names (camelCase)
-        schema = super().model_json_schema(by_alias=False, **kwargs)
-        return schema
-
-
-class SummaryResponse(BaseModel):
-    """Response model for summary records."""
-    id: int = Field(..., description="Unique identifier for the summary record", example=123)
-    emrId: str = Field(..., description="EMR identifier for the patient", example="EMR12345", alias="emr_id")
-    note: str = Field(..., description="Summary note text", example="Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.")
-    createdAt: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was created", example="2025-11-21T10:30:00Z", alias="created_at")
-    updatedAt: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was last updated", example="2025-11-21T10:30:00Z", alias="updated_at")
-    
-    class Config:
-        populate_by_name = True
-        json_schema_extra = {
-            "example": {
-                "id": 123,
-                "emrId": "EMR12345",
-                "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.",
-                "createdAt": "2025-11-21T10:30:00Z",
-                "updatedAt": "2025-11-21T10:30:00Z"
-            }
-        }
-        extra = "allow"
-    
-    @classmethod
-    def model_json_schema(cls, **kwargs):
-        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
-        # Generate schema with by_alias=False to use field names (camelCase) matching model_dump(by_alias=False)
-        schema = super().model_json_schema(by_alias=False, **kwargs)
-        return schema
-
-
-class VmHeartbeatRequest(BaseModel):
-    """Request model for VM heartbeat."""
-    vmId: str = Field(
-        ..., 
-        description="VM identifier",
-        example="vm-worker-1",
-        alias="vm_id"
-    )
-    status: str = Field(
-        ..., 
-        description="VM status: healthy, unhealthy, or idle",
-        example="healthy",
-    )
-    processingQueueId: Optional[str] = Field(
-        None,
-        description="Optional queue ID that the VM is currently processing",
-        example="660e8400-e29b-41d4-a716-446655440000",
-        alias="processing_queue_id"
-    )
-    
-    class Config:
-        populate_by_name = True
-        json_schema_extra = {
-            "example": {
-                "vmId": "vm-worker-1",
-                "status": "healthy",
-                "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
-            }
-        }
-        extra = "forbid"
-
-
-class VmHeartbeatResponse(BaseModel):
-    """Response model for VM heartbeat."""
-    success: bool = Field(..., description="Whether the heartbeat was processed successfully", example=True)
-    vmId: str = Field(..., description="VM identifier", example="vm-worker-1", alias="vm_id")
-    lastHeartbeat: str = Field(..., description="ISO 8601 timestamp of the last heartbeat", example="2025-01-21T10:30:00Z", alias="last_heartbeat")
-    status: str = Field(..., description="Current VM status", example="healthy")
-    
-    class Config:
-        populate_by_name = True
-        json_schema_extra = {
-            "example": {
-                "success": True,
-                "vmId": "vm-worker-1",
-                "lastHeartbeat": "2025-01-21T10:30:00Z",
-                "status": "healthy"
-            }
-        }
-        extra = "allow"
-
-
-# Token generation endpoint removed - HMAC authentication only
-# Clients authenticate each request using HMAC signatures
+# Import from new modules
+from app.api.models import (
+    PatientPayload,
+    PatientCreateRequest,
+    PatientBatchRequest,
+    StatusUpdateRequest,
+    EncounterCreateRequest,
+    EncounterResponse,
+    QueueUpdateRequest,
+    QueueStatusUpdateRequest,
+    QueueRequeueRequest,
+    QueueResponse,
+    ExperityMapRequest,
+    ExperityAction,
+    ExperityMapResponse,
+    SummaryRequest,
+    SummaryResponse,
+    VmHeartbeatRequest,
+    VmHeartbeatResponse,
+    ImageUploadResponse,
+)
+from app.api.utils import (
+    normalize_status,
+    parse_datetime,
+    expand_status_shortcuts,
+    ensure_client_location_access,
+    resolve_location_id,
+    use_remote_api_for_reads,
+    fetch_locations,
+    fetch_remote_patients,
+    DEFAULT_STATUSES,
+)
+from app.api.database import (
+    get_db_connection,
+    fetch_pending_records,
+    fetch_confirmed_records,
+    save_encounter,
+    save_queue,
+    save_summary,
+    save_vm_health,
+    get_summary_by_emr_id,
+    create_queue_from_encounter,
+    update_queue_status_and_experity_action,
+    format_patient_record,
+)
+from app.api.services import (
+    build_patient_payload,
+    decorate_patient_payload,
+    format_encounter_response,
+    format_queue_response,
+    format_summary_response,
+    prepare_dashboard_patients,
+    fetch_pending_payloads,
+    filter_patients_by_search,
+    get_local_patients,
+    filter_within_24h,
+)
+
+# ============================================================================
+# ROUTE HANDLERS
+# ============================================================================
 
 
 @app.get(
@@ -2128,6 +441,181 @@ async def root(
             finally:
                 cursor.close()
                 conn.close()
+
+        # Calculate pagination
+        total_count = len(all_patients)
+        total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+        current_page = min(page, total_pages) if total_pages > 0 else 1
+        
+        # Apply pagination
+        start_idx = (current_page - 1) * page_size
+        end_idx = start_idx + page_size
+        patients = all_patients[start_idx:end_idx]
+
+        status_summary: Dict[str, int] = {}
+        for patient in patients:
+            status = patient.get("status_class") or "unknown"
+            status_summary[status] = status_summary.get(status, 0) + 1
+
+        # Create response with no-cache headers to prevent back button showing cached page
+        response = templates.TemplateResponse(
+            "patients_table.html",
+            {
+                "request": request,
+                "patients": patients,
+                "location_id": normalized_location_id,
+                "selected_statuses": normalized_statuses,
+                "search": search_query or "",
+                "page": current_page,
+                "page_size": page_size,
+                "total_count": total_count,
+                "total_pages": total_pages,
+                "locations": locations,
+                "default_statuses": DEFAULT_STATUSES,
+                "status_summary": status_summary,
+                "current_user": current_user,
+            },
+        )
+        
+        # Add cache-control headers to prevent browser caching after logout
+        # Use no-cache instead of no-store to allow history navigation while preventing stale cache
+        response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+
+
+# Remove all the duplicate functions and models below - they've been moved to separate modules
+# Keeping only the route handlers from here on
+
+# Token generation endpoint removed - HMAC authentication only
+# Clients authenticate each request using HMAC signatures
+
+
+# Duplicate models and functions removed - now imported from:
+# - app.api.models (all BaseModel classes)
+# - app.api.utils (utility functions)
+# - app.api.database (database functions)
+# - app.api.services (service/business logic functions)
+
+
+@app.get(
+    "/",
+    summary="Render the patient dashboard",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    responses={
+        200: {
+            "content": {"text/html": {"example": "<!-- HTML dashboard rendered via Jinja template -->"}},
+            "description": "HTML table view of the patient queue filtered by the supplied query parameters.",
+        },
+        303: {"description": "Redirect to login page if not authenticated."},
+        500: {"description": "Server error while fetching patient data from remote API."},
+    },
+)
+async def root(
+    request: Request,
+    locationId: Optional[str] = Query(
+        default=None,
+        alias="locationId",
+        description=(
+            "Location identifier to filter patients by. Required unless DEFAULT_LOCATION_ID env var is set."
+        ),
+    ),
+    statuses: Optional[List[str]] = Query(
+        default=None,
+        alias="statuses",
+        description="Filter patients by status. Provide multiple values by repeating the query parameter."
+    ),
+    search: Optional[str] = Query(
+        default=None,
+        alias="search",
+        description="Search patients by name, EMR ID, or phone number."
+    ),
+    page: Optional[int] = Query(
+        default=1,
+        ge=1,
+        alias="page",
+        description="Page number for pagination (starts at 1)."
+    ),
+    page_size: Optional[int] = Query(
+        default=25,
+        ge=1,
+        le=100,
+        alias="page_size",
+        description="Number of records per page (1-100)."
+    ),
+    current_user: dict = Depends(require_auth),
+):
+    """
+    Render the patient queue dashboard as HTML.
+
+    Uses the remote production API when location filtering is available;
+    otherwise falls back to the local database.
+    """
+    # Normalize locationId: convert empty strings to None
+    # FastAPI may receive empty string from form submission, normalize it to None
+    normalized_location_id = resolve_location_id(locationId, required=False)
+    
+    if statuses is None:
+        normalized_statuses = DEFAULT_STATUSES.copy()
+    else:
+        # First expand any shortcuts like 'active'
+        expanded_statuses = expand_status_shortcuts(statuses)
+        normalized_statuses = [
+            normalize_status(status)
+            for status in expanded_statuses
+            if isinstance(status, str)
+        ]
+        normalized_statuses = [status for status in normalized_statuses if status]
+        if not normalized_statuses:
+            normalized_statuses = DEFAULT_STATUSES.copy()
+
+    # Normalize search query
+    search_query = search.strip() if search and isinstance(search, str) and search.strip() else None
+
+    try:
+        use_remote_reads = use_remote_api_for_reads()
+        if use_remote_reads and normalized_location_id:
+            # Fetch patients directly from production API
+            all_patients = await fetch_remote_patients(normalized_location_id, normalized_statuses, None)
+            
+            # Apply search filter if provided
+            if search_query:
+                all_patients = filter_patients_by_search(all_patients, search_query)
+
+            # Location dropdown is limited to the current location in remote mode
+            locations = [
+                {
+                    "location_id": normalized_location_id,
+                    "location_name": None,
+                }
+            ]
+        else:
+            conn = get_db_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            try:
+                all_patients = get_local_patients(cursor, normalized_location_id, normalized_statuses, None)
+                
+                # Apply search filter if provided
+                if search_query:
+                    all_patients = filter_patients_by_search(all_patients, search_query)
+                
+                locations = fetch_locations(cursor)
+            finally:
+                cursor.close()
+                conn.close()
+    except Exception as e:
+        logger.error(f"Error fetching patients: {str(e)}")
+        raise
 
         # Calculate pagination
         total_count = len(all_patients)
@@ -4945,3 +3433,213 @@ async def check_blob_storage_status(
         "max_size_bytes": MAX_IMAGE_SIZE,
         "max_size_mb": MAX_IMAGE_SIZE / (1024 * 1024)
     }
+
+
+def sanitize_blob_name(blob_name: str) -> str:
+    """
+    Sanitize blob name to prevent path traversal attacks.
+    
+    Removes any path traversal sequences and limits to safe characters.
+    
+    Args:
+        blob_name: The blob name from the URL path
+        
+    Returns:
+        Sanitized blob name
+        
+    Raises:
+        HTTPException: If blob name contains invalid characters or path traversal attempts
+    """
+    # Check for path traversal attempts (before normalization)
+    if ".." in blob_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid blob name: path traversal not allowed"
+        )
+    
+    # Remove leading/trailing slashes and normalize
+    blob_name = blob_name.strip("/")
+    
+    # Check if path was normalized to something outside our container
+    # After normalization, paths like ../../../etc/passwd might become etc/passwd
+    # We should reject anything that doesn't look like a valid blob path
+    if not blob_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Blob name cannot be empty"
+        )
+    
+    # Check for absolute paths or paths that might escape the container
+    if blob_name.startswith("/") or "//" in blob_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid blob name: absolute paths not allowed"
+        )
+    
+    # Check for invalid characters (allow alphanumeric, dots, hyphens, underscores, and forward slashes for folder paths)
+    # But prevent any attempts at escaping or special characters
+    if any(c in blob_name for c in ['\\', '\0', '\r', '\n', '\t']):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid blob name: contains invalid characters"
+        )
+    
+    # Additional check: reject common system paths that might have been normalized
+    dangerous_paths = ['etc', 'usr', 'var', 'sys', 'proc', 'dev', 'root', 'home', 'bin', 'sbin']
+    first_part = blob_name.split('/')[0].lower()
+    if first_part in dangerous_paths and '/' not in blob_name.replace(first_part, '', 1):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid blob name: path traversal not allowed"
+        )
+    
+    return blob_name
+
+
+def get_content_type_from_blob_name(blob_name: str) -> str:
+    """
+    Determine content type from blob file extension.
+    
+    Args:
+        blob_name: The blob name
+        
+    Returns:
+        MIME type string (defaults to image/jpeg if unknown)
+    """
+    blob_name_lower = blob_name.lower()
+    
+    if blob_name_lower.endswith('.jpg') or blob_name_lower.endswith('.jpeg'):
+        return "image/jpeg"
+    elif blob_name_lower.endswith('.png'):
+        return "image/png"
+    elif blob_name_lower.endswith('.gif'):
+        return "image/gif"
+    elif blob_name_lower.endswith('.webp'):
+        return "image/webp"
+    else:
+        # Default to JPEG if extension is unknown
+        return "image/jpeg"
+
+
+@app.get(
+    "/images/{blob_name:path}",
+    tags=["Images"],
+    summary="View an image",
+    description="""
+Retrieve and view an image from Azure Blob Storage via proxy.
+
+**Authentication:** Uses HMAC authentication (X-Timestamp and X-Signature headers).
+
+**Path parameter:**
+- `blob_name`: The name of the blob in the container (can include folder paths like `encounters/123/image.jpg`)
+
+**Returns:** The image file streamed from Azure Blob Storage.
+    """,
+    responses={
+        200: {
+            "description": "Image retrieved successfully",
+            "content": {
+                "image/jpeg": {},
+                "image/png": {},
+                "image/gif": {},
+                "image/webp": {},
+            }
+        },
+        400: {"description": "Invalid blob name"},
+        401: {"description": "Authentication required"},
+        404: {"description": "Image not found"},
+        503: {"description": "Azure Blob Storage not configured"},
+    }
+)
+async def view_image(
+    blob_name: str,
+    _auth: TokenData = Depends(get_current_client) if AUTH_ENABLED else Depends(lambda: None)
+):
+    """
+    Proxy endpoint to view images from Azure Blob Storage.
+    
+    This endpoint fetches the image from Azure and streams it back to the client.
+    The blob name can include folder paths (e.g., 'encounters/123/image.jpg').
+    """
+    # Check if Azure Blob Storage is available
+    if not AZURE_BLOB_AVAILABLE or not container_client:
+        raise HTTPException(
+            status_code=503,
+            detail="Azure Blob Storage is not configured. Please set AZURE_STORAGE_CONNECTION_STRING environment variable."
+        )
+    
+    # Sanitize blob name to prevent path traversal attacks
+    try:
+        sanitized_blob_name = sanitize_blob_name(blob_name)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid blob name: {str(e)}"
+        )
+    
+    # Get blob client
+    try:
+        blob_client = container_client.get_blob_client(sanitized_blob_name)
+        
+        # Check if blob exists
+        if not blob_client.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Image not found: '{sanitized_blob_name}'"
+            )
+        
+        # Get blob properties to determine content type
+        blob_properties = blob_client.get_blob_properties()
+        content_type = blob_properties.content_settings.content_type
+        
+        # If content type is not set or is generic, try to infer from filename
+        if not content_type or content_type == "application/octet-stream":
+            content_type = get_content_type_from_blob_name(sanitized_blob_name)
+        
+        # Download blob content
+        blob_data = blob_client.download_blob()
+        
+        # Create a generator function to stream the blob
+        def generate():
+            try:
+                # Stream the blob in chunks
+                chunk_size = 8192  # 8KB chunks
+                while True:
+                    chunk = blob_data.read(chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
+            except Exception as e:
+                logger.error(f"Error streaming blob {sanitized_blob_name}: {str(e)}")
+                raise
+        
+        # Return streaming response with proper headers
+        return StreamingResponse(
+            generate(),
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{sanitized_blob_name.split("/")[-1]}"',
+                "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+            }
+        )
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 404)
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve image '{sanitized_blob_name}': {str(e)}")
+        
+        # Check if it's a 404 error from Azure
+        error_msg = str(e).lower()
+        if "not found" in error_msg or "404" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Image not found: '{sanitized_blob_name}'"
+            )
+        
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve image: {str(e)}"
+        )
