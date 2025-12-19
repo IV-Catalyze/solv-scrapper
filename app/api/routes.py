@@ -77,9 +77,9 @@ from pathlib import Path
 
 from app.utils.api_client import get_api_token
 
-# Import Azure AI client
+# Import Azure AI client (using SDK-based implementation)
 try:
-    from app.utils.azure_ai_client import (
+    from app.utils.azure_ai_agent_client import (
         call_azure_ai_agent,
         AzureAIClientError,
         AzureAIAuthenticationError,
@@ -90,7 +90,7 @@ try:
     )
     AZURE_AI_AVAILABLE = True
 except ImportError:
-    print("Warning: azure_ai_client.py not found. Experity mapping endpoint will not work.")
+    print("Warning: azure_ai_agent_client.py not found. Experity mapping endpoint will not work.")
     call_azure_ai_agent = None
     AZURE_AI_AVAILABLE = False
     AzureAIClientError = Exception
@@ -98,6 +98,7 @@ except ImportError:
     AzureAIRateLimitError = Exception
     AzureAITimeoutError = Exception
     AzureAIResponseError = Exception
+    REQUEST_TIMEOUT = 120
 
 # Note: parse_encounter_payload and validate_encounter_payload are no longer used
 # The endpoint now accepts only emrId and encounterPayload directly
