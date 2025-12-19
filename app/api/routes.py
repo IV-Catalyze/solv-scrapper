@@ -1299,6 +1299,7 @@ def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[st
             )
     
     # Extract chief_complaints and trauma_type from encounter_payload for parsed_payload
+    # Check both camelCase and snake_case versions
     chief_complaints = raw_payload.get('chiefComplaints') or raw_payload.get('chief_complaints', [])
     trauma_type = raw_payload.get('traumaType') or raw_payload.get('trauma_type')
     
@@ -1306,6 +1307,35 @@ def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[st
     if not isinstance(chief_complaints, list):
         logger.warning(f"chief_complaints is not a list for encounter {encounter_id}, converting to empty list")
         chief_complaints = []
+    
+    # CRITICAL: Ensure chiefComplaints is always present in raw_payload for queue entry
+    # This ensures UiPath and other consumers can always access chiefComplaints
+    # Use camelCase (chiefComplaints) as the standard format
+    if 'chiefComplaints' not in raw_payload and 'chief_complaints' not in raw_payload:
+        logger.warning(
+            f"chiefComplaints missing from encounter {encounter_id} payload. "
+            f"Adding empty array to ensure field is always present."
+        )
+        raw_payload['chiefComplaints'] = chief_complaints
+    elif 'chiefComplaints' not in raw_payload and 'chief_complaints' in raw_payload:
+        # Convert snake_case to camelCase for consistency
+        raw_payload['chiefComplaints'] = raw_payload.pop('chief_complaints')
+        logger.info(f"Converted chief_complaints to chiefComplaints for encounter {encounter_id}")
+    elif 'chiefComplaints' in raw_payload:
+        # Ensure it's the correct type
+        if not isinstance(raw_payload['chiefComplaints'], list):
+            logger.warning(
+                f"chiefComplaints in raw_payload is not a list for encounter {encounter_id}, "
+                f"replacing with validated list"
+            )
+            raw_payload['chiefComplaints'] = chief_complaints
+    
+    # Log if chiefComplaints is empty (for debugging)
+    if len(chief_complaints) == 0:
+        logger.warning(
+            f"encounter {encounter_id} has empty chiefComplaints array. "
+            f"This may indicate an issue with encounter creation."
+        )
     
     # Create parsed_payload structure with experityAction set to empty array
     parsed_payload = {
