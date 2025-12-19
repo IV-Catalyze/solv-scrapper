@@ -23,7 +23,7 @@ import os
 import json
 import logging
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TYPE_CHECKING
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,6 +41,14 @@ try:
     AZURE_SDK_AVAILABLE = True
 except ImportError as e:
     AZURE_SDK_AVAILABLE = False
+    # Define dummy types for type hints when SDK is not available
+    AgentsClient = Any
+    AsyncAgentsClient = Any
+    MessageRole = Any
+    DefaultAzureCredential = Any
+    ClientSecretCredential = Any
+    HttpResponseError = Exception
+    HttpRequest = Any
     logging.warning(f"Azure SDK not available: {e}. Install with: pip install azure-ai-agents azure-identity")
 
 logger = logging.getLogger(__name__)
@@ -468,7 +476,7 @@ class AzureAIAgentClient:
         return DefaultAzureCredential()
     
     @property
-    def client(self) -> AgentsClient:
+    def client(self) -> "AgentsClient":
         """Get or create the Agents client."""
         if self._client is None:
             try:
@@ -761,7 +769,7 @@ class AsyncAzureAIAgentClient:
         return DefaultAzureCredential()
     
     @property
-    def client(self) -> AsyncAgentsClient:
+    def client(self) -> "AsyncAgentsClient":
         if self._client is None:
             self._client = AsyncAgentsClient(
                 credential=self._credential,
