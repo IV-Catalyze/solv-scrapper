@@ -285,12 +285,22 @@ class ExperityMapRequest(BaseModel):
     """Request model for mapping queue entry to Experity actions via Azure AI.
     
     Supports two input formats:
-    1. Queue entry wrapper: {"queue_entry": {"encounter_id": "...", "raw_payload": {...}}}
+    1. Queue entry wrapper: 
+       - snake_case: {"queue_entry": {"encounter_id": "...", "queue_id": "...", "raw_payload": {...}}}
+       - camelCase: {"queue_entry": {"encounterId": "...", "queueId": "...", "encounterPayload": {...}}}
+       - Mixed: {"queue_entry": {"queueId": "...", "encounterPayload": {"id": "..."}}}
     2. Direct encounter object: {"id": "...", "clientId": "...", "attributes": {...}, ...}
+    
+    Field name variants supported:
+    - queue_id / queueId
+    - encounter_id / encounterId / encounterPayload.id
+    - raw_payload / rawPayload / encounterPayload
     """
     queue_entry: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="Queue entry wrapper containing either encounter_id or queue_id (optional), and optionally raw_payload (will be fetched from database if not provided)."
+        description="Queue entry wrapper. Supports both snake_case and camelCase field names. "
+                   "Must contain either encounter_id/encounterId/encounterPayload.id or queue_id/queueId. "
+                   "Optionally includes raw_payload/rawPayload/encounterPayload (will be fetched from database if not provided)."
     )
     
     # Allow root-level fields for direct encounter format
@@ -302,8 +312,9 @@ class ExperityMapRequest(BaseModel):
     def validate_queue_entry(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """Validate queue entry has required fields if provided.
         
-        Either encounter_id or queue_id must be provided in queue_entry.
-        raw_payload is optional - if not provided, will be fetched from database.
+        Either encounter_id/encounterId or queue_id/queueId must be provided in queue_entry.
+        Also supports encounterPayload.id as a source for encounter_id.
+        raw_payload/rawPayload/encounterPayload is optional - if not provided, will be fetched from database.
         """
         if v is None:
             return v
@@ -311,9 +322,28 @@ class ExperityMapRequest(BaseModel):
         if not isinstance(v, dict):
             raise ValueError("queue_entry must be a dictionary")
         
-        # Either encounter_id or queue_id must be provided
-        if not v.get("encounter_id") and not v.get("queue_id"):
-            raise ValueError("queue_entry must contain either 'encounter_id' or 'queue_id' field")
+        # Check for queue_id or queueId (snake_case or camelCase)
+        has_queue_id = v.get("queue_id") or v.get("queueId")
+        
+        # Check for encounter_id or encounterId (snake_case or camelCase)
+        has_encounter_id = v.get("encounter_id") or v.get("encounterId")
+        
+        # Also check if encounterPayload.id exists (common from GET /queue responses)
+        if not has_encounter_id:
+            encounter_payload = v.get("encounterPayload") or v.get("encounter_payload")
+            if encounter_payload and isinstance(encounter_payload, dict):
+                has_encounter_id = (
+                    encounter_payload.get("id") or 
+                    encounter_payload.get("encounterId") or 
+                    encounter_payload.get("encounter_id")
+                )
+        
+        # Either encounter_id or queue_id must be provided (in any supported format)
+        if not has_encounter_id and not has_queue_id:
+            raise ValueError(
+                "queue_entry must contain either 'encounter_id'/'encounterId' or 'queue_id'/'queueId' "
+                "(or 'encounterPayload.id' for encounter identifier)"
+            )
         
         # raw_payload is optional - will be fetched from DB if not provided
         # This allows the endpoint to work with GET /queue responses (encounterPayload)

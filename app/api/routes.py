@@ -427,9 +427,9 @@ async def root(
                     "location_name": None,
                 }
             ]
-        else:
+    else:
             conn = get_db_connection()
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
             try:
                 all_patients = get_local_patients(cursor, normalized_location_id, normalized_statuses, None)
                 
@@ -438,8 +438,8 @@ async def root(
                     all_patients = filter_patients_by_search(all_patients, search_query)
                 
                 locations = fetch_locations(cursor)
-            finally:
-                cursor.close()
+    finally:
+        cursor.close()
                 conn.close()
 
         # Calculate pagination
@@ -2775,10 +2775,32 @@ async def map_queue_to_experity(
     is_direct_encounter = request_data.queue_entry is None
     if not is_direct_encounter:
         # Format 1: Queue Entry Wrapper
+        # Support both camelCase and snake_case field names
         queue_entry = request_data.queue_entry
-        queue_id = queue_entry.get("queue_id")
-        encounter_id = queue_entry.get("encounter_id")
-        raw_payload = queue_entry.get("raw_payload")
+        
+        # Extract queue_id (support both queue_id and queueId)
+        queue_id = queue_entry.get("queue_id") or queue_entry.get("queueId")
+        
+        # Extract encounter_id (support both encounter_id and encounterId)
+        encounter_id = queue_entry.get("encounter_id") or queue_entry.get("encounterId")
+        
+        # If encounter_id not found, try extracting from encounterPayload.id or encounterPayload
+        if not encounter_id:
+            encounter_payload = queue_entry.get("encounterPayload") or queue_entry.get("encounter_payload")
+            if encounter_payload and isinstance(encounter_payload, dict):
+                encounter_id = (
+                    encounter_payload.get("id") or 
+                    encounter_payload.get("encounterId") or 
+                    encounter_payload.get("encounter_id")
+                )
+        
+        # Extract raw_payload (support both raw_payload, rawPayload, encounterPayload, and encounter_payload)
+        raw_payload = (
+            queue_entry.get("raw_payload") or 
+            queue_entry.get("rawPayload") or
+            queue_entry.get("encounterPayload") or
+            queue_entry.get("encounter_payload")
+        )
     else:
         # Format 2: Direct Encounter Object
         # Treat the entire request body as the encounter data
@@ -2801,14 +2823,14 @@ async def map_queue_to_experity(
     
     try:
         # Validate we have encounter data
-        # For queue_entry format: need encounter_id or queue_id
+        # For queue_entry format: need encounter_id or queue_id (supports both camelCase and snake_case)
         # For direct encounter format: need id field
         if not encounter_id and not queue_id:
             return ExperityMapResponse(
                 success=False,
                 error={
                     "code": "VALIDATION_ERROR",
-                    "message": "Request must contain either: (1) queue_entry with 'encounter_id' or 'queue_id', or (2) direct encounter object with 'id' field"
+                    "message": "Request must contain either: (1) queue_entry with 'encounter_id'/'encounterId' or 'queue_id'/'queueId' (or 'encounterPayload.id'), or (2) direct encounter object with 'id' field"
                 }
             )
         
