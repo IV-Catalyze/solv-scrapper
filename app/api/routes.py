@@ -508,167 +508,6 @@ async def root(
 
 
 @app.get(
-    "/",
-    summary="Render the patient dashboard",
-    response_class=HTMLResponse,
-    include_in_schema=False,
-    responses={
-        200: {
-            "content": {"text/html": {"example": "<!-- HTML dashboard rendered via Jinja template -->"}},
-            "description": "HTML table view of the patient queue filtered by the supplied query parameters.",
-        },
-        303: {"description": "Redirect to login page if not authenticated."},
-        500: {"description": "Server error while fetching patient data from remote API."},
-    },
-)
-async def root(
-    request: Request,
-    locationId: Optional[str] = Query(
-        default=None,
-        alias="locationId",
-        description=(
-            "Location identifier to filter patients by. Required unless DEFAULT_LOCATION_ID env var is set."
-        ),
-    ),
-    statuses: Optional[List[str]] = Query(
-        default=None,
-        alias="statuses",
-        description="Filter patients by status. Provide multiple values by repeating the query parameter."
-    ),
-    search: Optional[str] = Query(
-        default=None,
-        alias="search",
-        description="Search patients by name, EMR ID, or phone number."
-    ),
-    page: Optional[int] = Query(
-        default=1,
-        ge=1,
-        alias="page",
-        description="Page number for pagination (starts at 1)."
-    ),
-    page_size: Optional[int] = Query(
-        default=25,
-        ge=1,
-        le=100,
-        alias="page_size",
-        description="Number of records per page (1-100)."
-    ),
-    current_user: dict = Depends(require_auth),
-):
-    """
-    Render the patient queue dashboard as HTML.
-
-    Uses the remote production API when location filtering is available;
-    otherwise falls back to the local database.
-    """
-    # Normalize locationId: convert empty strings to None
-    # FastAPI may receive empty string from form submission, normalize it to None
-    normalized_location_id = resolve_location_id(locationId, required=False)
-    
-    if statuses is None:
-        normalized_statuses = DEFAULT_STATUSES.copy()
-    else:
-        # First expand any shortcuts like 'active'
-        expanded_statuses = expand_status_shortcuts(statuses)
-        normalized_statuses = [
-            normalize_status(status)
-            for status in expanded_statuses
-            if isinstance(status, str)
-        ]
-        normalized_statuses = [status for status in normalized_statuses if status]
-        if not normalized_statuses:
-            normalized_statuses = DEFAULT_STATUSES.copy()
-
-    # Normalize search query
-    search_query = search.strip() if search and isinstance(search, str) and search.strip() else None
-
-    try:
-        use_remote_reads = use_remote_api_for_reads()
-        if use_remote_reads and normalized_location_id:
-            # Fetch patients directly from production API
-            all_patients = await fetch_remote_patients(normalized_location_id, normalized_statuses, None)
-            
-            # Apply search filter if provided
-            if search_query:
-                all_patients = filter_patients_by_search(all_patients, search_query)
-
-            # Location dropdown is limited to the current location in remote mode
-            locations = [
-                {
-                    "location_id": normalized_location_id,
-                    "location_name": None,
-                }
-            ]
-        else:
-            conn = get_db_connection()
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            try:
-                all_patients = get_local_patients(cursor, normalized_location_id, normalized_statuses, None)
-                
-                # Apply search filter if provided
-                if search_query:
-                    all_patients = filter_patients_by_search(all_patients, search_query)
-                
-                locations = fetch_locations(cursor)
-            finally:
-                cursor.close()
-                conn.close()
-    except Exception as e:
-        logger.error(f"Error fetching patients: {str(e)}")
-        raise
-
-        # Calculate pagination
-        total_count = len(all_patients)
-        total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
-        current_page = min(page, total_pages) if total_pages > 0 else 1
-        
-        # Apply pagination
-        start_idx = (current_page - 1) * page_size
-        end_idx = start_idx + page_size
-        patients = all_patients[start_idx:end_idx]
-
-        status_summary: Dict[str, int] = {}
-        for patient in patients:
-            status = patient.get("status_class") or "unknown"
-            status_summary[status] = status_summary.get(status, 0) + 1
-
-        # Create response with no-cache headers to prevent back button showing cached page
-        response = templates.TemplateResponse(
-            "patients_table.html",
-            {
-                "request": request,
-                "patients": patients,
-                "location_id": normalized_location_id,
-                "selected_statuses": normalized_statuses,
-                "search": search_query or "",
-                "page": current_page,
-                "page_size": page_size,
-                "total_count": total_count,
-                "total_pages": total_pages,
-                "locations": locations,
-                "default_statuses": DEFAULT_STATUSES,
-                "status_summary": status_summary,
-                "current_user": current_user,
-            },
-        )
-        
-        # Add cache-control headers to prevent browser caching after logout
-        # Use no-cache instead of no-store to allow history navigation while preventing stale cache
-        response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
-        
-        return response
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error: {str(e)}"
-        )
-
-
-@app.get(
     "/experity/chat",
     summary="Experity Mapper Chat UI",
     response_class=HTMLResponse,
@@ -2971,13 +2810,15 @@ async def map_queue_to_experity(
                 break
             except AzureAIAuthenticationError as e:
                 # Authentication errors should not be retried
-                logger.error(f"Azure AI authentication error: {str(e)}")
+                error_message = str(e)
+                logger.error(f"Azure AI authentication error: {error_message}")
                 error_response = ExperityMapResponse(
                     success=False,
                     error={
                         "code": "AZURE_AI_AUTH_ERROR",
                         "message": "Failed to authenticate with Azure AI. Please check Azure credentials configuration.",
                         "details": {
+                            "azure_ai_error": error_message,  # Include actual Azure AI error message
                             "suggestion": "Verify Azure credentials are properly configured and have access to the Azure AI service"
                         }
                     }
@@ -3090,7 +2931,8 @@ async def map_queue_to_experity(
             except (AzureAIResponseError, AzureAIClientError) as e:
                 # Response/Client errors can be retried (e.g., JSON parsing errors, incomplete responses)
                 last_endpoint_error = e
-                logger.error(f"Azure AI error: {str(e)}")
+                error_message = str(e)
+                logger.error(f"Azure AI error: {error_message}")
                 if endpoint_attempt < endpoint_max_retries - 1:
                     wait_time = endpoint_retry_delay * (endpoint_attempt + 1)
                     logger.warning(
@@ -3109,6 +2951,7 @@ async def map_queue_to_experity(
                         "details": {
                             "attempts": endpoint_max_retries,
                             "error_type": error_type,
+                            "azure_ai_error": error_message,  # Include actual Azure AI error message
                             "suggestion": "Retry the request or check Azure AI service status"
                         }
                     }
