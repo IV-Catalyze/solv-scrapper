@@ -7,11 +7,16 @@ import os
 import sys
 import asyncio
 import random
+import uuid
+import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
 try:
-    from fastapi import FastAPI, HTTPException, Query, Request, Depends, Path, Body
+    from fastapi import FastAPI, HTTPException, Query, Request, Depends, Path, Body, UploadFile, File
     from fastapi.responses import HTMLResponse, JSONResponse
     from fastapi.templating import Jinja2Templates
     from pydantic import BaseModel, Field, field_validator, model_validator
@@ -96,6 +101,42 @@ except ImportError:
 # Note: parse_encounter_payload and validate_encounter_payload are no longer used
 # The endpoint now accepts only emrId and encounterPayload directly
 
+# Import Azure Blob Storage for image uploads
+try:
+    from azure.storage.blob import BlobServiceClient, ContentSettings
+    AZURE_BLOB_AVAILABLE = True
+except ImportError:
+    print("Warning: azure-storage-blob not installed. Image upload endpoint will not work.")
+    BlobServiceClient = None
+    ContentSettings = None
+    AZURE_BLOB_AVAILABLE = False
+
+# Azure Blob Storage configuration
+AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+AZURE_STORAGE_CONTAINER_NAME = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "images")
+
+# Initialize Azure Blob client
+blob_service_client = None
+container_client = None
+if AZURE_BLOB_AVAILABLE and AZURE_STORAGE_CONNECTION_STRING:
+    try:
+        blob_service_client = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
+        container_client = blob_service_client.get_container_client(AZURE_STORAGE_CONTAINER_NAME)
+        print(f"Azure Blob Storage initialized. Container: {AZURE_STORAGE_CONTAINER_NAME}")
+    except Exception as e:
+        print(f"Warning: Failed to initialize Azure Blob Storage: {e}")
+        blob_service_client = None
+        container_client = None
+
+# Allowed image MIME types
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
+
 # Import patient saving functions
 try:
     from app.database.utils import normalize_patient_record
@@ -141,6 +182,10 @@ All API endpoints require **HMAC-SHA256 authentication** via `X-Timestamp` and `
         {
             "name": "VM",
             "description": "Manage VM health and heartbeat tracking. Monitor VM worker status and processing queue assignments."
+        },
+        {
+            "name": "Images",
+            "description": "Upload and manage images. Store images in Azure Blob Storage with secure access."
         },
     ],
 )
@@ -1321,9 +1366,14 @@ def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
     
     # Format response using snake_case keys (matching format_encounter_response pattern)
     # FastAPI will serialize using field names (camelCase) via response_model
+    # Handle emr_id - convert to string if present, otherwise keep as None
+    emr_id = record.get('emr_id')
+    if emr_id is not None:
+        emr_id = str(emr_id)
+    
     formatted = {
         'queue_id': queue_id,
-        'emr_id': record.get('emr_id', ''),
+        'emr_id': emr_id,
         'status': record.get('status', 'PENDING'),
         'attempts': record.get('attempts', 0),
         'encounter_payload': raw_payload,
@@ -1724,8 +1774,8 @@ class QueueResponse(BaseModel):
         example="660e8400-e29b-41d4-a716-446655440000",
         alias="queue_id"
     )
-    emrId: str = Field(
-        ..., 
+    emrId: Optional[str] = Field(
+        None,
         description="EMR identifier for the patient",
         example="EMR12345",
         alias="emr_id"
@@ -4663,3 +4713,205 @@ async def map_queue_to_experity(
                 conn.close()
             except Exception:
                 pass
+
+
+# ============================================================================
+# IMAGE UPLOAD ENDPOINTS
+# ============================================================================
+
+class ImageUploadResponse(BaseModel):
+    """Response model for image upload."""
+    success: bool
+    image_url: Optional[str] = None
+    blob_name: Optional[str] = None
+    content_type: Optional[str] = None
+    size: Optional[int] = None
+    error: Optional[str] = None
+
+
+async def verify_image_upload_auth(request: Request) -> bool:
+    """
+    Verify authentication for image uploads using X-API-Key header.
+    
+    Note: HMAC authentication doesn't work with multipart file uploads because
+    the request body can only be read once, and FastAPI consumes it for file parsing.
+    Instead, we use a simple API key check for image uploads.
+    """
+    api_key = request.headers.get("X-API-Key")
+    
+    # Check if API key matches any configured HMAC secret (reuse existing secrets)
+    if not api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="X-API-Key header required for image uploads",
+            headers={"WWW-Authenticate": "API-Key"}
+        )
+    
+    # Verify against configured HMAC secrets
+    from app.config.intellivisit_clients import INTELLIVISIT_CLIENTS
+    
+    for client_cfg in INTELLIVISIT_CLIENTS.values():
+        secret = client_cfg.get("hmac_secret_key")
+        if secret and api_key == secret:
+            return True
+    
+    raise HTTPException(
+        status_code=401,
+        detail="Invalid API key",
+        headers={"WWW-Authenticate": "API-Key"}
+    )
+
+
+@app.post(
+    "/images/upload",
+    response_model=ImageUploadResponse,
+    tags=["Images"],
+    summary="Upload an image",
+    description="""
+Upload an image file to Azure Blob Storage.
+
+**Supported formats:** JPEG, PNG, GIF, WebP
+
+**Max file size:** 10MB
+
+**Authentication:** Use `X-API-Key` header with your HMAC secret key.
+(Note: HMAC signature auth is not used for file uploads due to multipart body handling)
+
+**Returns:** The public URL of the uploaded image.
+    """,
+    responses={
+        200: {"description": "Image uploaded successfully"},
+        400: {"description": "Invalid file type or file too large"},
+        401: {"description": "Missing or invalid X-API-Key header"},
+        500: {"description": "Upload failed"},
+        503: {"description": "Azure Blob Storage not configured"},
+    }
+)
+async def upload_image(
+    request: Request,
+    file: UploadFile = File(..., description="Image file to upload"),
+    folder: Optional[str] = Query(None, description="Optional folder path (e.g., 'encounters/123')"),
+):
+    """
+    Upload an image to Azure Blob Storage.
+    
+    The image will be stored with a unique filename and the public URL will be returned.
+    """
+    # Verify API key authentication
+    await verify_image_upload_auth(request)
+    
+    # Check if Azure Blob Storage is available
+    if not AZURE_BLOB_AVAILABLE or not container_client:
+        raise HTTPException(
+            status_code=503,
+            detail="Azure Blob Storage is not configured. Please set AZURE_STORAGE_CONNECTION_STRING environment variable."
+        )
+    
+    # Validate content type
+    content_type = file.content_type
+    if content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type: {content_type}. Allowed types: {', '.join(ALLOWED_IMAGE_TYPES.keys())}"
+        )
+    
+    # Read file content
+    try:
+        content = await file.read()
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to read file: {str(e)}"
+        )
+    
+    # Check file size
+    file_size = len(content)
+    if file_size > MAX_IMAGE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large: {file_size} bytes. Maximum allowed: {MAX_IMAGE_SIZE} bytes (10MB)"
+        )
+    
+    if file_size == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Empty file uploaded"
+        )
+    
+    # Generate unique blob name
+    file_extension = ALLOWED_IMAGE_TYPES[content_type]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_id = str(uuid.uuid4())[:8]
+    
+    # Sanitize original filename (remove extension, we'll add the correct one)
+    original_name = file.filename or "image"
+    # Remove any existing extension
+    if "." in original_name:
+        original_name = original_name.rsplit(".", 1)[0]
+    safe_name = "".join(c for c in original_name if c.isalnum() or c in "_-").rstrip()
+    if not safe_name:
+        safe_name = "image"
+    
+    # Build blob name with optional folder
+    if folder:
+        # Sanitize folder path
+        safe_folder = "/".join(
+            "".join(c for c in part if c.isalnum() or c in "._-") 
+            for part in folder.split("/") 
+            if part
+        )
+        blob_name = f"{safe_folder}/{timestamp}_{unique_id}_{safe_name}{file_extension}"
+    else:
+        blob_name = f"{timestamp}_{unique_id}_{safe_name}{file_extension}"
+    
+    # Upload to Azure Blob Storage
+    try:
+        blob_client = container_client.get_blob_client(blob_name)
+        
+        # Set content settings for proper content type
+        content_settings = ContentSettings(content_type=content_type)
+        
+        blob_client.upload_blob(
+            content,
+            content_settings=content_settings,
+            overwrite=True
+        )
+        
+        # Get the blob URL
+        image_url = blob_client.url
+        
+        return ImageUploadResponse(
+            success=True,
+            image_url=image_url,
+            blob_name=blob_name,
+            content_type=content_type,
+            size=file_size
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to upload image to Azure Blob Storage: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload image: {str(e)}"
+        )
+
+
+@app.get(
+    "/images/status",
+    tags=["Images"],
+    summary="Check Azure Blob Storage status",
+    description="Check if Azure Blob Storage is properly configured and accessible."
+)
+async def check_blob_storage_status(
+    _auth: TokenData = Depends(get_current_client) if AUTH_ENABLED else Depends(lambda: None)
+):
+    """Check Azure Blob Storage configuration status."""
+    return {
+        "azure_blob_available": AZURE_BLOB_AVAILABLE,
+        "connection_configured": bool(AZURE_STORAGE_CONNECTION_STRING),
+        "container_name": AZURE_STORAGE_CONTAINER_NAME,
+        "container_client_initialized": container_client is not None,
+        "allowed_types": list(ALLOWED_IMAGE_TYPES.keys()),
+        "max_size_bytes": MAX_IMAGE_SIZE,
+        "max_size_mb": MAX_IMAGE_SIZE / (1024 * 1024)
+    }
