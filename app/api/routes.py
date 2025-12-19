@@ -3435,65 +3435,65 @@ async def check_blob_storage_status(
     }
 
 
-def sanitize_blob_name(blob_name: str) -> str:
+def sanitize_blob_name(image_name: str) -> str:
     """
-    Sanitize blob name to prevent path traversal attacks.
+    Sanitize image name to prevent path traversal attacks.
     
     Removes any path traversal sequences and limits to safe characters.
     
     Args:
-        blob_name: The blob name from the URL path
+        image_name: The image name from the URL path
         
     Returns:
-        Sanitized blob name
+        Sanitized image name (used as blob name internally)
         
     Raises:
-        HTTPException: If blob name contains invalid characters or path traversal attempts
+        HTTPException: If image name contains invalid characters or path traversal attempts
     """
     # Check for path traversal attempts (before normalization)
-    if ".." in blob_name:
+    if ".." in image_name:
         raise HTTPException(
             status_code=400,
-            detail="Invalid blob name: path traversal not allowed"
+            detail="Invalid image name: path traversal not allowed"
         )
     
     # Remove leading/trailing slashes and normalize
-    blob_name = blob_name.strip("/")
+    image_name = image_name.strip("/")
     
     # Check if path was normalized to something outside our container
     # After normalization, paths like ../../../etc/passwd might become etc/passwd
-    # We should reject anything that doesn't look like a valid blob path
-    if not blob_name:
+    # We should reject anything that doesn't look like a valid image path
+    if not image_name:
         raise HTTPException(
             status_code=400,
-            detail="Blob name cannot be empty"
+            detail="Image name cannot be empty"
         )
     
     # Check for absolute paths or paths that might escape the container
-    if blob_name.startswith("/") or "//" in blob_name:
+    if image_name.startswith("/") or "//" in image_name:
         raise HTTPException(
             status_code=400,
-            detail="Invalid blob name: absolute paths not allowed"
+            detail="Invalid image name: absolute paths not allowed"
         )
     
     # Check for invalid characters (allow alphanumeric, dots, hyphens, underscores, and forward slashes for folder paths)
     # But prevent any attempts at escaping or special characters
-    if any(c in blob_name for c in ['\\', '\0', '\r', '\n', '\t']):
+    if any(c in image_name for c in ['\\', '\0', '\r', '\n', '\t']):
         raise HTTPException(
             status_code=400,
-            detail="Invalid blob name: contains invalid characters"
+            detail="Invalid image name: contains invalid characters"
         )
     
     # Additional check: reject common system paths that might have been normalized
     dangerous_paths = ['etc', 'usr', 'var', 'sys', 'proc', 'dev', 'root', 'home', 'bin', 'sbin']
-    first_part = blob_name.split('/')[0].lower()
-    if first_part in dangerous_paths and '/' not in blob_name.replace(first_part, '', 1):
+    first_part = image_name.split('/')[0].lower()
+    if first_part in dangerous_paths and '/' not in image_name.replace(first_part, '', 1):
         raise HTTPException(
             status_code=400,
-            detail="Invalid blob name: path traversal not allowed"
+            detail="Invalid image name: path traversal not allowed"
         )
     
-    return blob_name
+    return image_name
 
 
 def get_content_type_from_blob_name(blob_name: str) -> str:
@@ -3522,7 +3522,7 @@ def get_content_type_from_blob_name(blob_name: str) -> str:
 
 
 @app.get(
-    "/images/{blob_name:path}",
+    "/images/{image_name:path}",
     tags=["Images"],
     summary="View an image",
     description="""
@@ -3531,7 +3531,7 @@ Retrieve and view an image from Azure Blob Storage via proxy.
 **Authentication:** Uses HMAC authentication (X-Timestamp and X-Signature headers).
 
 **Path parameter:**
-- `blob_name`: The name of the blob in the container (can include folder paths like `encounters/123/image.jpg`)
+- `image_name`: The name of the image in the container (can include folder paths like `encounters/123/image.jpg`)
 
 **Returns:** The image file streamed from Azure Blob Storage.
     """,
@@ -3545,21 +3545,21 @@ Retrieve and view an image from Azure Blob Storage via proxy.
                 "image/webp": {},
             }
         },
-        400: {"description": "Invalid blob name"},
+        400: {"description": "Invalid image name"},
         401: {"description": "Authentication required"},
         404: {"description": "Image not found"},
         503: {"description": "Azure Blob Storage not configured"},
     }
 )
 async def view_image(
-    blob_name: str,
+    image_name: str,
     _auth: TokenData = Depends(get_current_client) if AUTH_ENABLED else Depends(lambda: None)
 ):
     """
     Proxy endpoint to view images from Azure Blob Storage.
     
     This endpoint fetches the image from Azure and streams it back to the client.
-    The blob name can include folder paths (e.g., 'encounters/123/image.jpg').
+    The image name can include folder paths (e.g., 'encounters/123/image.jpg').
     """
     # Check if Azure Blob Storage is available
     if not AZURE_BLOB_AVAILABLE or not container_client:
@@ -3568,15 +3568,15 @@ async def view_image(
             detail="Azure Blob Storage is not configured. Please set AZURE_STORAGE_CONNECTION_STRING environment variable."
         )
     
-    # Sanitize blob name to prevent path traversal attacks
+    # Sanitize image name to prevent path traversal attacks
     try:
-        sanitized_blob_name = sanitize_blob_name(blob_name)
+        sanitized_blob_name = sanitize_blob_name(image_name)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid blob name: {str(e)}"
+            detail=f"Invalid image name: {str(e)}"
         )
     
     # Get blob client
