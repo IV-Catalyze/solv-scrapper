@@ -427,9 +427,9 @@ async def root(
                     "location_name": None,
                 }
             ]
-    else:
+        else:
             conn = get_db_connection()
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
             try:
                 all_patients = get_local_patients(cursor, normalized_location_id, normalized_statuses, None)
                 
@@ -438,8 +438,8 @@ async def root(
                     all_patients = filter_patients_by_search(all_patients, search_query)
                 
                 locations = fetch_locations(cursor)
-    finally:
-        cursor.close()
+            finally:
+                cursor.close()
                 conn.close()
 
         # Calculate pagination
