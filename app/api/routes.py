@@ -2806,6 +2806,22 @@ async def map_queue_to_experity(
                     f"Endpoint-level attempt {endpoint_attempt + 1}/{endpoint_max_retries} "
                     f"for encounter_id: {encounter_id}"
                 )
+                
+                # Log Azure AI configuration (without secrets)
+                try:
+                    from app.utils.azure_ai_agent_client import AZURE_SDK_AVAILABLE
+                    logger.info(f"Azure SDK available: {AZURE_SDK_AVAILABLE}")
+                    if AZURE_SDK_AVAILABLE:
+                        project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT", "Not set")
+                        deployment_name = os.environ.get("AZURE_AI_DEPLOYMENT_NAME", "Not set")
+                        agent_id = os.environ.get("AZURE_EXISTING_AGENT_ID", "Not set")
+                        logger.info(f"Azure AI Config - Project: {project_endpoint[:50]}..., Deployment: {deployment_name}, Agent ID: {agent_id}")
+                    else:
+                        logger.warning("⚠️  Azure SDK not available - check if packages are installed")
+                except Exception as config_error:
+                    logger.warning(f"Could not log Azure AI config: {config_error}")
+                
+                logger.info(f"Calling Azure AI agent with encounter_id: {encounter_id}")
                 experity_mapping = await call_azure_ai_agent(queue_entry)
                 # Success - break out of retry loop
                 break
@@ -3081,13 +3097,38 @@ async def map_queue_to_experity(
             }
         )
     except Exception as e:
-        logger.error(f"Unexpected error in map_queue_to_experity: {str(e)}", exc_info=True)
+        # Enhanced error logging with full context
+        import traceback
+        error_type = type(e).__name__
+        error_message = str(e)
+        error_traceback = traceback.format_exc()
+        
+        logger.error(
+            f"❌ Unexpected error in map_queue_to_experity: {error_type}: {error_message}",
+            exc_info=True
+        )
+        logger.error(f"Full traceback:\n{error_traceback}")
+        
+        # Log additional context if available
+        try:
+            if hasattr(e, '__cause__') and e.__cause__:
+                logger.error(f"Caused by: {type(e.__cause__).__name__}: {str(e.__cause__)}")
+            if hasattr(e, '__context__') and e.__context__:
+                logger.error(f"Context: {type(e.__context__).__name__}: {str(e.__context__)}")
+        except:
+            pass
+        
+        # Check if it's an import error (SDK not installed)
+        if "No module named" in error_message or "ImportError" in error_type:
+            logger.error("⚠️  Azure SDK may not be installed. Check requirements.txt and deployment.")
+        
         return ExperityMapResponse(
             success=False,
             error={
                 "code": "INTERNAL_ERROR",
                 "message": "An unexpected error occurred while processing the request",
                 "details": {
+                    "error_type": error_type,
                     "suggestion": "Please try again later or contact support if the issue persists"
                 }
             }

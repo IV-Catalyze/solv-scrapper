@@ -656,8 +656,9 @@ class AzureAIAgentClient:
                     role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
                     role_str = str(role).lower() if role else ""
                     
-                    # MessageRole.AGENT is the assistant role in Azure AI Agents SDK
-                    if role_str in ["assistant", "agent"] or role == MessageRole.AGENT:
+                    # Check if this is an assistant/agent message
+                    # Use string comparison which is most reliable
+                    if role_str in ["assistant", "agent"]:
                         # Extract content
                         content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
                         if content:
@@ -915,8 +916,9 @@ class AsyncAzureAIAgentClient:
                     role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
                     role_str = str(role).lower() if role else ""
                     
-                    # MessageRole.AGENT is the assistant role in Azure AI Agents SDK
-                    if role_str in ["assistant", "agent"] or role == MessageRole.AGENT:
+                    # Check if this is an assistant/agent message
+                    # Use string comparison which is most reliable
+                    if role_str in ["assistant", "agent"]:
                         # Extract content
                         content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
                         if content:
@@ -990,17 +992,50 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
         
     Returns:
         Experity mapping response
+        
+    Raises:
+        AgentClientError: If SDK is not available or client initialization fails
+        Various Azure AI exceptions: If agent processing fails
     """
-    # Extract encounter data
-    if "raw_payload" in queue_entry and queue_entry["raw_payload"]:
-        encounter_data = dict(queue_entry["raw_payload"])
-        if "encounterId" not in encounter_data and "encounter_id" in queue_entry:
-            encounter_data["encounterId"] = queue_entry["encounter_id"]
-        if "emrId" not in encounter_data and "emr_id" in queue_entry:
-            encounter_data["emrId"] = queue_entry["emr_id"]
-    else:
-        encounter_data = queue_entry
+    if not AZURE_SDK_AVAILABLE:
+        raise AgentClientError(
+            "Azure SDK not installed. Run: pip install azure-ai-projects azure-ai-agents azure-identity"
+        )
     
-    async with AsyncAzureAIAgentClient() as client:
-        return await client.process_encounter(encounter_data)
+    # Extract encounter data
+    try:
+        if "raw_payload" in queue_entry and queue_entry["raw_payload"]:
+            encounter_data = dict(queue_entry["raw_payload"])
+            if "encounterId" not in encounter_data and "encounter_id" in queue_entry:
+                encounter_data["encounterId"] = queue_entry["encounter_id"]
+            if "emrId" not in encounter_data and "emr_id" in queue_entry:
+                encounter_data["emrId"] = queue_entry["emr_id"]
+        else:
+            encounter_data = queue_entry
+        
+        encounter_id = encounter_data.get("id") or encounter_data.get("encounterId") or queue_entry.get("encounter_id", "unknown")
+        logger.info(f"Processing encounter {encounter_id} through Azure AI Agent")
+        
+    except Exception as e:
+        logger.error(f"Error extracting encounter data: {e}")
+        raise AgentClientError(f"Invalid queue_entry format: {e}") from e
+    
+    try:
+        logger.info("Initializing Azure AI Agent client...")
+        async with AsyncAzureAIAgentClient() as client:
+            logger.info("Azure AI Agent client initialized successfully")
+            logger.info(f"Calling process_encounter for encounter: {encounter_id}")
+            result = await client.process_encounter(encounter_data)
+            logger.info(f"Successfully processed encounter {encounter_id}")
+            return result
+    except AgentClientError:
+        # Re-raise client errors as-is
+        raise
+    except Exception as e:
+        error_type = type(e).__name__
+        error_msg = str(e)
+        logger.error(f"Error in call_azure_ai_agent: {error_type}: {error_msg}")
+        logger.error(f"Encounter ID: {encounter_id}", exc_info=True)
+        # Wrap unexpected errors in AgentClientError
+        raise AgentClientError(f"Azure AI agent processing failed: {error_type}: {error_msg}") from e
 
