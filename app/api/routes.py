@@ -2811,14 +2811,14 @@ async def map_queue_to_experity(
             except AzureAIAuthenticationError as e:
                 # Authentication errors should not be retried
                 error_message = str(e)
-                logger.error(f"Azure AI authentication error: {error_message}")
+                # Log detailed error for debugging, but don't expose it to UI
+                logger.error(f"Azure AI authentication error (not shown to user): {error_message}")
                 error_response = ExperityMapResponse(
                     success=False,
                     error={
                         "code": "AZURE_AI_AUTH_ERROR",
                         "message": "Failed to authenticate with Azure AI. Please check Azure credentials configuration.",
                         "details": {
-                            "azure_ai_error": error_message,  # Include actual Azure AI error message
                             "suggestion": "Verify Azure credentials are properly configured and have access to the Azure AI service"
                         }
                     }
@@ -2943,6 +2943,8 @@ async def map_queue_to_experity(
                     continue
                 # Exhausted retries
                 error_type = "response error" if isinstance(e, AzureAIResponseError) else "client error"
+                # Log detailed error for debugging, but don't expose it to UI
+                logger.error(f"Azure AI detailed error (not shown to user): {error_message}")
                 error_response = ExperityMapResponse(
                     success=False,
                     error={
@@ -2951,7 +2953,6 @@ async def map_queue_to_experity(
                         "details": {
                             "attempts": endpoint_max_retries,
                             "error_type": error_type,
-                            "azure_ai_error": error_message,  # Include actual Azure AI error message
                             "suggestion": "Retry the request or check Azure AI service status"
                         }
                     }
