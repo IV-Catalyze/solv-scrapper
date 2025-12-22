@@ -1004,14 +1004,23 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
     
     # Extract encounter data
     try:
+        # Store original emr_id from queue_entry for post-processing
+        original_emr_id = queue_entry.get("emr_id")
+        
         if "raw_payload" in queue_entry and queue_entry["raw_payload"]:
             encounter_data = dict(queue_entry["raw_payload"])
             if "encounterId" not in encounter_data and "encounter_id" in queue_entry:
                 encounter_data["encounterId"] = queue_entry["encounter_id"]
-            if "emrId" not in encounter_data and "emr_id" in queue_entry:
+            # Always set emrId from queue_entry.emr_id if available (overwrites any existing emrId)
+            if "emr_id" in queue_entry and queue_entry["emr_id"]:
                 encounter_data["emrId"] = queue_entry["emr_id"]
+                logger.info(f"Set emrId from queue_entry: {queue_entry['emr_id']}")
         else:
             encounter_data = queue_entry
+            # Ensure emrId is set from queue_entry if available
+            if "emr_id" in queue_entry and queue_entry["emr_id"]:
+                encounter_data["emrId"] = queue_entry["emr_id"]
+                logger.info(f"Set emrId from queue_entry: {queue_entry['emr_id']}")
         
         encounter_id = encounter_data.get("id") or encounter_data.get("encounterId") or queue_entry.get("encounter_id", "unknown")
         logger.info(f"Processing encounter {encounter_id} through Azure AI Agent")
@@ -1027,6 +1036,41 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"Calling process_encounter for encounter: {encounter_id}")
             result = await client.process_encounter(encounter_data)
             logger.info(f"Successfully processed encounter {encounter_id}")
+            
+            # Post-process: Ensure emrId is correct (fix if LLM used clientId instead)
+            # Handle different response structures: direct experityActions, wrapped in experityActions, or wrapped in data.experityActions
+            if original_emr_id:
+                actions = None
+                # Try to find experityActions in various structures
+                if isinstance(result, dict):
+                    # Case 1: Direct experityActions object
+                    if "vitals" in result or "complaints" in result:
+                        actions = result
+                    # Case 2: Wrapped in experityActions
+                    elif "experityActions" in result:
+                        actions = result["experityActions"]
+                    # Case 3: Wrapped in data.experityActions
+                    elif "data" in result and isinstance(result["data"], dict):
+                        if "experityActions" in result["data"]:
+                            actions = result["data"]["experityActions"]
+                        elif "vitals" in result["data"] or "complaints" in result["data"]:
+                            actions = result["data"]
+                
+                if actions and isinstance(actions, dict):
+                    current_emr_id = actions.get("emrId")
+                    # If emrId matches clientId, it's likely wrong - replace with original
+                    client_id = encounter_data.get("clientId")
+                    if current_emr_id == client_id and current_emr_id != original_emr_id:
+                        logger.warning(f"LLM used clientId ({client_id}) as emrId. Correcting to {original_emr_id}")
+                        actions["emrId"] = original_emr_id
+                    elif current_emr_id != original_emr_id:
+                        logger.info(f"Correcting emrId from {current_emr_id} to {original_emr_id}")
+                        actions["emrId"] = original_emr_id
+                    else:
+                        logger.info(f"emrId is correct: {original_emr_id}")
+                elif original_emr_id:
+                    logger.warning(f"Could not find experityActions structure to fix emrId. Original emrId: {original_emr_id}")
+            
             return result
     except AgentClientError:
         # Re-raise client errors as-is
