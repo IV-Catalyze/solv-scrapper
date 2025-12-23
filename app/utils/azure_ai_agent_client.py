@@ -392,6 +392,7 @@ class AgentConfig:
     # Run settings
     max_poll_attempts: int = 60
     poll_interval_seconds: float = 2.0
+    temperature: float = 0.0  # CRITICAL: Set to 0 for deterministic output
     
     # Service Principal auth (optional - defaults to DefaultAzureCredential)
     tenant_id: Optional[str] = None
@@ -417,6 +418,7 @@ class AgentConfig:
             tenant_id=os.environ.get("AZURE_TENANT_ID"),
             client_id=os.environ.get("AZURE_CLIENT_ID"),
             client_secret=os.environ.get("AZURE_CLIENT_SECRET"),
+            temperature=float(os.environ.get("AZURE_AI_TEMPERATURE", "0.0")),  # Default to 0 for deterministic output
         )
 
 class AzureAIAgentClient:
@@ -593,9 +595,10 @@ class AzureAIAgentClient:
         
         try:
             # Create thread and run - use dict format for messages
-            run = self.client.create_thread_and_process_run(
-                agent_id=agent_id,
-                thread={
+            # CRITICAL: Set temperature=0 for deterministic output
+            run_params = {
+                "agent_id": agent_id,
+                "thread": {
                     "messages": [
                         {
                             "role": "user",
@@ -603,8 +606,19 @@ class AzureAIAgentClient:
                         }
                     ]
                 },
-                polling_interval=self.config.poll_interval_seconds,
-            )
+                "polling_interval": self.config.poll_interval_seconds,
+            }
+            
+            # CRITICAL: Set temperature=0 for deterministic output
+            logger.info(f"Setting temperature={self.config.temperature} for deterministic output")
+            
+            # Add temperature to run parameters
+            # Note: Azure AI Agents SDK may support temperature as a direct parameter
+            # If not supported, it may need to be configured in Azure AI Foundry model deployment settings
+            if self.config.temperature is not None:
+                run_params["temperature"] = self.config.temperature
+            
+            run = self.client.create_thread_and_process_run(**run_params)
             
             logger.info(f"Run completed with status: {run.status}")
             
@@ -853,9 +867,10 @@ class AsyncAzureAIAgentClient:
         
         try:
             # Create thread and run - use dict format for messages
-            run = await self.client.create_thread_and_process_run(
-                agent_id=agent_id,
-                thread={
+            # CRITICAL: Set temperature=0 for deterministic output
+            run_params = {
+                "agent_id": agent_id,
+                "thread": {
                     "messages": [
                         {
                             "role": "user",
@@ -863,8 +878,19 @@ class AsyncAzureAIAgentClient:
                         }
                     ]
                 },
-                polling_interval=self.config.poll_interval_seconds,
-            )
+                "polling_interval": self.config.poll_interval_seconds,
+            }
+            
+            # CRITICAL: Set temperature=0 for deterministic output
+            logger.info(f"Setting temperature={self.config.temperature} for deterministic output")
+            
+            # Add temperature to run parameters
+            # Note: Azure AI Agents SDK may support temperature as a direct parameter
+            # If not supported, it may need to be configured in Azure AI Foundry model deployment settings
+            if self.config.temperature is not None:
+                run_params["temperature"] = self.config.temperature
+            
+            run = await self.client.create_thread_and_process_run(**run_params)
             
             logger.info(f"Run completed with status: {run.status}")
             
