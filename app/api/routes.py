@@ -2823,6 +2823,18 @@ async def map_queue_to_experity(
                 
                 logger.info(f"Calling Azure AI agent with encounter_id: {encounter_id}")
                 experity_mapping = await call_azure_ai_agent(queue_entry)
+                
+                # Validate and fix format issues in the response
+                try:
+                    from app.utils.response_validator import validate_and_fix_experity_response
+                    # Get source encounter data for validation
+                    source_encounter = queue_entry.get("raw_payload") or queue_entry.get("encounterPayload") or {}
+                    experity_mapping = validate_and_fix_experity_response(experity_mapping, source_encounter)
+                    logger.info("Response validation and format correction completed")
+                except Exception as validation_error:
+                    logger.warning(f"Response validation failed (continuing anyway): {str(validation_error)}")
+                    # Continue even if validation fails
+                
                 # Success - break out of retry loop
                 break
             except AzureAIAuthenticationError as e:
@@ -3323,6 +3335,122 @@ async def upload_image(
 
 
 @app.get(
+    "/images/list",
+    tags=["Images"],
+    summary="List images and folders",
+    description="""
+List images and folders from Azure Blob Storage.
+
+**Authentication:** Uses HMAC authentication (X-Timestamp and X-Signature headers).
+
+**Query parameters:**
+- `folder`: Optional folder path to list (e.g., 'encounters/123'). If not provided, lists root level.
+
+**Returns:** JSON object with folders and images arrays.
+    """,
+    responses={
+        200: {"description": "List of folders and images"},
+        401: {"description": "Authentication required"},
+        503: {"description": "Azure Blob Storage not configured"},
+    }
+)
+async def list_images(
+    folder: Optional[str] = Query(None, description="Folder path to list"),
+    _auth: TokenData = Depends(get_current_client) if AUTH_ENABLED else Depends(lambda: None)
+):
+    """
+    List images and folders from Azure Blob Storage.
+    
+    Returns a structured list of folders and images in the specified folder path.
+    """
+    # Check if Azure Blob Storage is available
+    if not AZURE_BLOB_AVAILABLE or not container_client:
+        raise HTTPException(
+            status_code=503,
+            detail="Azure Blob Storage is not configured. Please set AZURE_STORAGE_CONNECTION_STRING environment variable."
+        )
+    
+    # Sanitize folder path if provided
+    prefix = ""
+    if folder:
+        # Sanitize folder path
+        folder = folder.strip("/")
+        if ".." in folder:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid folder path: path traversal not allowed"
+            )
+        prefix = folder + "/" if folder else ""
+    
+    try:
+        # List blobs with the prefix
+        folders = set()
+        images = []
+        
+        # List all blobs with the prefix
+        blob_list = container_client.list_blobs(name_starts_with=prefix)
+        
+        for blob in blob_list:
+            # Remove prefix from blob name
+            relative_name = blob.name[len(prefix):] if prefix else blob.name
+            
+            # Skip if empty (this would be the folder itself)
+            if not relative_name:
+                continue
+            
+            # Check if this is a folder (contains a slash) or an image file
+            if "/" in relative_name:
+                # This is in a subfolder - extract the folder name
+                folder_name = relative_name.split("/")[0]
+                folders.add(folder_name)
+            else:
+                # This is an image file
+                # Check if it's a valid image extension
+                blob_lower = relative_name.lower()
+                if any(blob_lower.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
+                    # Get blob properties for size and last modified
+                    blob_client = container_client.get_blob_client(blob.name)
+                    try:
+                        props = blob_client.get_blob_properties()
+                        images.append({
+                            "name": relative_name,
+                            "full_path": blob.name,
+                            "size": props.size,
+                            "last_modified": props.last_modified.isoformat() if props.last_modified else None,
+                            "content_type": props.content_settings.content_type if props.content_settings else None
+                        })
+                    except Exception:
+                        # If we can't get properties, still include the image
+                        images.append({
+                            "name": relative_name,
+                            "full_path": blob.name,
+                            "size": None,
+                            "last_modified": None,
+                            "content_type": None
+                        })
+        
+        # Convert folders set to sorted list
+        folders_list = sorted(list(folders))
+        
+        return {
+            "folder": folder or "",
+            "folders": folders_list,
+            "images": images,
+            "total_folders": len(folders_list),
+            "total_images": len(images)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to list images: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list images: {str(e)}"
+        )
+
+
+@app.get(
     "/images/status",
     tags=["Images"],
     summary="Check Azure Blob Storage status",
@@ -3427,6 +3555,47 @@ def get_content_type_from_blob_name(blob_name: str) -> str:
     else:
         # Default to JPEG if extension is unknown
         return "image/jpeg"
+
+
+@app.get(
+    "/images/",
+    summary="Images Gallery",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    responses={
+        200: {
+            "content": {"text/html": {"example": "<!-- Images Gallery UI -->"}},
+            "description": "Images gallery page with folder navigation.",
+        },
+        303: {"description": "Redirect to login page if not authenticated."},
+    },
+)
+async def images_gallery(
+    request: Request,
+    current_user: dict = Depends(require_auth),
+):
+    """
+    Render the Images Gallery UI.
+    
+    This page provides an interface to:
+    - Browse folders and images in Azure Blob Storage
+    - Navigate through folder hierarchy
+    - View image thumbnails and full-size images
+    
+    Requires authentication - users must be logged in to access this page.
+    """
+    response = templates.TemplateResponse(
+        "images_gallery.html",
+        {
+            "request": request,
+            "current_user": current_user,
+        },
+    )
+    # Use no-cache instead of no-store to allow history navigation while preventing stale cache
+    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.get(
