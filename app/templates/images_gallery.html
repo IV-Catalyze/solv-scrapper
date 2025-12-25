@@ -571,6 +571,9 @@
                         if (img) {
                             getImageBlobUrl(image.full_path).then(blobUrl => {
                                 img.src = blobUrl;
+                            }).catch(error => {
+                                console.error('Error loading thumbnail:', error);
+                                // Keep the placeholder image on error
                             });
                         }
                     });
@@ -593,10 +596,12 @@
         // Cache for blob URLs to avoid refetching
         const imageBlobCache = new Map();
 
-        async function getImageBlobUrl(imagePath) {
-            // Check cache first
-            if (imageBlobCache.has(imagePath)) {
-                return imageBlobCache.get(imagePath);
+        async function getImageBlobUrl(imagePath, forceRefresh = false) {
+            // Check cache first (unless forcing refresh)
+            if (!forceRefresh && imageBlobCache.has(imagePath)) {
+                const cachedUrl = imageBlobCache.get(imagePath);
+                // Return cached URL - validation will happen when image is loaded
+                return cachedUrl;
             }
 
             try {
@@ -616,10 +621,19 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error(`Failed to load image: ${response.status}`);
+                    throw new Error(`Failed to load image: ${response.status} ${response.statusText}`);
                 }
 
                 const blob = await response.blob();
+                
+                // Revoke old blob URL if it exists
+                if (imageBlobCache.has(imagePath)) {
+                    const oldUrl = imageBlobCache.get(imagePath);
+                    if (oldUrl.startsWith('blob:')) {
+                        URL.revokeObjectURL(oldUrl);
+                    }
+                }
+                
                 const blobUrl = URL.createObjectURL(blob);
                 
                 // Cache the blob URL
@@ -628,14 +642,26 @@
                 return blobUrl;
             } catch (error) {
                 console.error('Error loading image:', error);
-                // Return a placeholder image
-                return 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'150\' height=\'150\'%3E%3Crect fill=\'%23e9ecef\' width=\'150\' height=\'150\'/%3E%3Ctext fill=\'%23999\' font-family=\'sans-serif\' font-size=\'14\' dy=\'10.5\' x=\'50%25\' y=\'50%25\' text-anchor=\'middle\'%3EError%3C/text%3E%3C/svg%3E';
+                // Remove from cache if it exists
+                if (imageBlobCache.has(imagePath)) {
+                    const oldUrl = imageBlobCache.get(imagePath);
+                    imageBlobCache.delete(imagePath);
+                    if (oldUrl.startsWith('blob:')) {
+                        URL.revokeObjectURL(oldUrl);
+                    }
+                }
+                throw error; // Re-throw to let caller handle
             }
         }
 
         function viewImage(imagePath, imageName) {
             const modal = document.getElementById('imageModal');
             const modalImage = document.getElementById('modalImage');
+            
+            // Close any previous modal first
+            if (modalImage.src && modalImage.src.startsWith('blob:')) {
+                URL.revokeObjectURL(modalImage.src);
+            }
             
             modal.classList.add('show');
             modalImage.src = '';
@@ -644,14 +670,49 @@
             // Show loading state
             modalImage.style.opacity = '0.5';
             
-            // Fetch and display image
-            getImageBlobUrl(imagePath).then(blobUrl => {
-                modalImage.src = blobUrl;
-                modalImage.style.opacity = '1';
+            // Fetch and display image with retry logic
+            getImageBlobUrl(imagePath, false).then(blobUrl => {
+                // Verify the image loads successfully
+                const img = new Image();
+                img.onload = () => {
+                    modalImage.src = blobUrl;
+                    modalImage.style.opacity = '1';
+                };
+                img.onerror = () => {
+                    // Blob URL failed, clear from cache and retry
+                    console.warn('Blob URL failed, clearing cache and retrying...');
+                    if (imageBlobCache.has(imagePath)) {
+                        const oldUrl = imageBlobCache.get(imagePath);
+                        imageBlobCache.delete(imagePath);
+                        if (oldUrl.startsWith('blob:')) {
+                            URL.revokeObjectURL(oldUrl);
+                        }
+                    }
+                    // Retry with fresh fetch
+                    getImageBlobUrl(imagePath, true).then(freshBlobUrl => {
+                        // Verify the fresh blob URL works
+                        const freshImg = new Image();
+                        freshImg.onload = () => {
+                            modalImage.src = freshBlobUrl;
+                            modalImage.style.opacity = '1';
+                        };
+                        freshImg.onerror = () => {
+                            console.error('Fresh blob URL also failed');
+                            modalImage.style.opacity = '1';
+                            modalImage.src = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'300\'%3E%3Crect fill=\'%23e9ecef\' width=\'400\' height=\'300\'/%3E%3Ctext fill=\'%23999\' font-family=\'sans-serif\' font-size=\'16\' dy=\'10.5\' x=\'50%25\' y=\'50%25\' text-anchor=\'middle\'%3EFailed to load image%3C/text%3E%3C/svg%3E';
+                        };
+                        freshImg.src = freshBlobUrl;
+                    }).catch(err => {
+                        console.error('Error loading image after retry:', err);
+                        modalImage.style.opacity = '1';
+                        modalImage.src = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'300\'%3E%3Crect fill=\'%23e9ecef\' width=\'400\' height=\'300\'/%3E%3Ctext fill=\'%23999\' font-family=\'sans-serif\' font-size=\'16\' dy=\'10.5\' x=\'50%25\' y=\'50%25\' text-anchor=\'middle\'%3EFailed to load image%3C/text%3E%3C/svg%3E';
+                    });
+                };
+                img.src = blobUrl;
             }).catch(error => {
                 console.error('Error loading image:', error);
-                alert('Failed to load image: ' + error.message);
-                closeImageModal();
+                modalImage.style.opacity = '1';
+                modalImage.src = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'300\'%3E%3Crect fill=\'%23e9ecef\' width=\'400\' height=\'300\'/%3E%3Ctext fill=\'%23999\' font-family=\'sans-serif\' font-size=\'16\' dy=\'10.5\' x=\'50%25\' y=\'50%25\' text-anchor=\'middle\'%3EFailed to load image%3C/text%3E%3C/svg%3E';
             });
         }
 
