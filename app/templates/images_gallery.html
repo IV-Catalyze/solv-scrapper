@@ -62,14 +62,14 @@
 
         .nav-links {
             display: flex;
-            gap: 16px;
+            gap: 12px;
             align-items: center;
         }
 
         .nav-link {
             color: white;
             text-decoration: none;
-            padding: 8px 16px;
+            padding: 8px 12px;
             border-radius: 6px;
             transition: background 0.2s;
             font-size: 14px;
@@ -396,8 +396,8 @@
     <div class="container">
         <div class="header">
             <div>
-                <h1>Images Gallery</h1>
-                <div class="subtitle">Browse images and folders in Azure Blob Storage</div>
+                <h1>Experity Screenshots</h1>
+                <div class="subtitle">Browse images and folders from Experity</div>
             </div>
             <div class="header-right">
                 <div class="nav-links">
@@ -512,6 +512,11 @@
         function updateBreadcrumb(folderPath) {
             const breadcrumb = document.getElementById('breadcrumb');
             breadcrumb.innerHTML = '<a href="#" class="breadcrumb-item" onclick="navigateToFolder(\'\')">Home</a>';
+
+            // If folderPath is empty, don't show anything else
+            if (!folderPath) {
+                return;
+            }
 
             if (folderPath) {
                 const parts = folderPath.split('/').filter(p => p);
@@ -699,8 +704,8 @@
             }
         });
 
-        // Load root folder on page load
-        loadFolder('');
+        // Load encounters folder on page load
+        loadFolder('encounters');
     </script>
 </body>
 </html>
