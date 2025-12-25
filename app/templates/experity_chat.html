@@ -60,6 +60,25 @@
             gap: 16px;
         }
 
+        .nav-links {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .nav-link {
+            color: white;
+            text-decoration: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            transition: background 0.2s;
+            font-size: 14px;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
         .user-menu {
             position: relative;
             display: inline-block;
@@ -669,9 +688,9 @@
                 <div class="subtitle">Convert Intellivisit queue entries to Experity actions</div>
             </div>
             <div class="header-right">
-                <div class="nav-links" style="display: flex; gap: 12px; align-items: center;">
-                    <a href="/" style="color: white; text-decoration: none; padding: 8px 12px; border-radius: 6px; transition: background 0.2s; font-size: 14px;">Dashboard</a>
-                    <!-- <a href="/images/" style="color: white; text-decoration: none; padding: 8px 12px; border-radius: 6px; transition: background 0.2s; font-size: 14px;">Images</a> -->
+                <div class="nav-links">
+                    <a href="/" class="nav-link">Dashboard</a>
+                    <a href="/images/" class="nav-link">Images</a>
                 </div>
                 <div class="status-indicator idle" id="statusIndicator">
                     <span>Ready</span>
