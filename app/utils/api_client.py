@@ -360,7 +360,9 @@ async def send_patient_to_api(patient_data: Dict[str, Any]) -> bool:
 
     logger.debug("API Request URL: %s", api_url)
     logger.debug("API Request payload: %s", body_json_str)
-    logger.debug("API Request headers: %s", json.dumps(headers))
+    # Sanitize headers to avoid logging sensitive authentication data
+    sanitized_headers = {k: "[REDACTED]" if k in ("X-Signature", "Authorization") else v for k, v in headers.items()}
+    logger.debug("API Request headers: %s", json.dumps(sanitized_headers))
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:  # type: ignore[attr-defined]

@@ -952,7 +952,7 @@
             document.getElementById('headerContentType').textContent = 'application/json';
             document.getElementById('headersSection').style.display = 'block';
             
-            // Log debug info to console
+            // Log debug info to console (excluding secrets)
             console.log('HMAC Debug Info:');
             console.log('Method:', method);
             console.log('Path:', path);
@@ -960,9 +960,8 @@
             console.log('Body string length:', bodyString.length);
             console.log('Body hash:', bodyHash);
             console.log('Canonical string:', canonical);
-            console.log('HMAC Secret (first 20 chars):', hmacSecret.substring(0, 20) + '...');
-            console.log('Expected secret starts with (Staging): 3SaxUjALPb0Ko8Lw-_');
-            console.log('Expected secret starts with (Production): PsGktLSZFQ0U3jhBAgV');
+            // SECURITY: Never log secret keys, even partially
+            console.log('HMAC Secret: [REDACTED]');
             console.log('Signature:', signature);
 
             // Update UI
@@ -1004,7 +1003,6 @@
                     errorMsg += JSON.stringify(responseData, null, 2) + '\n\n';
                     errorMsg += 'Troubleshooting:\n';
                     errorMsg += '1. Verify you entered the correct HMAC secret\n';
-                    errorMsg += '   - Staging: 3SaxUjALPb0Ko8Lw-_eUFvNBPjlZWpGVGqJVS7e1BbM\n';
                     errorMsg += '   - Check console for secret prefix verification\n';
                     errorMsg += '2. Make sure timestamp is current (within 5 minutes)\n';
                     errorMsg += '3. Verify the JSON body is valid\n';
