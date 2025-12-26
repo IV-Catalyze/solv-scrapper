@@ -1063,7 +1063,7 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                 # emrId is missing - set to None (do NOT use clientId as fallback)
                 original_emr_id = None
                 encounter_data["emrId"] = None
-                logger.info("No emrId found in queue_entry or encounter - setting to None")
+                logger.info("No emrId found in queue_entry or encounter - setting to None (will prevent LLM from using clientId)")
         else:
             encounter_data = queue_entry
             
@@ -1083,7 +1083,7 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                 # emrId is missing - set to None (do NOT use clientId as fallback)
                 original_emr_id = None
                 encounter_data["emrId"] = None
-                logger.info("No emrId found in queue_entry or encounter - setting to None")
+                logger.info("No emrId found in queue_entry or encounter - setting to None (will prevent LLM from using clientId)")
         
         encounter_id = encounter_data.get("id") or encounter_data.get("encounterId") or queue_entry.get("encounter_id", "unknown")
         logger.info(f"Processing encounter {encounter_id} through Azure AI Agent (emrId: {original_emr_id})")
@@ -1102,6 +1102,7 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
             
             # Post-process: Always overwrite LLM's emrId with pre-extracted value
             # This ensures emrId is always correct and prevents LLM from using clientId as fallback
+            # CRITICAL: If emrId is missing/null, always set it to None (never use clientId)
             # Handle different response structures: direct experityActions, wrapped in experityActions, or wrapped in data.experityActions
             actions = None
             # Try to find experityActions in various structures
@@ -1122,18 +1123,29 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
             if actions and isinstance(actions, dict):
                 current_emr_id = actions.get("emrId")
                 # Always overwrite with pre-extracted value (ensures correctness)
+                # If original_emr_id is None, explicitly set to None to prevent LLM from using clientId
                 actions["emrId"] = original_emr_id
                 
                 if current_emr_id != original_emr_id:
                     client_id = encounter_data.get("clientId")
                     if current_emr_id == client_id:
-                        logger.warning(f"LLM incorrectly used clientId ({client_id}) as emrId. Corrected to pre-extracted value: {original_emr_id}")
+                        logger.warning(f"LLM incorrectly used clientId ({client_id}) as emrId. Corrected to None (emrId was missing/null)")
                     else:
-                        logger.info(f"Overwrote LLM's emrId ({current_emr_id}) with pre-extracted value: {original_emr_id}")
+                        if original_emr_id is None:
+                            logger.info(f"Set emrId to None (was missing/null). LLM had: {current_emr_id}")
+                        else:
+                            logger.info(f"Overwrote LLM's emrId ({current_emr_id}) with pre-extracted value: {original_emr_id}")
                 else:
-                    logger.debug(f"emrId already correct: {original_emr_id}")
-            elif original_emr_id is not None:
-                logger.warning(f"Could not find experityActions structure to set emrId. Pre-extracted emrId: {original_emr_id}")
+                    if original_emr_id is None:
+                        logger.debug(f"emrId correctly set to None (was missing/null)")
+                    else:
+                        logger.debug(f"emrId already correct: {original_emr_id}")
+            else:
+                # Could not find experityActions structure - log warning
+                if original_emr_id is None:
+                    logger.warning(f"Could not find experityActions structure to set emrId to None. LLM may have used clientId.")
+                else:
+                    logger.warning(f"Could not find experityActions structure to set emrId. Pre-extracted emrId: {original_emr_id}")
             
             return result
     except AgentClientError:
