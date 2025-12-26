@@ -18,13 +18,11 @@ Requirements:
 - **NO duplicate fields with different naming conventions**
 
 This requirement is MANDATORY. Your response will be parsed as JSON directly.
-
 ---
 
 ## Task
 
 Transform Intellivisit encounter JSON (either wrapped in queue_entry or as a direct encounter object) into Experity-compatible structured actions for UiPath automation.
-
 ---
 
 ## Input Structure
@@ -63,7 +61,7 @@ The input can be in one of two formats:
 ## Data Extraction Rules
 
 ### For Queue Entry Format (Format 1):
-- emrId = queue_entry.emr_id
+- emrId = Use the emrId field that is already provided in the encounter data (it has been pre-extracted and set for you from queue_entry.emr_id or encounter.emrId/emr_id with proper priority)
 - encounterId = queue_entry.encounter_id
 - encounter data = queue_entry.raw_payload
 - queue_id = queue_entry.queue_id
@@ -74,7 +72,10 @@ The input can be in one of two formats:
 - guardian = queue_entry.raw_payload.additionalQuestions?.guardianAssistedInterview
 
 ### For Direct Encounter Format (Format 2):
-- emrId = clientId (or null if not available)
+- emrId = Use the emrId field that is already provided in the encounter data (it has been pre-extracted and set for you)
+- CRITICAL: The emrId field in the encounter data is already correctly set - use it exactly as provided
+- If emrId is null or missing in the encounter data, set it to null in your output
+- NEVER use clientId as a substitute for emrId - these are different identifiers
 - encounterId = id
 - encounter data = root object
 - queue_id = null
@@ -83,7 +84,6 @@ The input can be in one of two formats:
 - orders = orders
 - conditions = additionalQuestions?.conditions
 - guardian = additionalQuestions?.guardianAssistedInterview
-
 ---
 
 ## Format Detection
@@ -93,7 +93,6 @@ First, determine the input format:
 - Otherwise, treat it as Format 2 (Direct Encounter Object)
 
 Then extract data according to the rules above before processing.
-
 ---
 
 ## Configuration Data
@@ -104,33 +103,88 @@ Then extract data according to the rules above before processing.
 {"problemSets":{"HEAD":["Dizziness","Acne","Burn","Itching","Loss of consciousness","Rash","Headache","Bite wound","Discoloration","Laceration","Nasal congestion","Skin sores","Sinus congestion","Bruising","Foreign body","Light headedness","Pain","Swelling"],"NECK":["Sore throat","Acne","Foreign body","Laceration","Pain","Swelling","Bruising","Bite wound","Itching","Nodes/ Glands","Rash","Discoloration","Burn","Joint pain","Numbness/ Tingling","Skin sores"],"CHEST":["Chest pain/pressure","Shortness of breath","Breast lump","Chest congestion","Itching","Muscle pain","Rash","Cough","Acne","Bruising","Discoloration","Foreign body","Laceration","Numbness/ Tingling","Joint pain","Nipple discharge","Skin sores","Fluttering/ Palpitations"],"ABDOMEN":["Abdominal pain","Nausea","Vomiting","Belching","Burn","Flatulence","Muscle pain","Rash","Weight loss","Bite wound","Diarrhea","Discharge","Foreign body","Pressure","Swelling"],"GENITO_URINARY":["Painful urination","Discharge","Urinary/bowel changes","Bruising","Burn","Foreign body","Frequent infections","Nighttime urination","Itching","Pressure","Swelling","Rash","Discoloration","Laceration","Pain","Sexual difficulties","Skin sores"],"LOWER_EXTREMITY":["Bruising","Bite wound","Foreign body","Numbness/ Tingling","Skin sores","Joint pain","Burn","Itching","Pain","Swelling","Muscle pain","Discoloration","Laceration","Rash","Weakness"],"BACK":["Back pain","Bruising","Discoloration","Burn","Foreign body","Itching","Joint pain","Muscle pain","Numbness/ Tingling","Pain","Rash","Skin sores","Swelling","Weakness","Bite wound","Laceration"],"GENERALIZED":["Abnormal blood sugar","Anxiety/ Nerves","COVID-19 Asymptomatic","COVID-19 Vaccine","Behavioral health","Change of taste","Change in appetite","Chills","Confusion","Excessive hunger","Fainting","Fatigue","Fever","Poor balance","Sleeping difficulties","Light headedness","Dizziness","Often hot","Depression","Physical Exam"]}}
 
 ```
-
 ### BODY_AREAS
 
 ```json
 {"bodyAreas":{"Head":{"template":"Head","problemSet":"HEAD","coordKey":"HEAD_PARENT","children":{"Scalp":"HEAD_SCALP","Forehead":"HEAD_FOREHEAD","Nose":"HEAD_NOSE","Sinuses":"HEAD_SINUSES","Left Eye":"HEAD_LEFT_EYE","Right Eye":"HEAD_RIGHT_EYE","Left Ear":"HEAD_LEFT_EAR","Right Ear":"HEAD_RIGHT_EAR","Cheek":"HEAD_CHEEK","Lip":"HEAD_LIP","Mouth":"HEAD_MOUTH","Tooth":"HEAD_TOOTH","Tongue":"HEAD_TONGUE","Chin":"HEAD_CHIN","Throat":"HEAD_THROAT","Jaw":"HEAD_JAW"}},"Neck":{"template":"Neck","problemSet":"NECK","coordKey":"NECK_PARENT","children":{"Anterior aspect":"NECK_ANT","Posterior aspect":"NECK_POST","Left side":"NECK_LEFT","Right side":"NECK_RIGHT"}},"Chest":{"template":"Chest","problemSet":"CHEST","coordKey":"CHEST_PARENT","children":{"Right Chest":"CHEST_RIGHT","Central Chest":"CHEST_CENTER","Left Chest":"CHEST_LEFT","Right Breast":"CHEST_R_BREAST","Left Breast":"CHEST_L_BREAST","Right Nipple":"CHEST_R_NIPPLE","Left Nipple":"CHEST_L_NIPPLE"}},"Abdomen":{"template":"Abdomen","problemSet":"ABDOMEN","coordKey":"ABD_PARENT","children":{"Epigastric":"ABD_EPIGASTRIC","Abdominal wall":"ABD_WALL","LUQ":"ABD_LUQ","LLQ":"ABD_LLQ","RUQ":"ABD_RUQ","RLQ":"ABD_RLQ","Periumbilical":"ABD_PERIUMB"}},"Genito-Urinary Male":{"template":"Genito-Urinary","problemSet":"GENITO_URINARY","coordKey":"GU_PARENT","children":{"Penis":"GU_M_PENIS","Urethra":"GU_M_URETHRA","Scrotum":"GU_M_SCROTUM","Right Testicle":"GU_M_R_TESTICLE","Left Testicle":"GU_M_L_TESTICLE","Perineum":"GU_M_PERINEUM","Anus":"GU_M_ANUS","Rectum":"GU_M_RECTUM"}},"Genito-Urinary Female":{"template":"Genito-Urinary","problemSet":"GENITO_URINARY","coordKey":"GU_PARENT","children":{"Vulva":"GU_F_VULVA","Clitoris":"GU_F_CLITORIS","Vagina":"GU_F_VAGINA","Urethra":"GU_F_URETHRA","Perineum":"GU_F_PERINEUM","Anus":"GU_F_ANUS","Rectum":"GU_F_RECTUM"}},"Right Upper Extremity":{"template":"Right Upper Extremity","problemSet":"LOWER_EXTREMITY","children":{"Right Shoulder":"R_SHOULDER_PARENT","Right Upper Arm":"R_UPPER_ARM_PARENT","Right Elbow":"R_ELBOW_PARENT","Right Forearm":"R_FOREARM_PARENT","Right Wrist/Hand/Fingers":"R_HAND_PARENT"}},"Left Upper Extremity":{"template":"Left Upper Extremity","problemSet":"LOWER_EXTREMITY","children":{"Left Shoulder":"L_SHOULDER_PARENT","Left Upper Arm":"L_UPPER_ARM_PARENT","Left Elbow":"L_ELBOW_PARENT","Left Forearm":"L_FOREARM_PARENT","Left Wrist/Hand/Fingers":"L_HAND_PARENT"}},"Right Lower Extremity":{"template":"Right Lower Extremity","problemSet":"LOWER_EXTREMITY","children":{"Right Hip/Thigh":"R_HIP_THIGH_PARENT","Right Knee":"R_KNEE_PARENT","Right Lower Leg":"R_LOWER_LEG_PARENT","Right Ankle/Foot/Toes":"R_FOOT_PARENT"}},"Left Lower Extremity":{"template":"Left Lower Extremity","problemSet":"LOWER_EXTREMITY","children":{"Left Hip/Thigh":"L_HIP_THIGH_PARENT","Left Knee":"L_KNEE_PARENT","Left Lower Leg":"L_LOWER_LEG_PARENT","Left Ankle/Foot/Toes":"L_FOOT_PARENT"}},"Back":{"template":"Back","problemSet":"BACK","children":{"Upper Back":"BACK_UPPER_PARENT","Left Scapular":"BACK_L_SCAP_PARENT","Right Scapular":"BACK_R_SCAP_PARENT","Mid Back":"BACK_MID_PARENT","Lower Back":"BACK_LOWER_PARENT","Buttocks":"BACK_BUTTOCKS_PARENT"}},"Generalized":{"template":"Generalized","problemSet":"GENERALIZED","coordKey":"TOGGLE_FRONT_BACK"}}}
 
 ```
-
 ### NOTES_TEMPLATES
 
 ```json
 {"notesTemplates":{"HEAD_TEMPLATE_A":{"quality":["Room spinning","Feels like fainting","Feels weak","Just feeling strange"],"onset":"date-time","timing":["Constant","Constant, worse at times","Comes and goes"],"severity":"0-10"},"HEAD_TEMPLATE_B":{"quality":["Red","Raised","Pruritic","Migratory","Weeping","Shrinking"],"onset":"date-time","severity":"0-10"},"HEAD_TEMPLATE_C":{"quality":["Burning","Redness","Painful"],"onset":"date-time","severity":"0-10"},"HEAD_TEMPLATE_D":{"quality":["Bleeding","Cut skin","Draining pus","Puncture"],"onset":"date-time","severity":"0-10"},"NECK_TEMPLATE_A":{"quality":["Sharp","Scratchy","Burning","Choking sensation","Foreign body sensation"],"onset":"date-time","timing":["Constant","Constant, worse at times","Comes and goes"],"severity":"0-10"},"NECK_TEMPLATE_B":{"quality":["Whiteheads","Blackheads","Papules","Pustules","Nodules","Cysts"],"severity":"0-10"},"NECK_TEMPLATE_C":{"quality":["Bleeding","Cut skin","Draining clear fluid","Puncture"],"severity":"0-10"},"CHEST_TEMPLATE_A":{"quality":["Pressure","Crushing","Squeezing","Sharp","Dull"],"severity":"0-10"},"CHEST_TEMPLATE_B":{"quality":["Chest tightness","Rapid breathing","Choking sensation","Sputum","Bloody sputum"],"severity":"0-10"},"CHEST_TEMPLATE_C":{"quality":["Red","Raised","Pruritic","Weeping","Migratory"],"severity":"0-10"},"CHEST_TEMPLATE_D":{"quality":["Rapid growth","Gradual growth","Single","Multiple","Soft","Firm"],"severity":"0-10"},"ABD_TEMPLATE_A":{"quality":["Sharp","Dull","Cramping","Spasmodic","Colicky"],"severity":"0-10"},"ABD_TEMPLATE_B":{"quality":["Projectile","Bilious","Bloody","Feculent"],"severity":"0-10"},"ABD_TEMPLATE_C":{"quality":["Red","Raised","Pruritic","Weeping","Spreading","Shrinking"],"severity":"0-10"},"ABD_TEMPLATE_D":{"quality":["Dog bite","Cat bite","Human bite","Cut skin","Puncture"],"severity":"0-10"},"GU_TEMPLATE_A":{"fields":["onset","timing","severity","context"]},"GU_TEMPLATE_B":{"quality":["Burning","Pain","Pressure","Itching","Urinary/bowel changes"],"severity":"0-10"},"LE_TEMPLATE_A":{"quality":["Sharp","Dull","Aching","Burning","Shooting","Migratory","Throbbing"],"severity":"0-10"},"LE_TEMPLATE_B":{"quality":["Dog bite","Cat bite","Human bite","Cut skin","Puncture","Bleeding"],"severity":"0-10"},"LE_TEMPLATE_C":{"quality":["Red","Raised","Weeping","Pruritic","Migratory"],"severity":"0-10"},"BACK_TEMPLATE_A":{"quality":["Sharp","Dull","Aching","Throbbing","Shooting","Spasmodic","Burning"],"severity":"0-10"},"BACK_TEMPLATE_B":{"quality":["Red","Raised","Weeping","Pruritic","Shrinking"],"severity":"0-10"},"BACK_TEMPLATE_C":{"quality":["Bleeding","Cut skin","Draining pus","Large","Small","Swollen"],"severity":"0-10"},"GEN_TEMPLATE_A":{"quality":["High blood sugar","Low blood sugar"],"severity":"0-10"},"GEN_TEMPLATE_B":{"quality":["Agitated","Delusion","Memory impairment","Motor changes"],"severity":"0-10"},"GEN_TEMPLATE_C":{"quality":["Trouble sleeping","Night waking","Daytime fatigue"],"severity":"0-10"},"GEN_TEMPLATE_D":{"quality":["Suicidal ideation","No suicidal intention"],"severity":"0-10"}}}
 
 ```
-
 ### COORDS
 
 ```json
 {"TOGGLE_FRONT_BACK":{"toggle":{"x":98,"y":527}},"HEAD_PARENT":{"front":{"x":175,"y":508}},"NECK_PARENT":{"front":{"x":175,"y":535}},"CHEST_PARENT":{"front":{"x":183,"y":556}},"ABD_PARENT":{"front":{"x":174,"y":605}},"GU_PARENT":{"front":{"x":172,"y":626}},"R_SHOULDER_PARENT":{"front":{"x":146,"y":556}},"L_SHOULDER_PARENT":{"front":{"x":183,"y":556}},"R_UPPER_ARM_PARENT":{"front":{"x":136,"y":582}},"L_UPPER_ARM_PARENT":{"front":{"x":182,"y":582}},"R_ELBOW_PARENT":{"front":{"x":133,"y":602}},"L_ELBOW_PARENT":{"front":{"x":206,"y":602}},"R_FOREARM_PARENT":{"front":{"x":127,"y":626}},"L_FOREARM_PARENT":{"front":{"x":172,"y":626}},"R_HAND_PARENT":{"front":{"x":111,"y":659}},"L_HAND_PARENT":{"front":{"x":237,"y":659}},"R_HIP_THIGH_PARENT":{"front":{"x":160,"y":684}},"L_HIP_THIGH_PARENT":{"front":{"x":207,"y":684}},"R_KNEE_PARENT":{"front":{"x":163,"y":721}},"L_KNEE_PARENT":{"front":{"x":200,"y":721}},"R_LOWER_LEG_PARENT":{"front":{"x":162,"y":762}},"L_LOWER_LEG_PARENT":{"front":{"x":214,"y":762}},"R_FOOT_PARENT":{"front":{"x":165,"y":802}},"L_FOOT_PARENT":{"front":{"x":184,"y":802}},"BACK_UPPER_PARENT":{"back":{"x":188,"y":564}},"BACK_L_SCAP_PARENT":{"back":{"x":153,"y":564}},"BACK_R_SCAP_PARENT":{"back":{"x":197,"y":574}},"BACK_MID_PARENT":{"back":{"x":174,"y":592}},"BACK_LOWER_PARENT":{"back":{"x":174,"y":615}},"BACK_BUTTOCKS_PARENT":{"back":{"x":174,"y":645}}}
 
 ```
+---
+
+## Notes Payload Quality Field Rules
+
+**CRITICAL: Quality Field Must Always Be an Array**
+
+- The `quality` field in `notesPayload` MUST always be an array of strings
+- NEVER use a single string value
+- Match values from the template's quality array that are relevant to the complaint
+- If the template has a quality array, select 1-3 relevant items from it
+- If no quality items match, use an empty array: `[]`
+- Values must match the template exactly (case-sensitive)
+
+**CRITICAL NO FABRICATION RULE FOR QUALITY:**
+- **DO NOT fabricate, infer, or guess quality values** if they are not explicitly present in the source encounter data
+- Before setting quality, verify the source data contains:
+  - `painQuality` field with a value in the complaint or encounter data
+  - `quality` field in complaint data
+  - Explicit quality description in complaint text (e.g., "sharp pain", "pressure", "dull ache")
+- If source data only has generic complaint text like "chest pain" or "leg pain" WITHOUT any quality specification, you MUST use an empty array `[]` or `null`
+- **NEVER** set quality to `["Pressure"]`, `["Sharp"]`, `["Dull"]`, etc. when source data doesn't specify quality
+- This is a CRITICAL rule: Fabricating quality values violates the "NO CLINICAL FABRICATION" principle
+
+**Examples:**
+- Source has `"painQuality": "Sharp"` → Use `["Sharp"]` ✅
+- Source has `"description": "sharp chest pain"` → Use `["Sharp"]` ✅ (quality is in text)
+- Source has `"description": "chest pain"` only (no quality) → Use `[]` or `null` ✅
+- Source has `"description": "chest pain"` only → DO NOT use `["Pressure"]` or `["Sharp"]` ❌ (FABRICATION)
+- For HEAD_TEMPLATE_D: Use `["Bleeding", "Cut skin"]` or `["Bleeding", "Cut skin", "Puncture"]` (NOT `"Cut skin"` as string)
+- For LE_TEMPLATE_A: Use `["Sharp"]` or `["Sharp", "Dull"]` (NOT `"Sharp"` as string) - BUT ONLY if source data specifies these qualities
+- If no quality matches or source doesn't specify: Use `[]` (empty array, NOT null)
 
 ---
 
-## Fixed ICD-10 Codes
+## Onset Field Format Rules
 
-Anxiety=F41.9, Asthma=J45.909, Cancer=C80.1, Cardiac Arrhythmia=I49.9, Congestive Heart Failure=I50.9, COPD=J44.9, Diabetes=E11.9, GERD=K21.9, Hypertension=I10
+**CRITICAL: Consistent Onset Format - Never Fabricate Dates**
+
+- Use `durationDays` from the complaint to determine onset
+- Format: `"{N} day(s) ago"` where N is the durationDays value
+- If durationDays is 0: Use `"Today"` or `"0 days ago"`
+- If durationDays is 1: Use `"1 day ago"` (singular)
+- If durationDays > 1: Use `"{N} days ago"` (plural)
+- If durationDays is null or missing: Use `null` (DO NOT fabricate)
+- NEVER generate ISO timestamps or specific dates unless explicitly provided in source data
+- NEVER calculate dates by subtracting from current date
+
+**Examples:**
+- durationDays: 1 → `"1 day ago"`
+- durationDays: 2 → `"2 days ago"`
+- durationDays: 0 → `"Today"`
+- durationDays: null → `null`
+- NEVER use: `"2025-12-21T00:00:00Z"` (this is fabrication)
+---
+
+## ICD Updates (AUTOMATIC - Do NOT Generate)
+
+**CRITICAL: ICD Updates are automatically extracted from `additionalQuestions.conditions` by the system.**
+
+- **DO NOT attempt to generate ICD updates in your response**
+- The `icdUpdates` field will be automatically populated based on conditions where `answer: true`
+- **Simply include the `icdUpdates` field as an empty array `[]` in your output schema**, or omit it entirely
+- The system will merge the automatically extracted ICD updates into the final response
+- ICD-10 codes are mapped automatically using a fixed mapping table (Anxiety=F41.9, Asthma=J45.909, Cancer=C80.1, Cardiac Arrhythmia=I49.9, Congestive Heart Failure=I50.9, COPD=J44.9, Diabetes=E11.9, GERD=K21.9, Hypertension=I10)
 
 ---
 
@@ -181,7 +235,7 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
         "notes": string|null
       },
       "labOrders": [{"orderId": string|null, "name": string, "status": string|null, "priority": string|null, "reason": string|null}],
-      "icdUpdates": [{"conditionName": string, "icd10Code": string, "presentInEncounter": true, "source": "conditions"}],
+      "icdUpdates": [],  // AUTOMATIC - Will be populated by system from additionalQuestions.conditions
       "complaints": [{"encounterId": string|null, "complaintId": string|null, "description": string, "traumaType": string, "bodyPartRaw": string|null, "reviewOfSystemsCategory": string|null, "gender": string, "bodyAreaKey": string, "subLocationLabel": string|null, "experityTemplate": string, "coordKey": string, "bodyMapSide": "front"|"back", "ui": {"bodyMapClick": {"x": number, "y": number}, "bodyPartId": number}, "mainProblem": string, "notesTemplateKey": string, "notesPayload": object, "notesFreeText": string, "reasoning": string}]
     },
     "encounterId": "string",
@@ -192,35 +246,182 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
 }
 ```
 
+**CRITICAL ICD UPDATES RULE:**
+- **DO NOT generate ICD updates** - They are automatically extracted by the system
+- Include `icdUpdates` as an empty array `[]` in your response (or omit it)
+- The system will automatically populate ICD updates from `additionalQuestions.conditions` where `answer: true`
+
+**REQUIRED FIELDS IN notesPayload:**
+- `quality`: ALWAYS required (array, can be empty [])
+- `severity`: ALWAYS required (numeric 0-10)
+- `onset`: REQUIRED if durationDays is present in complaint, otherwise null
+
+**OPTIONAL FIELDS IN notesPayload:**
+- `timing`: Only if template specifies it
+- `duration`: Only if explicitly needed by template
+
+**REQUIRED FIELDS IN complaints:**
+- `encounterId`: REQUIRED (use encounter id)
+- `description`: REQUIRED (from complaint)
+- `traumaType`: REQUIRED (from encounter, or null)
+- `bodyAreaKey`: REQUIRED (normalized format)
+- `coordKey`: REQUIRED (from COORDS)
+- `bodyMapSide`: REQUIRED ("front" or "back")
+- `ui.bodyMapClick`: REQUIRED (x, y coordinates)
+- `ui.bodyPartId`: REQUIRED (from mapping table, or null if not found)
+- `mainProblem`: REQUIRED (from problemSets)
+- `experityTemplate`: REQUIRED (template key)
+- `notesTemplateKey`: REQUIRED (same as experityTemplate)
+- `notesPayload`: REQUIRED (object with quality, severity, onset)
+- `notesFreeText`: REQUIRED (string, can be empty "")
+- `reasoning`: REQUIRED (string, can be empty "")
+
+**OPTIONAL FIELDS IN complaints:**
+- `complaintId`: Optional (from complaint if available)
+- `bodyPartRaw`: Optional (from complaint part field, or null)
+- `subLocationLabel`: Optional (from BODY_AREAS children, or null)
+- `reviewOfSystemsCategory`: Optional (from complaint if available)
+
+**DO NOT include duplicate fields with different naming conventions. Use ONLY the camelCase field names shown above.**
+```
 **DO NOT include duplicate fields with different naming conventions. Use ONLY the camelCase field names shown above.**
 
 ```
-
 ---
 
 ## Mapping Rules
 
 1. Body Area: part field (head=Head, neck=Neck, chest=Chest, etc) OR reviewOfSystemsCategory (RESPIRATORY=Chest)
-2. Side: Search "left"/"right" in description, default "Left" if unclear
-3. Coordinates: From COORDS using coordKey, determine front/back from property
-4. Body Part ID: From mapping table, omit if not found
-5. Main Problem: Match keywords (cut=Laceration, burn=Burn, cough=Cough, etc) from problemSets[problemSet]
-6. Template: Match body area + problem (Head+Burn=HEAD_TEMPLATE_C, Chest+Cough=CHEST_TEMPLATE_B, etc)
-7. Payload: Match description to template fields, severity 1-3=mild, 4-6=moderate, 7-10=severe, default=5
-8. Free Text: 1-3 clinical sentences with location, duration, severity, timing, factors
+   **Body Area Key Format:**
+   - Use normalized format: "Head", "Neck", "Chest", "Abdomen", "Back", "Lower Extremity", "Upper Extremity", "Genito-Urinary", "Generalized"
+   - NEVER use coordinate key format like "HEAD_PARENT" or "R_LOWER_LEG_PARENT" in bodyAreaKey
+   - bodyAreaKey is for display, coordKey is for coordinates
+   - Match the template name from BODY_AREAS (e.g., "Head", "Right Lower Extremity", "Left Upper Extremity")
 
+2. Side: Search "left"/"right" in description, default "Left" if unclear
+
+3. Coordinates: From COORDS using coordKey, determine front/back from property
+   **Coordinate Key Selection Priority:**
+   1. If complaint has a specific body part (e.g., "scalp", "forehead", "knee"), use the specific coordKey from BODY_AREAS children
+   2. If no specific match, use the parent coordKey (e.g., HEAD_PARENT, R_LOWER_LEG_PARENT)
+   3. Match body part from complaint description or part field to BODY_AREAS children first
+   4. Use consistent logic: Always prefer specific over generic when available
+   
+   **Examples:**
+   - "cut on scalp" → Use HEAD_SCALP (specific)
+   - "head pain" → Use HEAD_PARENT (generic, no specific match)
+   - "leg pain" → Use R_LOWER_LEG_PARENT or L_LOWER_LEG_PARENT (based on side, or default to R)
+   - "knee pain" → Use R_KNEE_PARENT or L_KNEE_PARENT (specific)
+
+4. Body Part ID: From mapping table, omit if not found
+
+5. Main Problem: Match keywords (cut=Laceration, burn=Burn, cough=Cough, etc) from problemSets[problemSet]
+
+6. Template: Match body area + problem (Head+Burn=HEAD_TEMPLATE_C, Chest+Cough=CHEST_TEMPLATE_B, etc)
+
+7. Payload: Match description to template fields
+   - **Severity**: ALWAYS use numeric value (0-10), NEVER use text like "mild", "moderate", "severe"
+   - Use painScale from complaint if available
+   - If painScale is missing, use default: 5
+   - Severity mapping: 1-3=mild (but store as number), 4-6=moderate (but store as number), 7-10=severe (but store as number)
+   - Store as: `"severity": 4` (NOT `"severity": "mild"`)
+
+8. Free Text: 1-3 clinical sentences with location, duration, severity, timing, factors
+   **Deterministic Free Text Rules:**
+   - Use ONLY information explicitly present in the encounter data
+   - Structure: "Patient [description] [location] for [duration]. [Severity/pain scale]. [Relevant details from source]."
+   - Do NOT infer or add information not in source
+   - Do NOT mention negative findings unless explicitly stated in source
+   - Use consistent format: location → duration → severity → details
+   - Same input MUST produce same free text
+
+9. Reasoning: Brief explanation of mapping decision
+   **Deterministic Reasoning Rules:**
+   - Use format: "The [complaint type] is identified as [main problem] due to [key factor from source]."
+   - Keep it concise (1 sentence)
+   - Use ONLY facts from source data
+   - Same input MUST produce same reasoning
+   - If no specific reasoning needed, use empty string: ""
+
+10. Trauma Type: Use EXACT value from encounter data's traumaType field
+   - If traumaType is "CUT" → Use "CUT" (preserve original casing)
+   - If traumaType is "BURN" → Use "BURN"
+   - If traumaType is "NONE" → Use "NONE"
+   - NEVER change the casing or convert to different terms
+   - If traumaType is missing, use null
 ---
 
 ## Edge Cases
 
-Missing part=Generalized | No side=Left | Missing vitals=null | No guardian=present:false | No labs=[] | No conditions=[] | Missing emrId=null | Missing queueId=null
+Missing part=Generalized | No side=Left | Missing vitals=null | No guardian=present:false | No labs=[] | No ICD updates=[] (automatically handled) | Missing emrId=null (DO NOT use clientId as fallback) | Missing queueId=null
 
+## CRITICAL: emrId vs clientId
+
+**emrId and clientId are DIFFERENT fields:**
+- **emrId**: The EMR (Electronic Medical Record) identifier for the patient in the external system
+- **clientId**: The internal client/patient identifier in the Intellivisit system
+
+**Rules for emrId:**
+- The `emrId` field in the encounter data has been pre-extracted and set for you
+- Use the `emrId` value exactly as provided in the encounter data (it's already correctly extracted from the right source)
+- If `emrId` is null or missing in the encounter data, set it to null in your output
+- **NEVER use `clientId` as a substitute for `emrId`** - even if emrId is missing
+- **NEVER copy `clientId` into the `emrId` field**
+- These are separate identifiers for different purposes
+- Note: The emrId extraction follows this priority: queue_entry.emr_id > encounter.emrId > encounter.emr_id > null
 ---
 
-##CRITICAL NO CLINICAL FABRICATION
+## CRITICAL NO CLINICAL FABRICATION
 
-Do NOT infer, guess, or fabricate ANY clinical details not explicitly present in the encounter JSON. If a field is missing, treat it as null. Do not describe missing information in natural language. Only use exactly what is present in the encounter.
+Do NOT infer, guess, or fabricate ANY clinical details not explicitly present in the encounter JSON.
 
+**STRICT RULES:**
+1. If a field is missing, treat it as null (NOT empty string, NOT inferred value)
+2. Do NOT describe missing information in natural language
+3. Do NOT generate dates or timestamps unless explicitly provided
+4. **CRITICAL**: Do NOT infer pain quality (Sharp/Dull/Aching/Pressure) unless explicitly stated in source. If quality is not in source data, use empty array `[]` or `null` for quality field.
+5. Do NOT add clinical details like "no trauma" or "no injury" unless explicitly stated
+6. Do NOT specify body side (left/right) unless explicitly stated in source
+7. Only use exactly what is present in the encounter
+8. **Quality Field Fabrication Check**: Before setting quality, verify it exists in source. If source only has complaint text like "chest pain" without quality, quality MUST be `[]` or `null`.
+
+**Examples of FORBIDDEN fabrications:**
+- Generating ISO timestamp from durationDays
+- Inferring "Sharp" pain when source doesn't specify
+- Inferring "Pressure" pain when source doesn't specify
+- Inferring "Dull" pain when source doesn't specify
+- Setting quality to `["Pressure"]` when source only has "chest pain" text
+- Setting quality to `["Sharp"]` when source only has "chest pain" text
+- Adding "no recent injuries" when not explicitly stated
+- Specifying "right side" when source doesn't indicate side
+- Creating dates by calculating from current date
+
+**Examples of CORRECT behavior:**
+- If durationDays: 1 → Use "1 day ago" (relative, not absolute date)
+- If pain quality not specified → Use empty array [] or null (DO NOT fabricate)
+- If source has "chest pain" only (no quality) → Use quality: [] or null
+- If source has "painQuality": "Sharp" → Use quality: ["Sharp"]
+- If side not specified → Use default or null
+- If information missing → Use null
+---
+
+## CRITICAL: DETERMINISTIC OUTPUT REQUIREMENT
+
+**The same input MUST always produce the same output.**
+
+To ensure determinism:
+
+1. **Use deterministic logic**: Always follow the same rules in the same order
+2. **No randomness**: Do not vary output based on interpretation
+3. **Consistent formatting**: Always use the same format for the same data type
+4. **Template matching**: Use exact template matching, not fuzzy matching
+5. **Field presence**: Always include required fields, never skip them
+6. **Array ordering**: If order matters, sort arrays consistently
+7. **Default values**: Use consistent defaults (null, empty array, empty string)
+
+**Testing**: If you run the same encounter through the mapping twice, you MUST get identical JSON output (except for processedAt timestamp which will differ).
+
+**If you find yourself generating different outputs for the same input, you are violating this requirement.**
 ---
 
 ## FINAL REMINDER: FIELD NAMING
@@ -230,7 +431,6 @@ Before returning your response, verify:
 - NO snake_case field names (e.g., `experity_actions`, `encounter_id`, `processed_at`, `queue_id`)
 - NO duplicate fields with different naming conventions
 - Structure matches the Output Schema exactly
-
 ---
 
 Process the encounter and return ONLY the JSON object.
