@@ -270,7 +270,6 @@ def custom_openapi():
 app.openapi = custom_openapi
 
 # Exception handlers for better error messages
-from fastapi.exceptions import RequestTimeout
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import asyncio
 
