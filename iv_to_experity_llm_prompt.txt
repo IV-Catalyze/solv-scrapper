@@ -353,7 +353,7 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
 
 ## Edge Cases
 
-Missing part=Generalized | No side=Left | Missing vitals=null | No guardian=present:false | No labs=[] | No ICD updates=[] (automatically handled) | Missing emrId=null (DO NOT use clientId as fallback) | Missing queueId=null
+Missing part=Generalized | No side=Left | Missing vitals=null | No guardian=present:false | No labs=[] | No ICD updates=[] (automatically handled) | Missing emrId=null (DO NOT use clientId as fallback - the emrId field in encounter data is already set correctly, use it as-is) | Missing queueId=null
 
 ## CRITICAL: emrId vs clientId
 
