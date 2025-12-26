@@ -883,16 +883,20 @@ class AsyncAzureAIAgentClient:
                 "polling_interval": self.config.poll_interval_seconds,
             }
             
-            # CRITICAL: Set temperature=0 and seed for deterministic output
-            logger.info(f"Setting temperature={self.config.temperature}, seed={self.config.seed} for deterministic output")
+            # CRITICAL: Set temperature=0 for deterministic output
+            # NOTE: seed parameter removed temporarily due to Azure SDK bug with aiohttp
+            # The seed parameter causes: TypeError: ClientSession._request() got an unexpected keyword argument 'seed'
+            # This is a known issue in azure-core 1.30.0 with aiohttp transport
+            logger.info(f"Setting temperature={self.config.temperature} for deterministic output")
             
-            # Add temperature and seed to run parameters
-            # Note: Azure AI Agents SDK may support temperature and seed as direct parameters
-            # If not supported, they may need to be configured in Azure AI Foundry model deployment settings
+            # Add temperature to run parameters
+            # Note: Azure AI Agents SDK may support temperature as a direct parameter
+            # If not supported, it may need to be configured in Azure AI Foundry model deployment settings
             if self.config.temperature is not None:
                 run_params["temperature"] = self.config.temperature
-            if self.config.seed is not None:
-                run_params["seed"] = self.config.seed
+            # TEMPORARILY DISABLED: seed parameter causes compatibility issue with aiohttp
+            # if self.config.seed is not None:
+            #     run_params["seed"] = self.config.seed
             
             run = await self.client.create_thread_and_process_run(**run_params)
             
