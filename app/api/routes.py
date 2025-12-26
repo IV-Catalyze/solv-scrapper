@@ -269,6 +269,119 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
+# Exception handlers for better error messages
+from fastapi.exceptions import RequestTimeout
+from starlette.exceptions import HTTPException as StarletteHTTPException
+import asyncio
+
+@app.exception_handler(504)
+async def timeout_exception_handler(request: Request, exc):
+    """Handle 504 Gateway Timeout errors with user-friendly message."""
+    # If it's an HTML request (browser), return a user-friendly error page
+    if "text/html" in request.headers.get("accept", ""):
+        error_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Service Temporarily Unavailable</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .error-container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            max-width: 600px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+        h1 {
+            color: #111920;
+            font-size: 28px;
+            margin-bottom: 16px;
+        }
+        p {
+            color: #666;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+        .actions {
+            margin-top: 32px;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 0 8px;
+            transition: background 0.2s;
+        }
+        .btn:hover {
+            background: #5568d3;
+        }
+        .icon {
+            font-size: 64px;
+            margin-bottom: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <div class="icon">⏱️</div>
+        <h1>Service Temporarily Unavailable</h1>
+        <p>
+            The server is taking longer than expected to respond. This may be due to:
+        </p>
+        <ul style="text-align: left; color: #666; margin: 20px 0;">
+            <li>High server load</li>
+            <li>Database connection issues</li>
+            <li>Temporary service maintenance</li>
+        </ul>
+        <p>
+            Please try again in a few moments. If the problem persists, contact your administrator.
+        </p>
+        <div class="actions">
+            <a href="/" class="btn">Go to Dashboard</a>
+            <a href="javascript:location.reload()" class="btn">Retry</a>
+        </div>
+    </div>
+</body>
+</html>
+        """
+        return HTMLResponse(content=error_html, status_code=504)
+    # For API requests, return JSON
+    return JSONResponse(
+        status_code=504,
+        content={
+            "error": {
+                "code": "GATEWAY_TIMEOUT",
+                "message": "The server took too long to respond. Please try again later.",
+                "details": {
+                    "path": str(request.url.path),
+                    "suggestion": "Check application logs or try again in a few moments"
+                }
+            }
+        }
+    )
+
+@app.exception_handler(asyncio.TimeoutError)
+async def asyncio_timeout_handler(request: Request, exc):
+    """Handle asyncio timeout errors."""
+    return await timeout_exception_handler(request, None)
+
 # Include authentication routes
 if SESSION_AUTH_ENABLED and auth_router:
     app.include_router(auth_router)
@@ -535,18 +648,48 @@ async def experity_chat_ui(
     
     Requires authentication - users must be logged in to access this page.
     """
-    response = templates.TemplateResponse(
-        "experity_chat.html",
-        {
-            "request": request,
-            "current_user": current_user,
-        },
-    )
-    # Use no-cache instead of no-store to allow history navigation while preventing stale cache
-    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
+    try:
+        # Render template with timeout protection
+        # TemplateResponse is synchronous, so we wrap it in a thread with timeout
+        def render_template():
+            return templates.TemplateResponse(
+                "experity_chat.html",
+                {
+                    "request": request,
+                    "current_user": current_user,
+                },
+            )
+        
+        # Use asyncio to add timeout protection
+        loop = asyncio.get_event_loop()
+        response = await asyncio.wait_for(
+            loop.run_in_executor(None, render_template),
+            timeout=5.0  # 5 second timeout for template rendering
+        )
+        
+        # Use no-cache instead of no-store to allow history navigation while preventing stale cache
+        response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+    except asyncio.TimeoutError:
+        logger.error("Template rendering timed out for /experity/chat")
+        raise HTTPException(
+            status_code=504,
+            detail="Page rendering timed out. Please try again."
+        )
+    except FileNotFoundError as e:
+        logger.error(f"Template file not found: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Page template not found. Please contact support."
+        )
+    except Exception as e:
+        logger.error(f"Error rendering experity_chat template: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Error loading page. Please contact support if this persists."
+        )
 
 
 @app.get(
