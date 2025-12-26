@@ -2788,6 +2788,17 @@ async def map_queue_to_experity(
                 logger.warning(f"Failed to update queue status to PROCESSING: {str(e)}")
                 # Continue even if database update fails
         
+        # Pre-extract deterministic data (ICD updates, etc.) before LLM processing
+        # This reduces AI work and ensures accuracy for deterministic mappings
+        pre_extracted_icd_updates = []
+        try:
+            from app.utils.experity_mapper import extract_icd_updates
+            pre_extracted_icd_updates = extract_icd_updates(raw_payload)
+            logger.info(f"Pre-extracted {len(pre_extracted_icd_updates)} ICD updates before LLM processing")
+        except Exception as pre_extract_error:
+            logger.warning(f"Failed to pre-extract ICD updates (continuing anyway): {str(pre_extract_error)}")
+            # Continue without pre-extraction if it fails
+        
         # Call Azure AI agent with retry logic at endpoint level
         # This provides additional retries for transient errors beyond the client-level retries
         endpoint_max_retries = 3
@@ -2823,6 +2834,21 @@ async def map_queue_to_experity(
                 
                 logger.info(f"Calling Azure AI agent with encounter_id: {encounter_id}")
                 experity_mapping = await call_azure_ai_agent(queue_entry)
+                
+                # Merge pre-extracted deterministic data into LLM response
+                # This overwrites LLM's ICD updates with deterministic extraction
+                if pre_extracted_icd_updates:
+                    try:
+                        from app.utils.experity_mapper import merge_icd_updates_into_response
+                        experity_mapping = merge_icd_updates_into_response(
+                            experity_mapping,
+                            pre_extracted_icd_updates,
+                            overwrite=True  # Always use deterministic extraction
+                        )
+                        logger.info("Merged pre-extracted ICD updates into LLM response")
+                    except Exception as merge_error:
+                        logger.warning(f"Failed to merge ICD updates (continuing anyway): {str(merge_error)}")
+                        # Continue even if merge fails
                 
                 # Validate and fix format issues in the response
                 try:

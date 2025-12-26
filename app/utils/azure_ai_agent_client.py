@@ -393,6 +393,7 @@ class AgentConfig:
     max_poll_attempts: int = 60
     poll_interval_seconds: float = 2.0
     temperature: float = 0.0  # CRITICAL: Set to 0 for deterministic output
+    seed: Optional[int] = 42  # CRITICAL: Fixed seed for additional determinism (use same seed for reproducibility)
     
     # Service Principal auth (optional - defaults to DefaultAzureCredential)
     tenant_id: Optional[str] = None
@@ -419,6 +420,7 @@ class AgentConfig:
             client_id=os.environ.get("AZURE_CLIENT_ID"),
             client_secret=os.environ.get("AZURE_CLIENT_SECRET"),
             temperature=float(os.environ.get("AZURE_AI_TEMPERATURE", "0.0")),  # Default to 0 for deterministic output
+            seed=int(os.environ.get("AZURE_AI_SEED", "42")) if os.environ.get("AZURE_AI_SEED") else 42,  # Fixed seed for determinism
         )
 
 class AzureAIAgentClient:
@@ -881,14 +883,16 @@ class AsyncAzureAIAgentClient:
                 "polling_interval": self.config.poll_interval_seconds,
             }
             
-            # CRITICAL: Set temperature=0 for deterministic output
-            logger.info(f"Setting temperature={self.config.temperature} for deterministic output")
+            # CRITICAL: Set temperature=0 and seed for deterministic output
+            logger.info(f"Setting temperature={self.config.temperature}, seed={self.config.seed} for deterministic output")
             
-            # Add temperature to run parameters
-            # Note: Azure AI Agents SDK may support temperature as a direct parameter
-            # If not supported, it may need to be configured in Azure AI Foundry model deployment settings
+            # Add temperature and seed to run parameters
+            # Note: Azure AI Agents SDK may support temperature and seed as direct parameters
+            # If not supported, they may need to be configured in Azure AI Foundry model deployment settings
             if self.config.temperature is not None:
                 run_params["temperature"] = self.config.temperature
+            if self.config.seed is not None:
+                run_params["seed"] = self.config.seed
             
             run = await self.client.create_thread_and_process_run(**run_params)
             
