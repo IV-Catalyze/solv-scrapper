@@ -3552,7 +3552,7 @@ async def list_images(
     
     try:
         # List blobs with the prefix
-        folders = set()
+        folders_dict = {}  # folder_name -> earliest creation time
         images = []
         
         # List all blobs with the prefix
@@ -3566,11 +3566,25 @@ async def list_images(
             if not relative_name:
                 continue
             
+            # Get blob creation time (use last_modified as creation time indicator)
+            # Note: Azure Blob Storage doesn't track folder creation separately,
+            # so we use the earliest last_modified time of blobs in the folder
+            blob_creation_time = None
+            if hasattr(blob, 'last_modified') and blob.last_modified:
+                blob_creation_time = blob.last_modified
+            elif hasattr(blob, 'creation_time') and blob.creation_time:
+                blob_creation_time = blob.creation_time
+            
             # Check if this is a folder (contains a slash) or an image file
             if "/" in relative_name:
                 # This is in a subfolder - extract the folder name
                 folder_name = relative_name.split("/")[0]
-                folders.add(folder_name)
+                
+                # Track the earliest creation time for this folder
+                if folder_name not in folders_dict:
+                    folders_dict[folder_name] = blob_creation_time
+                elif blob_creation_time and (folders_dict[folder_name] is None or blob_creation_time < folders_dict[folder_name]):
+                    folders_dict[folder_name] = blob_creation_time
             else:
                 # This is an image file
                 # Check if it's a valid image extension
@@ -3597,12 +3611,25 @@ async def list_images(
                             "content_type": None
                         })
         
-        # Convert folders set to sorted list
-        folders_list = sorted(list(folders))
+        # Convert folders dict to list of dicts with creation time, then sort by creation time
+        folders_list = [
+            {
+                "name": folder_name,
+                "created_at": folders_dict[folder_name].isoformat() if folders_dict[folder_name] else None
+            }
+            for folder_name in folders_dict.keys()
+        ]
+        
+        # Sort folders by creation time (newest first, folders without dates go to bottom)
+        folders_list.sort(key=lambda x: (
+            x["created_at"] if x["created_at"] else "0000-01-01T00:00:00",  # Put no-date folders at bottom
+            x["name"]
+        ), reverse=True)
         
         return {
             "folder": folder or "",
-            "folders": folders_list,
+            "folders": [f["name"] for f in folders_list],  # Return just names for backward compatibility
+            "folders_with_metadata": folders_list,  # Include full metadata with creation times
             "images": images,
             "total_folders": len(folders_list),
             "total_images": len(images)
