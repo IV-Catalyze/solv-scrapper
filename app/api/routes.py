@@ -3805,10 +3805,12 @@ async def images_gallery(
             "content": {"text/html": {"example": "<!-- EMR Image Validation UI -->"}},
             "description": "EMR image validation tool for comparing JSON responses against screenshots.",
         },
+        303: {"description": "Redirect to login page if not authenticated."},
     },
 )
 async def emr_validation_ui(
     request: Request,
+    current_user: dict = Depends(require_auth),
 ):
     """
     Render the EMR Image Validation UI.
@@ -3819,7 +3821,7 @@ async def emr_validation_ui(
     - Validate JSON against screenshots using Azure OpenAI GPT-4o
     - View validation results with detailed comparisons
     
-    No authentication required - this is a standalone validation tool.
+    Requires authentication - users must be logged in to access this page.
     """
     # Hardcoded configuration
     project_endpoint = "https://iv-catalyze-openai.services.ai.azure.com/api/projects/IV-Catalyze-OpenAI-project"
@@ -3850,6 +3852,7 @@ async def validate_emr_image(
     request: Request,
     image: UploadFile = File(...),
     json_response: str = Form(...),
+    current_user: dict = Depends(require_auth),
 ):
     """
     Validate EMR screenshot against JSON response using Azure AI ImageMapper agent.
@@ -3858,6 +3861,8 @@ async def validate_emr_image(
     - Accepts an image file and JSON response
     - Calls the ImageMapper Azure AI agent
     - Returns validation results
+    
+    Requires authentication - users must be logged in to use this endpoint.
     """
     try:
         # Import Azure AI Agents client (same as azure_ai_agent_client.py)
