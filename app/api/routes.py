@@ -3928,12 +3928,12 @@ async def validate_emr_image(
         json_string = json.dumps(json_data, indent=2)
         
         # Create message content with image and JSON (same pattern as azure_ai_agent_client.py)
-        # Format matches the agent's instruction: "## JSON to Validate: [PASTE YOUR JSON HERE]"
+        # Format matches the agent's instruction: "## JSON TO VALIDATE: [PASTE JSON HERE]"
         # For vision models, content should be a list with text and image_url items
         message_content = [
             {
                 "type": "text",
-                "text": f"## JSON to Validate:\n{json_string}"
+                "text": f"## JSON TO VALIDATE:\n{json_string}\n\n---\n\nAnalyze the screenshot and return the validation report."
             },
             {
                 "type": "image_url",
@@ -4047,12 +4047,33 @@ async def validate_emr_image(
                 cleaned_text = cleaned_text.strip()
                 
                 validation_result = json.loads(cleaned_text)
-            except json.JSONDecodeError:
+                
+                # Handle new response format with "extraction" and "validation" sections
+                # If agent returns new format, extract just the validation part
+                if isinstance(validation_result, dict) and "validation" in validation_result:
+                    # Use the validation section, but also include extraction for debugging
+                    validation_result = {
+                        **validation_result.get("validation", {}),
+                        "extraction": validation_result.get("extraction", {})  # Include for debugging
+                    }
+                # If agent returns old format directly, use as-is
+                elif isinstance(validation_result, dict) and "overall_status" in validation_result:
+                    # Already in correct format
+                    pass
+                else:
+                    # Unexpected format, wrap it
+                    validation_result = {
+                        "overall_status": "ERROR",
+                        "error": "Unexpected response format",
+                        "raw_response": validation_result
+                    }
+                    
+            except json.JSONDecodeError as e:
                 # If not JSON, return as text
                 validation_result = {
                     "overall_status": "ERROR",
-                    "error": "Failed to parse response as JSON",
-                    "raw_response": response_text
+                    "error": f"Failed to parse response as JSON: {str(e)}",
+                    "raw_response": response_text[:500]  # Limit length
                 }
             
             return validation_result
