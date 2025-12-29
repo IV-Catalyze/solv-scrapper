@@ -50,7 +50,7 @@ All configuration is hardcoded:
 
 ## Usage
 
-1. Navigate to: `http://localhost:8000/emr/validation`
+1. Navigate to: `https://app-97926.on-aptible.com/emr/validation`
 2. Upload EMR screenshot
 3. Paste JSON response
 4. Click "Validate"

@@ -14,9 +14,9 @@ The EMR Image Validation feature provides a simple, single-page web application 
 
 ## Access
 
-Navigate to: `http://localhost:8000/emr/validation`
+**Production URL**: `https://app-97926.on-aptible.com/emr/validation`
 
-Or in production: `https://your-domain.com/emr/validation`
+For local development: `http://localhost:8000/emr/validation`
 
 ## Usage
 
