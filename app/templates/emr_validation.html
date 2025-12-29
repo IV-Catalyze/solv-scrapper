@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMR Image Validation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 32px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 32px;
+            font-size: 14px;
+        }
+
+        .form-section {
+            margin-bottom: 24px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input[type="file"],
+        input[type="text"],
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+
+        input[type="file"] {
+            padding: 8px;
+            cursor: pointer;
+        }
+
+        input[type="text"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        textarea {
+            min-height: 200px;
+            resize: vertical;
+            font-family: 'Courier New', monospace;
+        }
+
+        .image-preview {
+            margin-top: 12px;
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+            display: none;
+        }
+
+        .image-preview.show {
+            display: block;
+        }
+
+        .validate-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+            margin-top: 8px;
+        }
+
+        .validate-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .validate-btn:active {
+            transform: translateY(0);
+        }
+
+        .validate-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 12px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .results {
+            display: none;
+            margin-top: 32px;
+            padding: 24px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .results.show {
+            display: block;
+        }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .status-badge {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .status-pass {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-partial {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-fail {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .result-item {
+            margin-bottom: 20px;
+            padding: 16px;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid #e0e0e0;
+        }
+
+        .result-item.match {
+            border-left-color: #28a745;
+        }
+
+        .result-item.mismatch {
+            border-left-color: #dc3545;
+        }
+
+        .result-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .result-item-title {
+            font-weight: 600;
+            color: #333;
+            text-transform: capitalize;
+        }
+
+        .match-indicator {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .match-indicator.match {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .match-indicator.mismatch {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .result-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 12px;
+        }
+
+        .result-detail {
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+
+        .result-detail-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+
+        .result-detail-value {
+            font-size: 14px;
+            color: #333;
+            word-break: break-word;
+        }
+
+        .result-detail-value.array {
+            font-family: 'Courier New', monospace;
+        }
+
+        .mismatches-section {
+            margin-top: 24px;
+            padding: 16px;
+            background: #fff3cd;
+            border-radius: 8px;
+            border-left: 4px solid #ffc107;
+        }
+
+        .mismatches-title {
+            font-weight: 600;
+            color: #856404;
+            margin-bottom: 12px;
+        }
+
+        .mismatch-item {
+            padding: 8px 12px;
+            background: white;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #856404;
+        }
+
+        .error {
+            display: none;
+            margin-top: 16px;
+            padding: 16px;
+            background: #f8d7da;
+            color: #721c24;
+            border-radius: 8px;
+            border-left: 4px solid #dc3545;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        .help-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+
+            .result-details {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>EMR Image Validation</h1>
+        <p class="subtitle">Compare JSON response against EMR screenshot using Azure OpenAI GPT-4o</p>
+
+        <form id="validationForm">
+            <div class="form-section">
+                <label for="imageUpload">Upload Screenshot</label>
+                <input type="file" id="imageUpload" accept="image/*" required>
+                <img id="imagePreview" class="image-preview" alt="Preview">
+            </div>
+
+            <div class="form-section">
+                <label for="jsonResponse">JSON Response</label>
+                <textarea id="jsonResponse" placeholder='Paste JSON response here, e.g., {"complaints": [{"mainProblem": "...", "bodyAreaKey": "...", ...}]}' required></textarea>
+                <p class="help-text">Paste the JSON response that needs to be validated</p>
+            </div>
+
+            <button type="submit" class="validate-btn" id="validateBtn">Validate</button>
+        </form>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Validating image and JSON response...</p>
+        </div>
+
+        <div class="error" id="error"></div>
+
+        <div class="results" id="results">
+            <div class="results-header">
+                <h2>Validation Results</h2>
+                <span class="status-badge" id="statusBadge"></span>
+            </div>
+            <div id="resultsContent"></div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('validationForm');
+        const imageUpload = document.getElementById('imageUpload');
+        const imagePreview = document.getElementById('imagePreview');
+        const validateBtn = document.getElementById('validateBtn');
+        const loading = document.getElementById('loading');
+        const error = document.getElementById('error');
+        const results = document.getElementById('results');
+        const statusBadge = document.getElementById('statusBadge');
+        const resultsContent = document.getElementById('resultsContent');
+
+        // Image preview
+        imageUpload.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    imagePreview.src = e.target.result;
+                    imagePreview.classList.add('show');
+                };
+                reader.readAsDataURL(file);
+            } else {
+                imagePreview.classList.remove('show');
+            }
+        });
+
+        // Form submission
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            // Hide previous results and errors
+            results.classList.remove('show');
+            error.classList.remove('show');
+            loading.classList.add('show');
+            validateBtn.disabled = true;
+
+            try {
+                // Get form values
+                const imageFile = imageUpload.files[0];
+                const jsonResponse = document.getElementById('jsonResponse').value;
+
+                // Validate inputs
+                if (!imageFile) {
+                    throw new Error('Please upload an image');
+                }
+                if (!jsonResponse) {
+                    throw new Error('Please paste JSON response');
+                }
+
+                // Validate JSON
+                try {
+                    JSON.parse(jsonResponse);
+                } catch (e) {
+                    throw new Error('Invalid JSON format: ' + e.message);
+                }
+
+                // Prepare form data
+                const formData = new FormData();
+                formData.append('image', imageFile);
+                formData.append('json_response', jsonResponse);
+
+                // Call backend endpoint
+                const response = await fetch('/emr/validate', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    let errorMessage = 'Unknown error';
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.detail || errorData.message || 'Unknown error';
+                    } catch (e) {
+                        const errorText = await response.text();
+                        errorMessage = errorText || 'Unknown error';
+                    }
+                    throw new Error(`Validation error (${response.status}): ${errorMessage}`);
+                }
+
+                const validationResult = await response.json();
+
+                // Display results
+                displayResults(validationResult);
+
+            } catch (err) {
+                error.textContent = 'Error: ' + err.message;
+                error.classList.add('show');
+            } finally {
+                loading.classList.remove('show');
+                validateBtn.disabled = false;
+            }
+        });
+
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    // Remove data URL prefix (e.g., "data:image/jpeg;base64,")
+                    const base64 = reader.result.split(',')[1];
+                    resolve(base64);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function displayResults(data) {
+            // Set overall status
+            const status = data.overall_status || 'UNKNOWN';
+            statusBadge.textContent = status;
+            statusBadge.className = 'status-badge status-' + status.toLowerCase();
+
+            // Clear previous results
+            resultsContent.innerHTML = '';
+
+            // Display each result
+            if (data.results) {
+                const fieldNames = {
+                    main_problem: 'Main Problem',
+                    body_area: 'Body Area',
+                    notes: 'Notes',
+                    quality: 'Quality',
+                    severity: 'Severity'
+                };
+
+                for (const [key, result] of Object.entries(data.results)) {
+                    const fieldName = fieldNames[key] || key;
+                    const match = result.match !== false; // Default to true if not specified
+                    
+                    const resultItem = document.createElement('div');
+                    resultItem.className = `result-item ${match ? 'match' : 'mismatch'}`;
+                    
+                    resultItem.innerHTML = `
+                        <div class="result-item-header">
+                            <span class="result-item-title">${fieldName}</span>
+                            <span class="match-indicator ${match ? 'match' : 'mismatch'}">
+                                ${match ? 'MATCH' : 'MISMATCH'}
+                            </span>
+                        </div>
+                        <div class="result-details">
+                            <div class="result-detail">
+                                <div class="result-detail-label">JSON Value</div>
+                                <div class="result-detail-value ${Array.isArray(result.json) ? 'array' : ''}">
+                                    ${formatValue(result.json)}
+                                </div>
+                            </div>
+                            <div class="result-detail">
+                                <div class="result-detail-label">Screenshot Value</div>
+                                <div class="result-detail-value ${Array.isArray(result.screenshot) ? 'array' : ''}">
+                                    ${formatValue(result.screenshot)}
+                                </div>
+                            </div>
+                        </div>
+                        ${key === 'body_area' && result.generalized_whole_body !== undefined ? `
+                            <div class="result-detail" style="margin-top: 12px;">
+                                <div class="result-detail-label">Generalized/Whole Body</div>
+                                <div class="result-detail-value">
+                                    ${result.generalized_whole_body ? 'Yes' : 'No'}
+                                </div>
+                            </div>
+                        ` : ''}
+                    `;
+                    
+                    resultsContent.appendChild(resultItem);
+                }
+            }
+
+            // Display mismatches if any
+            if (data.mismatches && data.mismatches.length > 0) {
+                const mismatchesSection = document.createElement('div');
+                mismatchesSection.className = 'mismatches-section';
+                mismatchesSection.innerHTML = `
+                    <div class="mismatches-title">Mismatches Found:</div>
+                    ${data.mismatches.map(m => `<div class="mismatch-item">${escapeHtml(m)}</div>`).join('')}
+                `;
+                resultsContent.appendChild(mismatchesSection);
+            }
+
+            // Show results
+            results.classList.add('show');
+        }
+
+        function formatValue(value) {
+            if (value === null || value === undefined) {
+                return '<em>null</em>';
+            }
+            if (Array.isArray(value)) {
+                return value.length > 0 ? value.join(', ') : '<em>empty array</em>';
+            }
+            if (typeof value === 'object') {
+                return JSON.stringify(value, null, 2);
+            }
+            return escapeHtml(String(value));
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
+

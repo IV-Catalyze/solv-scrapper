@@ -9,6 +9,8 @@ import asyncio
 import random
 import uuid
 import logging
+import json
+import base64
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
@@ -16,7 +18,7 @@ from typing import Optional, Dict, Any, List
 logger = logging.getLogger(__name__)
 
 try:
-    from fastapi import FastAPI, HTTPException, Query, Request, Depends, Body, UploadFile, File
+    from fastapi import FastAPI, HTTPException, Query, Request, Depends, Body, UploadFile, File, Form
     from fastapi import Path as PathParam
     from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
     from fastapi.templating import Jinja2Templates
@@ -3791,6 +3793,286 @@ async def images_gallery(
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+
+@app.get(
+    "/emr/validation",
+    summary="EMR Image Validation",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    responses={
+        200: {
+            "content": {"text/html": {"example": "<!-- EMR Image Validation UI -->"}},
+            "description": "EMR image validation tool for comparing JSON responses against screenshots.",
+        },
+    },
+)
+async def emr_validation_ui(
+    request: Request,
+):
+    """
+    Render the EMR Image Validation UI.
+    
+    This page provides an interface to:
+    - Upload EMR screenshots
+    - Paste JSON responses
+    - Validate JSON against screenshots using Azure OpenAI GPT-4o
+    - View validation results with detailed comparisons
+    
+    No authentication required - this is a standalone validation tool.
+    """
+    # Hardcoded configuration
+    project_endpoint = "https://iv-catalyze-openai.services.ai.azure.com/api/projects/IV-Catalyze-OpenAI-project"
+    agent_name = "ImageMapper"
+    
+    response = templates.TemplateResponse(
+        "emr_validation.html",
+        {
+            "request": request,
+            "project_endpoint": project_endpoint,
+            "agent_name": agent_name,
+        },
+    )
+    # Use no-cache instead of no-store to allow history navigation while preventing stale cache
+    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@app.post(
+    "/emr/validate",
+    summary="Validate EMR Image with JSON",
+    response_model=Dict[str, Any],
+    include_in_schema=False,
+)
+async def validate_emr_image(
+    request: Request,
+    image: UploadFile = File(...),
+    json_response: str = Form(...),
+):
+    """
+    Validate EMR screenshot against JSON response using Azure AI ImageMapper agent.
+    
+    This endpoint:
+    - Accepts an image file and JSON response
+    - Calls the ImageMapper Azure AI agent
+    - Returns validation results
+    """
+    try:
+        # Import Azure AI Agents client (same as azure_ai_agent_client.py)
+        try:
+            from azure.identity import DefaultAzureCredential
+            from azure.ai.agents import AgentsClient
+            from azure.core.rest import HttpRequest
+            from azure.core.exceptions import HttpResponseError
+        except ImportError:
+            raise HTTPException(
+                status_code=500,
+                detail="Azure AI Agents SDK not installed. Install with: pip install azure-ai-agents azure-identity"
+            )
+        
+        # Hardcoded configuration (same pattern as azure_ai_agent_client.py)
+        project_endpoint = "https://iv-catalyze-openai.services.ai.azure.com/api/projects/IV-Catalyze-OpenAI-project"
+        agent_name = "ImageMapper"
+        
+        # Read image file
+        image_bytes = await image.read()
+        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        image_mime_type = image.content_type or "image/jpeg"
+        
+        # Parse JSON response
+        try:
+            json_data = json.loads(json_response)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
+        
+        # Initialize Azure AI Agents client (same pattern as azure_ai_agent_client.py)
+        credential = DefaultAzureCredential()
+        agents_client = AgentsClient(
+            credential=credential,
+            endpoint=project_endpoint,
+        )
+        
+        # Get the agent by name (same pattern as azure_ai_agent_client.py)
+        try:
+            # List agents and find by name
+            agents = agents_client.list_agents()
+            agent = None
+            for a in agents:
+                if a.name == agent_name:
+                    agent = a
+                    break
+            
+            if not agent:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Agent '{agent_name}' not found"
+                )
+            
+            agent_id = agent.id
+            logger.info(f"Found agent: {agent_id} ({agent.name})")
+        except HttpResponseError as e:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Error retrieving agent '{agent_name}': {str(e)}"
+            )
+        
+        # Prepare content with image and JSON
+        # The agent already has the validation instructions with [PASTE YOUR JSON HERE] placeholder
+        json_string = json.dumps(json_data, indent=2)
+        
+        # Create message content with image and JSON (same pattern as azure_ai_agent_client.py)
+        # Format matches the agent's instruction: "## JSON to Validate: [PASTE YOUR JSON HERE]"
+        # For vision models, content should be a list with text and image_url items
+        message_content = [
+            {
+                "type": "text",
+                "text": f"## JSON to Validate:\n{json_string}"
+            },
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{image_mime_type};base64,{image_base64}"
+                }
+            }
+        ]
+        
+        # Call the agent using thread-based approach (same as azure_ai_agent_client.py)
+        try:
+            # Create thread and run the agent (same pattern as azure_ai_agent_client.py)
+            run_params = {
+                "agent_id": agent_id,
+                "thread": {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": message_content
+                        }
+                    ]
+                },
+                "polling_interval": 2.0,
+            }
+            
+            logger.info(f"Creating thread and running agent: {agent_id}")
+            run = agents_client.create_thread_and_process_run(**run_params)
+            
+            logger.info(f"Run completed with status: {run.status}")
+            
+            # Check run status
+            if run.status == "failed":
+                error_msg = getattr(run, 'last_error', None)
+                if error_msg:
+                    error_msg = getattr(error_msg, 'message', str(error_msg))
+                else:
+                    error_msg = "Unknown error"
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Agent run failed: {error_msg}"
+                )
+            
+            if run.status == "cancelled":
+                raise HTTPException(status_code=500, detail="Agent run was cancelled")
+            
+            if run.status == "expired":
+                raise HTTPException(status_code=500, detail="Agent run expired")
+            
+            # Get the response from the thread (same pattern as azure_ai_agent_client.py)
+            if not hasattr(run, 'thread_id') or not run.thread_id:
+                raise HTTPException(status_code=500, detail="Run completed but no thread_id found")
+            
+            thread_id = run.thread_id
+            logger.info(f"Fetching messages from thread: {thread_id}")
+            
+            # Use send_request to get messages from the thread (same as azure_ai_agent_client.py)
+            messages_url = f"{project_endpoint}/threads/{thread_id}/messages?api-version=2025-11-15-preview"
+            request = HttpRequest("GET", messages_url)
+            
+            response = agents_client.send_request(request)
+            response.raise_for_status()
+            messages_data = response.json()
+            
+            # Extract messages list from response (same pattern as azure_ai_agent_client.py)
+            messages_list = None
+            if isinstance(messages_data, dict):
+                messages_list = messages_data.get("data") or messages_data.get("messages") or messages_data.get("value")
+            elif isinstance(messages_data, list):
+                messages_list = messages_data
+            
+            if not messages_list:
+                raise HTTPException(status_code=500, detail="No messages found in thread response")
+            
+            # Find assistant message (same pattern as azure_ai_agent_client.py)
+            response_text = None
+            for msg in reversed(messages_list):
+                role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+                role_str = str(role).lower() if role else ""
+                
+                if role_str in ["assistant", "agent"]:
+                    content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+                    if content:
+                        if isinstance(content, list) and len(content) > 0:
+                            first_item = content[0]
+                            if isinstance(first_item, dict) and "text" in first_item:
+                                text_obj = first_item["text"]
+                                response_text = text_obj.get("value") if isinstance(text_obj, dict) else str(text_obj)
+                            else:
+                                response_text = str(first_item)
+                        elif isinstance(content, str):
+                            response_text = content
+                        else:
+                            response_text = str(content)
+                        
+                        if response_text:
+                            break
+            
+            if not response_text:
+                raise HTTPException(status_code=500, detail="No assistant message found in thread")
+            
+            # Parse JSON response (handle markdown code blocks)
+            try:
+                # Remove markdown code blocks if present (same pattern as azure_ai_agent_client.py)
+                cleaned_text = response_text.strip()
+                if cleaned_text.startswith('```json'):
+                    cleaned_text = cleaned_text[7:]
+                elif cleaned_text.startswith('```'):
+                    cleaned_text = cleaned_text[3:]
+                if cleaned_text.endswith('```'):
+                    cleaned_text = cleaned_text[:-3]
+                cleaned_text = cleaned_text.strip()
+                
+                validation_result = json.loads(cleaned_text)
+            except json.JSONDecodeError:
+                # If not JSON, return as text
+                validation_result = {
+                    "overall_status": "ERROR",
+                    "error": "Failed to parse response as JSON",
+                    "raw_response": response_text
+                }
+            
+            return validation_result
+            
+        except HttpResponseError as e:
+            logger.error(f"HTTP error during agent run: {e.message}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error calling Azure AI agent: {e.message}"
+            )
+        except Exception as e:
+            logger.error(f"Error calling Azure AI agent: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error calling Azure AI agent: {str(e)}"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in validate_emr_image: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
 
 
 @app.get(
