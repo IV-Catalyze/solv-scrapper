@@ -146,6 +146,11 @@ def use_remote_api_for_reads() -> bool:
 
 
 def fetch_locations(cursor) -> List[Dict[str, Optional[str]]]:
+    """
+    Fetch locations from database.
+    Merges entries with the same location_id (prefers the one with a name).
+    Shows all locations (no restrictions).
+    """
     cursor.execute(
         """
         SELECT DISTINCT
@@ -160,17 +165,30 @@ def fetch_locations(cursor) -> List[Dict[str, Optional[str]]]:
         """
     )
     rows = cursor.fetchall()
-    locations: List[Dict[str, Optional[str]]] = []
+    
+    # Merge entries with the same location_id (prefer the one with a name)
+    location_map: Dict[str, Optional[str]] = {}
     for row in rows:
         loc_id = row.get("location_id")
         if not loc_id:
             continue
+        
+        loc_name = row.get("location_name")
+        
+        # If we haven't seen this location_id, or if current row has a name and stored one doesn't
+        if loc_id not in location_map or (loc_name and not location_map[loc_id]):
+            location_map[loc_id] = loc_name
+    
+    # Convert to list format
+    locations: List[Dict[str, Optional[str]]] = []
+    for loc_id, loc_name in sorted(location_map.items()):
         locations.append(
             {
                 "location_id": loc_id,
-                "location_name": row.get("location_name"),
+                "location_name": loc_name,
             }
         )
+    
     return locations
 
 
