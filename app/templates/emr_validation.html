@@ -310,6 +310,179 @@
             margin-top: 4px;
         }
 
+        /* Image Browser Styles */
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            padding: 12px 16px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            font-size: 14px;
+            flex-wrap: wrap;
+        }
+
+        .breadcrumb-item {
+            color: #667eea;
+            text-decoration: none;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .breadcrumb-item:hover {
+            color: #764ba2;
+            text-decoration: underline;
+        }
+
+        .breadcrumb-separator {
+            color: #999;
+            margin: 0 4px;
+        }
+
+        .image-browser {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            min-height: 300px;
+            max-height: 500px;
+            overflow-y: auto;
+            background: #f8f9fa;
+        }
+
+        .image-browser-content {
+            padding: 16px;
+        }
+
+        .loading-indicator {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .loading-indicator .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e0e0e0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+
+        .folders-grid, .images-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .folder-item, .image-item-selectable {
+            cursor: pointer;
+            padding: 12px;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .folder-item:hover, .image-item-selectable:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.2);
+        }
+
+        .image-item-selectable.selected {
+            border-color: #28a745;
+            background: #d4edda;
+        }
+
+        .folder-icon {
+            font-size: 48px;
+            margin-bottom: 8px;
+        }
+
+        .folder-name, .image-name-selectable {
+            font-size: 12px;
+            color: #333;
+            word-break: break-word;
+            margin-top: 8px;
+        }
+
+        .image-thumbnail-selectable {
+            width: 100%;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 4px;
+            background: #e9ecef;
+        }
+
+        .section-title {
+            font-weight: 600;
+            color: #333;
+            margin: 24px 0 12px 0;
+            font-size: 16px;
+        }
+
+        .section-title:first-child {
+            margin-top: 0;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+
+        .selected-image-section {
+            margin-top: 16px;
+            padding: 16px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 2px solid #28a745;
+        }
+
+        .selected-image-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .selected-image-label {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .selected-image-name {
+            flex: 1;
+            color: #667eea;
+            font-weight: 500;
+        }
+
+        .clear-selection-btn {
+            padding: 6px 12px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+
+        .clear-selection-btn:hover {
+            background: #c82333;
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 20px;
@@ -328,9 +501,32 @@
 
         <form id="validationForm">
             <div class="form-section">
-                <label for="imageUpload">Upload Screenshot</label>
-                <input type="file" id="imageUpload" accept="image/*" required>
-                <img id="imagePreview" class="image-preview" alt="Preview">
+                <label>Select Screenshot from Gallery</label>
+                
+                <!-- Breadcrumb Navigation -->
+                <div id="imageBreadcrumb" class="breadcrumb" style="display: none;">
+                    <a href="#" class="breadcrumb-item" onclick="navigateToImageFolder('')">Home</a>
+                </div>
+                
+                <!-- Image Browser -->
+                <div id="imageBrowser" class="image-browser">
+                    <div id="imageBrowserContent" class="image-browser-content">
+                        <div class="loading-indicator">
+                            <div class="spinner"></div>
+                            <span>Loading images...</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Selected Image Preview -->
+                <div id="selectedImageSection" class="selected-image-section" style="display: none;">
+                    <div class="selected-image-header">
+                        <span class="selected-image-label">Selected Image:</span>
+                        <span id="selectedImageName" class="selected-image-name"></span>
+                        <button type="button" class="clear-selection-btn" onclick="clearImageSelection()">Clear</button>
+                    </div>
+                    <img id="imagePreview" class="image-preview" alt="Preview">
+                </div>
             </div>
 
             <div class="form-section">
@@ -358,9 +554,9 @@
         </div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
     <script>
         const form = document.getElementById('validationForm');
-        const imageUpload = document.getElementById('imageUpload');
         const imagePreview = document.getElementById('imagePreview');
         const validateBtn = document.getElementById('validateBtn');
         const loading = document.getElementById('loading');
@@ -368,21 +564,272 @@
         const results = document.getElementById('results');
         const statusBadge = document.getElementById('statusBadge');
         const resultsContent = document.getElementById('resultsContent');
+        const imageBrowser = document.getElementById('imageBrowser');
+        const imageBrowserContent = document.getElementById('imageBrowserContent');
+        const imageBreadcrumb = document.getElementById('imageBreadcrumb');
+        const selectedImageSection = document.getElementById('selectedImageSection');
+        const selectedImageName = document.getElementById('selectedImageName');
 
-        // Image preview
-        imageUpload.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    imagePreview.src = e.target.result;
-                    imagePreview.classList.add('show');
-                };
-                reader.readAsDataURL(file);
-            } else {
-                imagePreview.classList.remove('show');
+        // Image selection state
+        let selectedImagePath = null;
+        let selectedImageBlob = null;
+        let currentImageFolder = '';
+        const imageBlobCache = new Map();
+
+        // HMAC Authentication (same as images gallery)
+        const API_BASE_URL = window.location.origin;
+        const IMAGES_LIST_URL = `${API_BASE_URL}/images/list`;
+        const IMAGES_VIEW_URL = `${API_BASE_URL}/images`;
+        const STAGING_HMAC_SECRET = '3SaxUjALPb0Ko8Lw-_eUFvNBPjlZWpGVGqJVS7e1BbM';
+
+        function generateHMAC(method, path, timestamp, body, secret) {
+            const methodUpper = method.toUpperCase();
+            const bodyHash = CryptoJS.SHA256(body).toString(CryptoJS.enc.Hex).toLowerCase();
+            const canonical = `${methodUpper}\n${path}\n${timestamp}\n${bodyHash}`;
+            const signature = CryptoJS.HmacSHA256(canonical, secret).toString(CryptoJS.enc.Base64);
+            return signature;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Load images from API
+        async function loadImageFolder(folderPath = '') {
+            currentImageFolder = folderPath;
+            imageBrowserContent.innerHTML = '<div class="loading-indicator"><div class="spinner"></div><span>Loading images...</span></div>';
+            updateImageBreadcrumb(folderPath);
+
+            try {
+                const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+                const path = `/images/list${folderPath ? `?folder=${encodeURIComponent(folderPath)}` : ''}`;
+                const body = '';
+                const signature = generateHMAC('GET', path, timestamp, body, STAGING_HMAC_SECRET);
+
+                const url = `${IMAGES_LIST_URL}${folderPath ? `?folder=${encodeURIComponent(folderPath)}` : ''}`;
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'X-Timestamp': timestamp,
+                        'X-Signature': signature
+                    }
+                });
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        throw new Error('Authentication failed. Please refresh the page.');
+                    }
+                    throw new Error(`Failed to load images: ${response.status} ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                renderImageBrowser(data);
+            } catch (error) {
+                imageBrowserContent.innerHTML = `
+                    <div class="error-message" style="padding: 20px; color: #dc3545;">
+                        <strong>Error:</strong> ${error.message}
+                    </div>
+                `;
+                console.error('Error loading images:', error);
             }
-        });
+        }
+
+        function updateImageBreadcrumb(folderPath) {
+            if (!folderPath) {
+                imageBreadcrumb.style.display = 'none';
+                return;
+            }
+
+            imageBreadcrumb.style.display = 'flex';
+            imageBreadcrumb.innerHTML = '<a href="#" class="breadcrumb-item" onclick="navigateToImageFolder(\'\')">Home</a>';
+
+            const parts = folderPath.split('/').filter(p => p);
+            parts.forEach((part, index) => {
+                const separator = '<span class="breadcrumb-separator">/</span>';
+                const path = parts.slice(0, index + 1).join('/');
+                imageBreadcrumb.innerHTML += `${separator}<a href="#" class="breadcrumb-item" onclick="navigateToImageFolder('${path}')">${escapeHtml(part)}</a>`;
+            });
+        }
+
+        function renderImageBrowser(data) {
+            let html = '';
+
+            // Render folders
+            if (data.folders && data.folders.length > 0) {
+                html += '<div class="section-title">📁 Folders</div>';
+                html += '<div class="folders-grid">';
+                data.folders.forEach(folder => {
+                    const folderPath = currentImageFolder ? `${currentImageFolder}/${folder}` : folder;
+                    html += `
+                        <div class="folder-item" onclick="navigateToImageFolder('${folderPath}')">
+                            <div class="folder-icon">📁</div>
+                            <div class="folder-name">${escapeHtml(folder)}</div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+
+            // Render images
+            if (data.images && data.images.length > 0) {
+                html += '<div class="section-title">🖼️ Images</div>';
+                html += '<div class="images-grid">';
+                data.images.forEach(image => {
+                    const imagePath = image.full_path;
+                    const isSelected = selectedImagePath === imagePath;
+                    html += `
+                        <div class="image-item-selectable ${isSelected ? 'selected' : ''}" onclick="selectImage('${escapeHtml(imagePath)}', '${escapeHtml(image.name)}')">
+                            <img data-image-path="${escapeHtml(imagePath)}" alt="${escapeHtml(image.name)}" class="image-thumbnail-selectable" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150'%3E%3Crect fill='%23e9ecef' width='150' height='150'/%3E%3Ctext fill='%23999' font-family='sans-serif' font-size='14' dy='10.5' x='50%25' y='50%25' text-anchor='middle'%3ELoading...%3C/text%3E%3C/svg%3E">
+                            <div class="image-name-selectable">${escapeHtml(image.name)}</div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                
+                // Load thumbnails after rendering
+                setTimeout(() => {
+                    data.images.forEach(image => {
+                        const img = document.querySelector(`img[data-image-path="${escapeHtml(image.full_path)}"]`);
+                        if (img) {
+                            getImageBlobUrl(image.full_path).then(blobUrl => {
+                                img.src = blobUrl;
+                            }).catch(error => {
+                                console.error('Error loading thumbnail:', error);
+                            });
+                        }
+                    });
+                }, 100);
+            }
+
+            // Empty state
+            if ((!data.folders || data.folders.length === 0) && (!data.images || data.images.length === 0)) {
+                html = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📂</div>
+                        <div class="empty-state-text">This folder is empty</div>
+                    </div>
+                `;
+            }
+
+            imageBrowserContent.innerHTML = html;
+        }
+
+        async function getImageBlobUrl(imagePath, forceRefresh = false) {
+            if (!forceRefresh && imageBlobCache.has(imagePath)) {
+                return imageBlobCache.get(imagePath);
+            }
+
+            try {
+                const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+                const path = `/images/${imagePath}`;
+                const body = '';
+                const signature = generateHMAC('GET', path, timestamp, body, STAGING_HMAC_SECRET);
+
+                const response = await fetch(`${IMAGES_VIEW_URL}/${imagePath}`, {
+                    method: 'GET',
+                    headers: {
+                        'X-Timestamp': timestamp,
+                        'X-Signature': signature
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to load image: ${response.status} ${response.statusText}`);
+                }
+
+                const blob = await response.blob();
+                
+                if (imageBlobCache.has(imagePath)) {
+                    const oldUrl = imageBlobCache.get(imagePath);
+                    if (oldUrl.startsWith('blob:')) {
+                        URL.revokeObjectURL(oldUrl);
+                    }
+                }
+                
+                const blobUrl = URL.createObjectURL(blob);
+                imageBlobCache.set(imagePath, blobUrl);
+                
+                return blobUrl;
+            } catch (error) {
+                console.error('Error loading image:', error);
+                if (imageBlobCache.has(imagePath)) {
+                    const oldUrl = imageBlobCache.get(imagePath);
+                    imageBlobCache.delete(imagePath);
+                    if (oldUrl.startsWith('blob:')) {
+                        URL.revokeObjectURL(oldUrl);
+                    }
+                }
+                throw error;
+            }
+        }
+
+        async function selectImage(imagePath, imageName) {
+            try {
+                // Update selected state
+                selectedImagePath = imagePath;
+                selectedImageName.textContent = imageName;
+                
+                // Update UI - highlight selected image
+                document.querySelectorAll('.image-item-selectable').forEach(item => {
+                    item.classList.remove('selected');
+                });
+                const selectedItem = document.querySelector(`.image-item-selectable[onclick*="${escapeHtml(imagePath)}"]`);
+                if (selectedItem) {
+                    selectedItem.classList.add('selected');
+                }
+
+                // Show preview
+                const blobUrl = await getImageBlobUrl(imagePath);
+                imagePreview.src = blobUrl;
+                imagePreview.classList.add('show');
+                selectedImageSection.style.display = 'block';
+
+                // Fetch blob for form submission
+                const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+                const path = `/images/${imagePath}`;
+                const body = '';
+                const signature = generateHMAC('GET', path, timestamp, body, STAGING_HMAC_SECRET);
+
+                const response = await fetch(`${IMAGES_VIEW_URL}/${imagePath}`, {
+                    method: 'GET',
+                    headers: {
+                        'X-Timestamp': timestamp,
+                        'X-Signature': signature
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch image: ${response.status}`);
+                }
+
+                selectedImageBlob = await response.blob();
+            } catch (error) {
+                error.textContent = 'Error loading image: ' + error.message;
+                error.classList.add('show');
+            }
+        }
+
+        function navigateToImageFolder(folderPath) {
+            loadImageFolder(folderPath);
+        }
+
+        function clearImageSelection() {
+            selectedImagePath = null;
+            selectedImageBlob = null;
+            selectedImageName.textContent = '';
+            imagePreview.classList.remove('show');
+            selectedImageSection.style.display = 'none';
+            
+            // Remove selection highlight
+            document.querySelectorAll('.image-item-selectable').forEach(item => {
+                item.classList.remove('selected');
+            });
+        }
+
+        // Initialize - load encounters folder automatically
+        loadImageFolder('encounters');
 
         // Form submission
         form.addEventListener('submit', async function(e) {
@@ -396,12 +843,11 @@
 
             try {
                 // Get form values
-                const imageFile = imageUpload.files[0];
                 const jsonResponse = document.getElementById('jsonResponse').value;
 
                 // Validate inputs
-                if (!imageFile) {
-                    throw new Error('Please upload an image');
+                if (!selectedImageBlob) {
+                    throw new Error('Please select an image from the gallery');
                 }
                 if (!jsonResponse) {
                     throw new Error('Please paste JSON response');
@@ -413,6 +859,11 @@
                 } catch (e) {
                     throw new Error('Invalid JSON format: ' + e.message);
                 }
+
+                // Convert blob to File for FormData
+                const imageFile = new File([selectedImageBlob], selectedImagePath.split('/').pop() || 'image.jpg', {
+                    type: selectedImageBlob.type || 'image/jpeg'
+                });
 
                 // Prepare form data
                 const formData = new FormData();
@@ -551,12 +1002,6 @@
                 return JSON.stringify(value, null, 2);
             }
             return escapeHtml(String(value));
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
         }
     </script>
 </body>
