@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Encounters</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
+        crossorigin="anonymous"
+    >
+    <style>
+        :root {
+            --bg: radial-gradient(circle at top, #eef2ff 0%, #f8fafc 45%, #ffffff 100%);
+            --panel: rgba(255, 255, 255, 0.82);
+            --panel-border: rgba(148, 163, 184, 0.25);
+            --text: #0f172a;
+            --muted: #475569;
+            --accent: #2563eb;
+            --accent-soft: rgba(37, 99, 235, 0.12);
+            --soft-shadow: 0 25px 40px -25px rgba(15, 23, 42, 0.45);
+            --radius-lg: 20px;
+            --radius-md: 14px;
+            --field-bg: #ffffff;
+            --field-border: rgba(148, 163, 184, 0.35);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: var(--text);
+            line-height: 1.55;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: calc(100vh - 40px);
+            box-sizing: border-box;
+            padding: 0;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 24px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .nav-link {
+            color: white;
+            text-decoration: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            transition: background 0.2s;
+            font-size: 14px;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .user-menu {
+            position: relative;
+            display: inline-block;
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.2s ease, background 0.2s ease;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .user-avatar:hover {
+            transform: scale(1.05);
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .user-dropdown {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            min-width: 200px;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
+            z-index: 1001;
+        }
+
+        .user-dropdown.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .user-dropdown-header {
+            padding: 1rem;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .user-dropdown-header .username {
+            font-weight: 600;
+            color: #212529;
+            margin-bottom: 0.25rem;
+        }
+
+        .user-dropdown-header .email {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+
+        .user-dropdown-item {
+            display: block;
+            width: 100%;
+            padding: 0.75rem 1rem;
+            text-align: left;
+            background: none;
+            border: none;
+            color: #212529;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .user-dropdown-item:hover {
+            background-color: #f8f9fa;
+        }
+
+        .user-dropdown-item.logout {
+            color: #dc3545;
+            font-weight: 600;
+        }
+
+        .user-dropdown-item.logout:hover {
+            background-color: rgba(220, 53, 69, 0.1);
+        }
+
+        .page {
+            max-width: 100%;
+            margin: 0;
+            padding: 0;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .hero {
+            display: grid;
+            gap: 1.5rem;
+            padding: 2.75rem 3rem;
+            margin-top: 0;
+            background: white;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .hero__title {
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        .hero__title h1 {
+            margin: 0;
+            font-size: clamp(2rem, 4vw, 2.8rem);
+            font-weight: 700;
+            letter-spacing: -0.03em;
+        }
+
+        .hero__meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.4rem 0.9rem;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+        }
+
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: flex-end;
+            margin: 2rem 3rem 1.5rem;
+            padding: 1.5rem 2rem;
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--soft-shadow);
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .filter-group label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .filters select {
+            font: inherit;
+            padding: 0.55rem 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--field-border);
+            background: var(--field-bg);
+            color: var(--text);
+            min-width: 180px;
+            cursor: pointer;
+        }
+
+        .filters select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+
+        .actions {
+            margin-left: auto;
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        button,
+        .reset-link {
+            font: inherit;
+            border-radius: 12px;
+            padding: 0.65rem 1.4rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        button {
+            background: var(--accent);
+            color: #ffffff;
+            box-shadow: 0 15px 30px -18px rgba(37, 99, 235, 0.75);
+        }
+
+        .reset-link {
+            background: transparent;
+            color: var(--muted);
+            text-decoration: none;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+        }
+
+        .card {
+            background: var(--panel);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--panel-border);
+            box-shadow: var(--soft-shadow);
+            overflow: hidden;
+            backdrop-filter: blur(18px);
+            margin: 0 3rem 2rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: rgba(37, 99, 235, 0.08);
+        }
+
+        th, td {
+            padding: 1rem 1.5rem;
+            text-align: left;
+            font-size: 0.95rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+            vertical-align: middle;
+        }
+
+        th {
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-size: 0.75rem;
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        tbody tr:hover {
+            background: rgba(37, 99, 235, 0.05);
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.35rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            background: rgba(148, 163, 184, 0.15);
+            color: var(--muted);
+        }
+
+        .status-badge.pending {
+            background: rgba(251, 191, 36, 0.15);
+            color: #d97706;
+        }
+
+        .status-badge.processing {
+            background: rgba(59, 130, 246, 0.15);
+            color: #2563eb;
+        }
+
+        .status-badge.done {
+            background: rgba(34, 197, 94, 0.15);
+            color: #16a34a;
+        }
+
+        .status-badge.error {
+            background: rgba(239, 68, 68, 0.15);
+            color: #dc2626;
+        }
+
+        .btn-verify {
+            font: inherit;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            border: none;
+            background: var(--accent);
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .btn-verify:hover {
+            background: #1d4ed8;
+            transform: translateY(-1px);
+        }
+
+        .empty-state {
+            padding: 3.5rem 2rem;
+            text-align: center;
+            color: var(--muted);
+            font-size: 1rem;
+        }
+
+        .encounter-id {
+            font-family: monospace;
+            font-size: 0.9em;
+            color: var(--text);
+        }
+
+        .patient-name {
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: auto;
+            padding: 2rem;
+            border-radius: 12px;
+            max-width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            background: none;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: #000;
+        }
+
+        .modal-body pre {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 960px) {
+            body {
+                padding: 0 1rem 2rem;
+            }
+
+            .hero {
+                padding: 2rem;
+            }
+
+            .filters {
+                margin: 2rem 1.5rem 1.5rem;
+                padding: 1.25rem;
+            }
+
+            .card {
+                margin: 0 1.5rem 2rem;
+            }
+
+            table {
+                display: block;
+                overflow-x: auto;
+                white-space: nowrap;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        {% if current_user %}
+        <div class="header">
+            <div>
+                <h1>Encounters</h1>
+            </div>
+            <div class="header-right">
+                <div class="nav-links">
+                    <a href="/" class="nav-link">Patients</a>
+                    <a href="/experity/chat" class="nav-link">Chat UI</a>
+                    <a href="/images/" class="nav-link">Images</a>
+                </div>
+                <div class="user-menu">
+                    <div class="user-avatar" id="userAvatar" onclick="toggleUserMenu()">
+                        {% set initials = current_user.username[0:2] | upper %}
+                        {{ initials }}
+                    </div>
+                    <div class="user-dropdown" id="userDropdown">
+                        <div class="user-dropdown-header">
+                            <div class="username">{{ current_user.username }}</div>
+                            {% if current_user.email %}
+                            <div class="email">{{ current_user.email }}</div>
+                            {% endif %}
+                        </div>
+                        <form method="post" action="/logout" style="margin: 0;">
+                            <button type="submit" class="user-dropdown-item logout">Logout</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="page" style="padding: 24px 0;">
+            <section class="hero">
+                <div class="hero__title">
+                    <h1>Encounters</h1>
+                    <div class="hero__meta">
+                        {% if total_count is defined %}
+                            <span class="pill">{{ total_count }} record{{ total_count != 1 and 's' or '' }}</span>
+                        {% else %}
+                            <span class="pill">{{ queue_entries|length }} record{{ queue_entries|length != 1 and 's' or '' }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </section>
+
+            <div class="filters">
+                <div class="filter-group">
+                    <label for="statusFilter">Status</label>
+                    <select id="statusFilter" name="status">
+                        <option value="">All Statuses</option>
+                        <option value="PENDING" {% if status_filter == 'PENDING' %}selected{% endif %}>PENDING</option>
+                        <option value="PROCESSING" {% if status_filter == 'PROCESSING' %}selected{% endif %}>PROCESSING</option>
+                        <option value="DONE" {% if status_filter == 'DONE' %}selected{% endif %}>DONE</option>
+                        <option value="ERROR" {% if status_filter == 'ERROR' %}selected{% endif %}>ERROR</option>
+                    </select>
+                </div>
+
+                {% if status_filter %}
+                <div class="actions">
+                    <a class="reset-link" href="{{ request.url.path }}">Reset</a>
+                </div>
+                {% endif %}
+            </div>
+
+            <section class="card">
+                {% if queue_entries %}
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Patient Name</th>
+                                <th>Encounter ID</th>
+                                <th>EMR ID</th>
+                                <th>Status</th>
+                                <th>Created At</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in queue_entries %}
+                                <tr>
+                                    <td class="patient-name">
+                                        {% if entry.patient_name %}
+                                            {{ entry.patient_name }}
+                                        {% else %}
+                                            <span class="muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="encounter-id">
+                                        {% if entry.encounter_id %}
+                                            {{ entry.encounter_id }}
+                                        {% else %}
+                                            <span class="muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if entry.emr_id %}
+                                            <strong>{{ entry.emr_id }}</strong>
+                                        {% else %}
+                                            <span class="muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="status-badge {{ entry.status|lower }}">
+                                            {{ entry.status }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if entry.created_at %}
+                                            {{ entry.created_at }}
+                                        {% else %}
+                                            <span class="muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <button class="btn-verify" onclick='showVerification({{ entry.queue_id|tojson }}, {{ entry.encounter_payload|tojson }})'>
+                                            View Verification
+                                        </button>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% else %}
+                    <div class="empty-state">
+                        {% if status_filter %}
+                            No queue entries found with status "{{ status_filter }}". Try selecting a different status.
+                        {% else %}
+                            No queue entries found.
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </section>
+        </div>
+    </div>
+
+    <!-- Verification Modal -->
+    <div id="verificationModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Queue Entry Verification</h2>
+                <button class="close" onclick="closeVerification()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="modalQueueId" style="margin-bottom: 1rem; font-family: monospace; color: var(--muted);"></div>
+                <pre id="modalContent"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showVerification(queueId, encounterPayload) {
+            const modal = document.getElementById('verificationModal');
+            const modalContent = document.getElementById('modalContent');
+            const modalQueueId = document.getElementById('modalQueueId');
+            
+            modalQueueId.textContent = 'Queue ID: ' + queueId;
+            modalContent.textContent = JSON.stringify(encounterPayload, null, 2);
+            modal.classList.add('show');
+        }
+
+        function closeVerification() {
+            const modal = document.getElementById('verificationModal');
+            modal.classList.remove('show');
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('verificationModal');
+            if (event.target == modal) {
+                closeVerification();
+            }
+        }
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeVerification();
+            }
+        });
+
+        // User menu dropdown toggle
+        function toggleUserMenu() {
+            const dropdown = document.getElementById('userDropdown');
+            if (dropdown) {
+                dropdown.classList.toggle('show');
+            }
+        }
+
+        // Close user menu when clicking outside
+        document.addEventListener('click', function(event) {
+            const userMenu = document.querySelector('.user-menu');
+            const dropdown = document.getElementById('userDropdown');
+            if (userMenu && dropdown && !userMenu.contains(event.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
+
+        // Dynamic status filter - redirect on change
+        (function() {
+            const statusFilter = document.getElementById('statusFilter');
+            if (statusFilter) {
+                statusFilter.addEventListener('change', function() {
+                    const selectedStatus = this.value;
+                    const currentUrl = new URL(window.location.href);
+                    
+                    if (selectedStatus) {
+                        currentUrl.searchParams.set('status', selectedStatus);
+                    } else {
+                        currentUrl.searchParams.delete('status');
+                    }
+                    
+                    // Remove page parameter if it exists (reset to page 1)
+                    currentUrl.searchParams.delete('page');
+                    
+                    window.location.href = currentUrl.toString();
+                });
+            }
+        })();
+    </script>
+</body>
+</html>

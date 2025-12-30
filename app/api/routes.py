@@ -3796,6 +3796,153 @@ async def images_gallery(
 
 
 @app.get(
+    "/queue/list",
+    summary="Queue List",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    responses={
+        200: {
+            "content": {"text/html": {"example": "<!-- Queue List UI -->"}},
+            "description": "Queue list page showing queue entries with patient names, encounter IDs, and status.",
+        },
+        303: {"description": "Redirect to login page if not authenticated."},
+    },
+)
+async def queue_list_ui(
+    request: Request,
+    status: Optional[str] = Query(
+        default=None,
+        alias="status",
+        description="Filter by status: PENDING, PROCESSING, DONE, ERROR"
+    ),
+    current_user: dict = Depends(require_auth),
+):
+    """
+    Render the Queue List UI.
+    
+    This page provides an interface to:
+    - View queue entries with patient names and encounter IDs
+    - Filter by status
+    - View verification details for each queue entry
+    
+    Requires authentication - users must be logged in to access this page.
+    """
+    conn = None
+    cursor = None
+    
+    try:
+        # Validate status if provided
+        if status and status not in ['PENDING', 'PROCESSING', 'DONE', 'ERROR']:
+            status = None
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Query queue table with LEFT JOIN to patients table to get patient names
+        # Use TRIM to remove extra spaces and handle NULLs properly
+        query = """
+            SELECT 
+                q.queue_id,
+                q.encounter_id,
+                q.emr_id,
+                q.status,
+                q.attempts,
+                q.raw_payload as encounter_payload,
+                q.created_at,
+                TRIM(
+                    CONCAT(
+                        COALESCE(p.legal_first_name, ''), 
+                        ' ', 
+                        COALESCE(p.legal_last_name, '')
+                    )
+                ) as patient_name
+            FROM queue q
+            LEFT JOIN patients p ON q.emr_id = p.emr_id
+        """
+        params: List[Any] = []
+        
+        if status:
+            query += " WHERE q.status = %s"
+            params.append(status)
+        
+        query += " ORDER BY q.created_at DESC LIMIT 1000"
+        
+        cursor.execute(query, tuple(params))
+        results = cursor.fetchall()
+        
+        # Format the results for template
+        queue_entries = []
+        for record in results:
+            # Get encounter_id as string
+            encounter_id = str(record.get('encounter_id', '')) if record.get('encounter_id') else None
+            
+            # Get encounter_payload (raw_payload)
+            encounter_payload = record.get('encounter_payload', {})
+            if isinstance(encounter_payload, str):
+                try:
+                    encounter_payload = json.loads(encounter_payload)
+                except json.JSONDecodeError:
+                    encounter_payload = {}
+            elif encounter_payload is None:
+                encounter_payload = {}
+            
+            # Format created_at
+            created_at = record.get('created_at')
+            if created_at:
+                if isinstance(created_at, datetime):
+                    created_at = created_at.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    created_at = str(created_at)
+            
+            # Get patient_name, handling empty strings and NULL
+            patient_name = record.get('patient_name')
+            if patient_name:
+                patient_name = str(patient_name).strip()
+                if not patient_name:
+                    patient_name = None
+            else:
+                patient_name = None
+            
+            queue_entries.append({
+                'queue_id': str(record.get('queue_id', '')),
+                'encounter_id': encounter_id,
+                'emr_id': str(record.get('emr_id')) if record.get('emr_id') else None,
+                'status': record.get('status', 'PENDING'),
+                'created_at': created_at,
+                'patient_name': patient_name,
+                'encounter_payload': encounter_payload,
+            })
+        
+        response = templates.TemplateResponse(
+            "queue_list.html",
+            {
+                "request": request,
+                "current_user": current_user,
+                "queue_entries": queue_entries,
+                "status_filter": status,
+                "total_count": len(queue_entries),
+            },
+        )
+        # Use no-cache instead of no-store to allow history navigation while preventing stale cache
+        response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error rendering queue list: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error loading queue list: {str(e)}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.get(
     "/emr/validation",
     summary="EMR Image Validation",
     response_class=HTMLResponse,
