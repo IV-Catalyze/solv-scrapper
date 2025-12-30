@@ -18,7 +18,7 @@ from typing import Optional, Dict, Any, List
 logger = logging.getLogger(__name__)
 
 try:
-    from fastapi import FastAPI, HTTPException, Query, Request, Depends, Body, UploadFile, File, Form
+    from fastapi import FastAPI, HTTPException, Query, Request, Depends, Body, UploadFile, File, Form, BackgroundTasks
     from fastapi import Path as PathParam
     from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
     from fastapi.templating import Jinja2Templates
@@ -1692,6 +1692,7 @@ async def list_queue(
 async def update_queue_status(
     queue_id: str,
     status_data: QueueStatusUpdateRequest,
+    background_tasks: BackgroundTasks,
     current_client: TokenData = get_auth_dependency()
 ) -> QueueResponse:
     """
@@ -1819,6 +1820,24 @@ async def update_queue_status(
             (queue_id_clean,)
         )
         updated_entry = cursor.fetchone()
+        
+        # Trigger validation in background if status is DONE
+        if status_data.status == 'DONE':
+            # Check if experityAction exists in parsed_payload (could be 'experityAction' or 'experityActions')
+            parsed_payload_check = updated_entry.get('parsed_payload')
+            if isinstance(parsed_payload_check, str):
+                try:
+                    parsed_payload_check = json.loads(parsed_payload_check)
+                except json.JSONDecodeError:
+                    parsed_payload_check = {}
+            elif parsed_payload_check is None:
+                parsed_payload_check = {}
+            
+            experity_action = parsed_payload_check.get('experityAction') or parsed_payload_check.get('experityActions')
+            if experity_action:
+                # Trigger validation as background task
+                background_tasks.add_task(trigger_validation_for_queue_entry, queue_id_clean)
+                logger.info(f"Triggered validation background task for queue_id: {queue_id_clean}")
         
         # Format the response
         formatted_response = format_queue_response(updated_entry)
@@ -2528,6 +2547,399 @@ async def vm_heartbeat(
             conn.close()
 
 
+# ============================================================================
+# VALIDATION HELPER FUNCTIONS
+# ============================================================================
+
+def find_hpi_image_by_encounter_id(encounter_id: str) -> Optional[str]:
+    """
+    Find the first image with 'hpi' in the filename in the encounters/{encounter_id}/ folder.
+    
+    Returns:
+        The full blob path to the HPI image, or None if not found
+    """
+    if not AZURE_BLOB_AVAILABLE or not container_client:
+        logger.warning("Azure Blob Storage not available, cannot find HPI image")
+        return None
+    
+    try:
+        folder_path = f"encounters/{encounter_id}/"
+        
+        # List blobs with the prefix
+        blobs = container_client.list_blobs(name_starts_with=folder_path)
+        
+        # Find the first image with 'hpi' in the filename (case-insensitive)
+        for blob in blobs:
+            blob_name_lower = blob.name.lower()
+            # Check if it's an image file and contains 'hpi'
+            if any(blob_name_lower.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
+                if 'hpi' in blob_name_lower:
+                    logger.info(f"Found HPI image: {blob.name}")
+                    return blob.name
+        
+        logger.warning(f"No HPI image found in folder: {folder_path}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error finding HPI image for encounter {encounter_id}: {str(e)}")
+        return None
+
+
+def get_image_bytes_from_blob(image_path: str) -> Optional[bytes]:
+    """
+    Download image bytes from Azure Blob Storage.
+    
+    Returns:
+        Image bytes, or None if error
+    """
+    if not AZURE_BLOB_AVAILABLE or not container_client:
+        logger.warning("Azure Blob Storage not available, cannot download image")
+        return None
+    
+    try:
+        blob_client = container_client.get_blob_client(image_path)
+        
+        if not blob_client.exists():
+            logger.warning(f"Image not found: {image_path}")
+            return None
+        
+        # Download blob content
+        blob_data = blob_client.download_blob()
+        image_bytes = blob_data.readall()
+        
+        logger.info(f"Downloaded image from {image_path}, size: {len(image_bytes)} bytes")
+        return image_bytes
+        
+    except Exception as e:
+        logger.error(f"Error downloading image from {image_path}: {str(e)}")
+        return None
+
+
+def run_validation_internal(image_bytes: bytes, experity_action_json: str) -> Dict[str, Any]:
+    """
+    Run validation using Azure AI ImageMapper agent.
+    This extracts the core validation logic from /emr/validate endpoint.
+    
+    Returns:
+        Validation result dict (same format as /emr/validate)
+    """
+    try:
+        from azure.identity import DefaultAzureCredential
+        from azure.ai.agents import AgentsClient
+        from azure.core.rest import HttpRequest
+        from azure.core.exceptions import HttpResponseError
+    except ImportError:
+        logger.error("Azure AI Agents SDK not installed")
+        return {
+            "overall_status": "ERROR",
+            "error": "Azure AI Agents SDK not installed"
+        }
+    
+    try:
+        # Hardcoded configuration (same as /emr/validate)
+        project_endpoint = "https://iv-catalyze-openai.services.ai.azure.com/api/projects/IV-Catalyze-OpenAI-project"
+        agent_name = "ImageMapper"
+        
+        # Convert image bytes to base64
+        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        image_mime_type = "image/jpeg"  # Default, could be improved by detecting from file
+        
+        # Parse JSON (should already be a string)
+        try:
+            json_data = json.loads(experity_action_json) if isinstance(experity_action_json, str) else experity_action_json
+        except (json.JSONDecodeError, TypeError):
+            json_data = experity_action_json  # Already a dict
+        
+        json_string = json.dumps(json_data, indent=2)
+        
+        # Initialize Azure AI Agents client
+        credential = DefaultAzureCredential()
+        agents_client = AgentsClient(
+            credential=credential,
+            endpoint=project_endpoint,
+        )
+        
+        # Get the agent by name
+        agents = agents_client.list_agents()
+        agent = None
+        for a in agents:
+            if a.name == agent_name:
+                agent = a
+                break
+        
+        if not agent:
+            logger.error(f"Agent '{agent_name}' not found")
+            return {
+                "overall_status": "ERROR",
+                "error": f"Agent '{agent_name}' not found"
+            }
+        
+        agent_id = agent.id
+        logger.info(f"Found agent: {agent_id} ({agent.name})")
+        
+        # Create message content with image and JSON
+        message_content = [
+            {
+                "type": "text",
+                "text": f"## JSON TO VALIDATE:\n{json_string}\n\n---\n\nAnalyze the screenshot and return the validation report."
+            },
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{image_mime_type};base64,{image_base64}"
+                }
+            }
+        ]
+        
+        # Create thread and run the agent
+        run_params = {
+            "agent_id": agent_id,
+            "thread": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": message_content
+                    }
+                ]
+            },
+            "polling_interval": 2.0,
+        }
+        
+        logger.info(f"Creating thread and running agent: {agent_id}")
+        run = agents_client.create_thread_and_process_run(**run_params)
+        
+        logger.info(f"Run completed with status: {run.status}")
+        
+        # Check run status
+        if run.status == "failed":
+            error_msg = getattr(run, 'last_error', None)
+            if error_msg:
+                error_msg = getattr(error_msg, 'message', str(error_msg))
+            else:
+                error_msg = "Unknown error"
+            raise Exception(f"Agent run failed: {error_msg}")
+        
+        if run.status == "cancelled":
+            raise Exception("Agent run was cancelled")
+        
+        if run.status == "expired":
+            raise Exception("Agent run expired")
+        
+        # Get the response from the thread
+        if not hasattr(run, 'thread_id') or not run.thread_id:
+            raise Exception("Run completed but no thread_id found")
+        
+        thread_id = run.thread_id
+        logger.info(f"Fetching messages from thread: {thread_id}")
+        
+        # Use send_request to get messages from the thread
+        messages_url = f"{project_endpoint}/threads/{thread_id}/messages?api-version=2025-11-15-preview"
+        request = HttpRequest("GET", messages_url)
+        
+        response = agents_client.send_request(request)
+        response.raise_for_status()
+        messages_data = response.json()
+        
+        # Extract messages list from response
+        messages_list = None
+        if isinstance(messages_data, dict):
+            messages_list = messages_data.get("data") or messages_data.get("messages") or messages_data.get("value")
+        elif isinstance(messages_data, list):
+            messages_list = messages_data
+        
+        if not messages_list:
+            raise Exception("No messages found in thread response")
+        
+        # Find assistant message
+        response_text = None
+        for msg in reversed(messages_list):
+            role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+            role_str = str(role).lower() if role else ""
+            
+            if role_str in ["assistant", "agent"]:
+                content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+                if content:
+                    if isinstance(content, list) and len(content) > 0:
+                        first_item = content[0]
+                        if isinstance(first_item, dict) and "text" in first_item:
+                            text_obj = first_item["text"]
+                            response_text = text_obj.get("value") if isinstance(text_obj, dict) else str(text_obj)
+                        else:
+                            response_text = str(first_item)
+                    elif isinstance(content, str):
+                        response_text = content
+                    else:
+                        response_text = str(content)
+                    
+                    if response_text:
+                        break
+        
+        if not response_text:
+            raise Exception("No assistant message found in thread")
+        
+        # Parse JSON response (handle markdown code blocks)
+        try:
+            cleaned_text = response_text.strip()
+            if cleaned_text.startswith('```json'):
+                cleaned_text = cleaned_text[7:]
+            elif cleaned_text.startswith('```'):
+                cleaned_text = cleaned_text[3:]
+            if cleaned_text.endswith('```'):
+                cleaned_text = cleaned_text[:-3]
+            cleaned_text = cleaned_text.strip()
+            
+            validation_result = json.loads(cleaned_text)
+            
+            # Handle new response format with "extraction" and "validation" sections
+            if isinstance(validation_result, dict) and "validation" in validation_result:
+                validation_result = {
+                    **validation_result.get("validation", {}),
+                    "extraction": validation_result.get("extraction", {})
+                }
+            elif isinstance(validation_result, dict) and "overall_status" in validation_result:
+                # Already in correct format
+                pass
+            else:
+                # Unexpected format, wrap it
+                validation_result = {
+                    "overall_status": "ERROR",
+                    "error": "Unexpected response format",
+                    "raw_response": validation_result
+                }
+                
+        except json.JSONDecodeError as e:
+            validation_result = {
+                "overall_status": "ERROR",
+                "error": f"Failed to parse response as JSON: {str(e)}",
+                "raw_response": response_text[:500]
+            }
+        
+        return validation_result
+        
+    except Exception as e:
+        logger.error(f"Error running validation: {str(e)}", exc_info=True)
+        return {
+            "overall_status": "ERROR",
+            "error": str(e)
+        }
+
+
+def save_validation_result(conn, queue_id: str, encounter_id: str, validation_result: Dict[str, Any]) -> None:
+    """
+    Save or update validation result in queue_validations table (upsert).
+    """
+    from psycopg2.extras import Json
+    
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        # Upsert validation result
+        cursor.execute(
+            """
+            INSERT INTO queue_validations (queue_id, encounter_id, validation_result, updated_at)
+            VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (queue_id) 
+            DO UPDATE SET 
+                validation_result = EXCLUDED.validation_result,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (queue_id, encounter_id, Json(validation_result))
+        )
+        conn.commit()
+        logger.info(f"Saved validation result for queue_id: {queue_id}")
+        
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error saving validation result: {str(e)}", exc_info=True)
+        raise e
+    finally:
+        cursor.close()
+
+
+def trigger_validation_for_queue_entry(queue_id: str) -> None:
+    """
+    Main orchestrator function to trigger validation for a queue entry.
+    This function:
+    1. Reads encounter_id and experityAction from queue table
+    2. Finds HPI image in Azure Blob Storage
+    3. Runs validation
+    4. Saves validation result
+    
+    This is designed to be called as a background task.
+    """
+    conn = None
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get queue entry with encounter_id and parsed_payload
+        cursor.execute(
+            "SELECT encounter_id, parsed_payload FROM queue WHERE queue_id = %s",
+            (queue_id,)
+        )
+        queue_entry = cursor.fetchone()
+        
+        if not queue_entry:
+            logger.warning(f"Queue entry not found: {queue_id}")
+            return
+        
+        encounter_id = queue_entry.get('encounter_id')
+        if not encounter_id:
+            logger.warning(f"No encounter_id found for queue_id: {queue_id}")
+            return
+        
+        encounter_id_str = str(encounter_id)
+        
+        # Parse parsed_payload to get experityAction
+        parsed_payload = queue_entry.get('parsed_payload')
+        if isinstance(parsed_payload, str):
+            try:
+                parsed_payload = json.loads(parsed_payload)
+            except json.JSONDecodeError:
+                parsed_payload = {}
+        elif parsed_payload is None:
+            parsed_payload = {}
+        
+        # Get experityAction - check both 'experityAction' and 'experityActions' keys
+        experity_action = parsed_payload.get('experityAction') or parsed_payload.get('experityActions')
+        
+        if not experity_action:
+            logger.warning(f"No experityAction found in parsed_payload for queue_id: {queue_id}")
+            return
+        
+        # Find HPI image
+        hpi_image_path = find_hpi_image_by_encounter_id(encounter_id_str)
+        if not hpi_image_path:
+            logger.warning(f"No HPI image found for encounter_id: {encounter_id_str}")
+            return
+        
+        # Download image bytes
+        image_bytes = get_image_bytes_from_blob(hpi_image_path)
+        if not image_bytes:
+            logger.warning(f"Failed to download image from: {hpi_image_path}")
+            return
+        
+        # Convert experityAction to JSON string
+        experity_action_json = json.dumps(experity_action) if not isinstance(experity_action, str) else experity_action
+        
+        # Run validation
+        logger.info(f"Running validation for queue_id: {queue_id}")
+        validation_result = run_validation_internal(image_bytes, experity_action_json)
+        
+        # Save validation result
+        save_validation_result(conn, queue_id, encounter_id_str, validation_result)
+        
+        logger.info(f"Validation completed for queue_id: {queue_id}, status: {validation_result.get('overall_status', 'UNKNOWN')}")
+        
+    except Exception as e:
+        logger.error(f"Error in trigger_validation_for_queue_entry for queue_id {queue_id}: {str(e)}", exc_info=True)
+    finally:
+        if conn:
+            cursor.close()
+            conn.close()
+
+
 def update_queue_status_and_experity_action(
     conn,
     queue_id: str,
@@ -2702,6 +3114,7 @@ def update_queue_status_and_experity_action(
 )
 async def map_queue_to_experity(
     request: Request,
+    background_tasks: BackgroundTasks,
     current_client: TokenData = get_auth_dependency()
 ) -> ExperityMapResponse:
     """
@@ -3212,6 +3625,9 @@ async def map_queue_to_experity(
                     experity_actions=experity_mapping,
                     increment_attempts=False
                 )
+                # Trigger validation in background
+                background_tasks.add_task(trigger_validation_for_queue_entry, queue_id)
+                logger.info(f"Triggered validation background task for queue_id: {queue_id}")
             except Exception as e:
                 logger.warning(f"Failed to update queue status to DONE: {str(e)}")
                 # Continue even if database update fails
@@ -3321,6 +3737,98 @@ async def map_queue_to_experity(
                 conn.close()
             except Exception:
                 pass
+
+
+@app.get(
+    "/queue/{queue_id}/validation",
+    tags=["Queue"],
+    summary="Get validation result for a queue entry",
+    response_model=Dict[str, Any],
+    responses={
+        200: {"description": "Validation result found"},
+        404: {"description": "No validation found for this queue entry"},
+        401: {"description": "Authentication required"},
+    },
+)
+async def get_queue_validation(
+    queue_id: str,
+    current_client: TokenData = get_auth_dependency()
+) -> Dict[str, Any]:
+    """
+    Get validation result for a queue entry.
+    
+    Returns:
+    - validation_result: The validation results from emr/validate
+    - experity_action: The experityAction from queue.parsed_payload (for reference)
+    - encounter_id: The encounter ID
+    
+    Returns 404 if no validation exists for this queue_id.
+    """
+    conn = None
+    cursor = None
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get validation result
+        cursor.execute(
+            """
+            SELECT 
+                qv.validation_result,
+                qv.encounter_id,
+                q.parsed_payload->'experityAction' as experity_action_1,
+                q.parsed_payload->'experityActions' as experity_action_2
+            FROM queue_validations qv
+            JOIN queue q ON qv.queue_id = q.queue_id
+            WHERE qv.queue_id = %s
+            """,
+            (queue_id,)
+        )
+        result = cursor.fetchone()
+        
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No validation found for queue_id: {queue_id}"
+            )
+        
+        # Get experity_action (could be in either key)
+        experity_action = result.get('experity_action_1') or result.get('experity_action_2')
+        
+        # Parse JSONB fields if they're strings
+        validation_result = result.get('validation_result')
+        if isinstance(validation_result, str):
+            try:
+                validation_result = json.loads(validation_result)
+            except json.JSONDecodeError:
+                validation_result = {}
+        
+        if isinstance(experity_action, str):
+            try:
+                experity_action = json.loads(experity_action)
+            except json.JSONDecodeError:
+                experity_action = None
+        
+        return {
+            "validation_result": validation_result,
+            "experity_action": experity_action,
+            "encounter_id": str(result.get('encounter_id', ''))
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching validation for queue_id {queue_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 # ============================================================================

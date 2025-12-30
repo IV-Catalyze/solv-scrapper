@@ -514,6 +514,123 @@
             line-height: 1.5;
         }
 
+        /* Validation results styles */
+        .result-item {
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+
+        .result-item.match {
+            border-left: 4px solid #28a745;
+        }
+
+        .result-item.mismatch {
+            border-left: 4px solid #dc3545;
+        }
+
+        .result-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .result-item-title {
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .match-indicator {
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .match-indicator.match {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .match-indicator.mismatch {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .result-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .result-detail {
+            background: white;
+            padding: 0.75rem;
+            border-radius: 6px;
+        }
+
+        .result-detail-label {
+            font-size: 0.85rem;
+            color: var(--muted);
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        .result-detail-value {
+            color: var(--text);
+            word-break: break-word;
+        }
+
+        .result-detail-value.array {
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        .mismatches-section {
+            padding: 1rem;
+            background: #fff3cd;
+            border-radius: 8px;
+            border-left: 4px solid #ffc107;
+        }
+
+        .mismatches-title {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #856404;
+        }
+
+        .mismatch-item {
+            padding: 0.5rem;
+            margin-top: 0.5rem;
+            background: white;
+            border-radius: 4px;
+            color: #856404;
+        }
+
+        .status-badge.status-pass {
+            background: rgba(34, 197, 94, 0.15);
+            color: #16a34a;
+        }
+
+        .status-badge.status-partial {
+            background: rgba(251, 191, 36, 0.15);
+            color: #d97706;
+        }
+
+        .status-badge.status-fail {
+            background: rgba(239, 68, 68, 0.15);
+            color: #dc2626;
+        }
+
+        .status-badge.status-error {
+            background: rgba(239, 68, 68, 0.15);
+            color: #dc2626;
+        }
+
         @media (max-width: 960px) {
             body {
                 padding: 0 1rem 2rem;
@@ -656,7 +773,7 @@
                                             <button class="btn-verify" onclick='showVerification({{ entry.queue_id|tojson }}, {{ entry.encounter_payload|tojson }})'>
                                                 View Encounter
                                             </button>
-                                            <button class="btn-verify" disabled title="Coming soon">
+                                            <button class="btn-verify" onclick='showValidation({{ entry.queue_id|tojson }})'>
                                                 View Verification
                                             </button>
                                         </div>
@@ -678,7 +795,7 @@
         </div>
     </div>
 
-    <!-- Verification Modal -->
+    <!-- Encounter Modal -->
     <div id="verificationModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -688,6 +805,31 @@
             <div class="modal-body">
                 <div id="modalQueueId" style="margin-bottom: 1rem; font-family: monospace; color: var(--muted);"></div>
                 <pre id="modalContent"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Validation Modal -->
+    <div id="validationModal" class="modal">
+        <div class="modal-content" style="max-width: 1000px;">
+            <div class="modal-header">
+                <h2>Validation Results</h2>
+                <button class="close" onclick="closeValidation()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="validationQueueId" style="margin-bottom: 1rem; font-family: monospace; color: var(--muted);"></div>
+                <div id="validationLoading" style="text-align: center; padding: 2rem;">
+                    <div style="color: var(--muted);">Loading validation results...</div>
+                </div>
+                <div id="validationError" style="display: none; padding: 1rem; background: #f8d7da; border-radius: 8px; border-left: 4px solid #dc3545; color: #721c24; margin-bottom: 1rem;"></div>
+                <div id="validationContent" style="display: none;">
+                    <div style="margin-bottom: 1.5rem;">
+                        <div style="font-weight: 600; margin-bottom: 0.5rem;">Overall Status</div>
+                        <span id="validationStatusBadge" class="status-badge" style="font-size: 0.9rem; padding: 0.5rem 1rem;"></span>
+                    </div>
+                    <div id="validationResults"></div>
+                    <div id="validationMismatches" style="margin-top: 1.5rem;"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -710,9 +852,13 @@
 
         // Close modal when clicking outside
         window.onclick = function(event) {
-            const modal = document.getElementById('verificationModal');
-            if (event.target == modal) {
+            const verificationModal = document.getElementById('verificationModal');
+            const validationModal = document.getElementById('validationModal');
+            if (event.target == verificationModal) {
                 closeVerification();
+            }
+            if (event.target == validationModal) {
+                closeValidation();
             }
         }
 
@@ -720,8 +866,167 @@
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
                 closeVerification();
+                closeValidation();
             }
         });
+
+        function showValidation(queueId) {
+            const modal = document.getElementById('validationModal');
+            const validationLoading = document.getElementById('validationLoading');
+            const validationError = document.getElementById('validationError');
+            const validationContent = document.getElementById('validationContent');
+            const validationQueueId = document.getElementById('validationQueueId');
+            
+            // Reset modal state
+            validationQueueId.textContent = 'Queue ID: ' + queueId;
+            validationLoading.style.display = 'block';
+            validationError.style.display = 'none';
+            validationContent.style.display = 'none';
+            validationError.textContent = '';
+            modal.classList.add('show');
+            
+            // Fetch validation result
+            fetch(`/queue/${queueId}/validation`)
+                .then(response => {
+                    if (response.status === 404) {
+                        throw new Error('No validation result found for this entry. Validation may still be processing or not available.');
+                    }
+                    if (!response.ok) {
+                        throw new Error(`Failed to load validation: ${response.status} ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    validationLoading.style.display = 'none';
+                    displayValidationResults(data);
+                })
+                .catch(error => {
+                    validationLoading.style.display = 'none';
+                    validationError.style.display = 'block';
+                    validationError.textContent = 'Error: ' + error.message;
+                    console.error('Error fetching validation:', error);
+                });
+        }
+
+        function closeValidation() {
+            const modal = document.getElementById('validationModal');
+            modal.classList.remove('show');
+        }
+
+        function displayValidationResults(data) {
+            const validationContent = document.getElementById('validationContent');
+            const validationStatusBadge = document.getElementById('validationStatusBadge');
+            const validationResults = document.getElementById('validationResults');
+            const validationMismatches = document.getElementById('validationMismatches');
+            
+            const validationResult = data.validation_result || data;
+            const status = validationResult.overall_status || 'UNKNOWN';
+            
+            // Set status badge
+            validationStatusBadge.textContent = status;
+            validationStatusBadge.className = 'status-badge status-' + status.toLowerCase().replace('_', '-');
+            
+            // Clear previous results
+            validationResults.innerHTML = '';
+            validationMismatches.innerHTML = '';
+            
+            // Handle ERROR status
+            if (status === 'ERROR' || validationResult.error) {
+                const errorSection = document.createElement('div');
+                errorSection.style.cssText = 'padding: 1rem; background: #f8d7da; border-radius: 8px; border-left: 4px solid #dc3545; color: #721c24;';
+                errorSection.innerHTML = `
+                    <div style="font-weight: 600; margin-bottom: 0.5rem;">Validation Error</div>
+                    <div>${escapeHtml(validationResult.error || 'Unknown error')}</div>
+                `;
+                validationResults.appendChild(errorSection);
+                validationContent.style.display = 'block';
+                return;
+            }
+            
+            // Display each result
+            if (validationResult.results) {
+                const fieldNames = {
+                    main_problem: 'Main Problem',
+                    body_area: 'Body Area',
+                    notes: 'Notes',
+                    quality: 'Quality',
+                    severity: 'Severity'
+                };
+
+                for (const [key, result] of Object.entries(validationResult.results)) {
+                    const fieldName = fieldNames[key] || key;
+                    const match = result.match !== false;
+                    
+                    const resultItem = document.createElement('div');
+                    resultItem.className = `result-item ${match ? 'match' : 'mismatch'}`;
+                    
+                    resultItem.innerHTML = `
+                        <div class="result-item-header">
+                            <span class="result-item-title">${fieldName}</span>
+                            <span class="match-indicator ${match ? 'match' : 'mismatch'}">
+                                ${match ? 'MATCH' : 'MISMATCH'}
+                            </span>
+                        </div>
+                        <div class="result-details">
+                            <div class="result-detail">
+                                <div class="result-detail-label">JSON Value</div>
+                                <div class="result-detail-value ${Array.isArray(result.json) ? 'array' : ''}">
+                                    ${formatValue(result.json)}
+                                </div>
+                            </div>
+                            <div class="result-detail">
+                                <div class="result-detail-label">Screenshot Value</div>
+                                <div class="result-detail-value ${Array.isArray(result.screenshot) ? 'array' : ''}">
+                                    ${formatValue(result.screenshot)}
+                                </div>
+                            </div>
+                        </div>
+                        ${key === 'body_area' && result.generalized_whole_body !== undefined ? `
+                            <div class="result-detail" style="margin-top: 12px;">
+                                <div class="result-detail-label">Generalized/Whole Body</div>
+                                <div class="result-detail-value">
+                                    ${result.generalized_whole_body ? 'Yes' : 'No'}
+                                </div>
+                            </div>
+                        ` : ''}
+                    `;
+                    
+                    validationResults.appendChild(resultItem);
+                }
+            }
+            
+            // Display mismatches if any
+            if (validationResult.mismatches && validationResult.mismatches.length > 0) {
+                const mismatchesSection = document.createElement('div');
+                mismatchesSection.className = 'mismatches-section';
+                mismatchesSection.innerHTML = `
+                    <div class="mismatches-title">Mismatches Found:</div>
+                    ${validationResult.mismatches.map(m => `<div class="mismatch-item">${escapeHtml(m)}</div>`).join('')}
+                `;
+                validationMismatches.appendChild(mismatchesSection);
+            }
+            
+            validationContent.style.display = 'block';
+        }
+
+        function formatValue(value) {
+            if (value === null || value === undefined) {
+                return '<em>null</em>';
+            }
+            if (Array.isArray(value)) {
+                return value.length > 0 ? escapeHtml(value.join(', ')) : '<em>empty array</em>';
+            }
+            if (typeof value === 'object') {
+                return '<pre style="margin: 0; font-size: 0.85rem;">' + escapeHtml(JSON.stringify(value, null, 2)) + '</pre>';
+            }
+            return escapeHtml(String(value));
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
 
         // User menu dropdown toggle
         function toggleUserMenu() {

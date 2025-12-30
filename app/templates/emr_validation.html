@@ -624,7 +624,6 @@
         const IMAGES_LIST_URL = `${API_BASE_URL}/images/list`;
         const IMAGES_VIEW_URL = `${API_BASE_URL}/images`;
         const QUEUE_URL = `${API_BASE_URL}/queue`;
-        const EXPERITY_MAP_URL = `${API_BASE_URL}/experity/map`;
         const STAGING_HMAC_SECRET = '3SaxUjALPb0Ko8Lw-_eUFvNBPjlZWpGVGqJVS7e1BbM';
 
         function generateHMAC(method, path, timestamp, body, secret) {
@@ -913,17 +912,17 @@
             errorDiv.classList.remove('show');
             
             try {
-                // Step 1: Fetch queue entry by encounter_id
-                const timestamp1 = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+                // Fetch queue entry by encounter_id
+                const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
                 const queuePath = `/queue?encounter_id=${encodeURIComponent(encounterId)}`;
-                const body1 = '';
-                const signature1 = generateHMAC('GET', queuePath, timestamp1, body1, STAGING_HMAC_SECRET);
+                const body = '';
+                const signature = generateHMAC('GET', queuePath, timestamp, body, STAGING_HMAC_SECRET);
                 
                 const queueResponse = await fetch(`${QUEUE_URL}?encounter_id=${encodeURIComponent(encounterId)}`, {
                     method: 'GET',
                     headers: {
-                        'X-Timestamp': timestamp1,
-                        'X-Signature': signature1
+                        'X-Timestamp': timestamp,
+                        'X-Signature': signature
                     }
                 });
                 
@@ -941,76 +940,49 @@
                 
                 const queueEntry = queueData[0];
                 
-                // Extract raw_payload or encounterPayload
-                let rawPayload = queueEntry.raw_payload || queueEntry.rawPayload || queueEntry.encounterPayload || queueEntry.encounter_payload;
+                // Extract parsed_payload
+                let parsedPayload = queueEntry.parsed_payload || queueEntry.parsedPayload;
                 
-                // If rawPayload is a string, parse it
-                if (typeof rawPayload === 'string') {
+                // If parsedPayload is a string, parse it
+                if (typeof parsedPayload === 'string') {
                     try {
-                        rawPayload = JSON.parse(rawPayload);
+                        parsedPayload = JSON.parse(parsedPayload);
                     } catch (e) {
-                        throw new Error('Failed to parse queue entry payload as JSON');
+                        throw new Error('Failed to parse queue entry parsed_payload as JSON');
                     }
                 }
                 
-                if (!rawPayload) {
-                    throw new Error('Queue entry does not contain encounter payload data');
+                if (!parsedPayload || typeof parsedPayload !== 'object') {
+                    throw new Error('Queue entry does not contain parsed_payload data');
                 }
                 
-                // Step 2: Call /experity/map with queue entry
-                const mapRequest = {
-                    queue_entry: {
-                        encounter_id: encounterId,
-                        raw_payload: rawPayload
+                // Extract Experity action - check both formats
+                let experityActions = null;
+                
+                // First, try experityActions (full object - preferred format)
+                if (parsedPayload.experityActions && typeof parsedPayload.experityActions === 'object') {
+                    experityActions = parsedPayload.experityActions;
+                }
+                // Fallback to experityAction (array format - legacy)
+                else if (parsedPayload.experityAction) {
+                    if (Array.isArray(parsedPayload.experityAction) && parsedPayload.experityAction.length > 0) {
+                        // If it's an array, use the first item (or wrap it)
+                        experityActions = parsedPayload.experityAction[0];
+                    } else if (typeof parsedPayload.experityAction === 'object') {
+                        experityActions = parsedPayload.experityAction;
                     }
-                };
-                
-                const timestamp2 = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-                const mapPath = '/experity/map';
-                const body2 = JSON.stringify(mapRequest);
-                const signature2 = generateHMAC('POST', mapPath, timestamp2, body2, STAGING_HMAC_SECRET);
-                
-                const mapResponse = await fetch(EXPERITY_MAP_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Timestamp': timestamp2,
-                        'X-Signature': signature2
-                    },
-                    body: body2
-                });
-                
-                if (!mapResponse.ok) {
-                    let errorMessage = `Failed to generate Experity action: ${mapResponse.status}`;
-                    try {
-                        const errorData = await mapResponse.json();
-                        errorMessage = errorData.detail || errorData.error?.message || errorMessage;
-                    } catch (e) {
-                        const errorText = await mapResponse.text();
-                        if (errorText) {
-                            errorMessage = errorText.substring(0, 200);
-                        }
-                    }
-                    throw new Error(errorMessage);
                 }
                 
-                const mapData = await mapResponse.json();
-                
-                if (!mapData.success) {
-                    const errorMsg = mapData.error?.message || 'Failed to generate Experity action';
-                    throw new Error(errorMsg);
+                if (!experityActions) {
+                    throw new Error('No saved Experity action found in queue entry. The encounter may not have been processed yet.');
                 }
                 
-                if (!mapData.data || !mapData.data.experityActions) {
-                    throw new Error('Response does not contain experityActions');
-                }
-                
-                // Step 3: Set JSON in textarea
-                const formattedJson = JSON.stringify(mapData.data.experityActions, null, 2);
+                // Format and set JSON in textarea
+                const formattedJson = JSON.stringify(experityActions, null, 2);
                 jsonTextarea.value = formattedJson;
                 
                 // Show success message briefly
-                errorDiv.textContent = '✓ Experity action generated successfully';
+                errorDiv.textContent = '✓ Saved Experity action loaded successfully';
                 errorDiv.style.background = '#d4edda';
                 errorDiv.style.color = '#155724';
                 errorDiv.style.borderLeftColor = '#28a745';
@@ -1030,7 +1002,7 @@
                 errorDiv.style.color = '#721c24';
                 errorDiv.style.borderLeftColor = '#dc3545';
                 errorDiv.classList.add('show');
-                console.error('Error generating Experity action:', err);
+                console.error('Error loading Experity action:', err);
             } finally {
                 // Re-enable button
                 generateBtn.disabled = false;
