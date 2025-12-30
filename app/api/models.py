@@ -259,6 +259,11 @@ class QueueResponse(BaseModel):
         description="Full encounter JSON payload (raw_payload from queue)",
         alias="encounter_payload"
     )
+    parsedPayload: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Parsed payload containing experityAction/experityActions (internal use)",
+        alias="parsed_payload"
+    )
     
     class Config:
         populate_by_name = True
@@ -274,6 +279,9 @@ class QueueResponse(BaseModel):
                     "traumaType": "BURN",
                     "chiefComplaints": [{"id": "00f9612e-f37d-451b-9172-25cbddee58a9", "description": "cough"}],
                     "status": "COMPLETE"
+                },
+                "parsedPayload": {
+                    "experityAction": []
                 }
             }
         }

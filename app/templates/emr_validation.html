@@ -940,8 +940,13 @@
                 
                 const queueEntry = queueData[0];
                 
-                // Extract parsed_payload
+                // Extract parsed_payload (check both snake_case and camelCase)
                 let parsedPayload = queueEntry.parsed_payload || queueEntry.parsedPayload;
+                
+                // Handle null, undefined, or missing parsed_payload
+                if (parsedPayload === null || parsedPayload === undefined) {
+                    throw new Error('Queue entry does not have parsed_payload. The encounter may not have been processed yet, or parsed_payload is null in the database.');
+                }
                 
                 // If parsedPayload is a string, parse it
                 if (typeof parsedPayload === 'string') {
@@ -952,8 +957,9 @@
                     }
                 }
                 
-                if (!parsedPayload || typeof parsedPayload !== 'object') {
-                    throw new Error('Queue entry does not contain parsed_payload data');
+                // Validate parsedPayload is an object
+                if (!parsedPayload || typeof parsedPayload !== 'object' || Array.isArray(parsedPayload)) {
+                    throw new Error('Queue entry parsed_payload is not a valid object. Expected an object with experityAction or experityActions.');
                 }
                 
                 // Extract Experity action - check both formats

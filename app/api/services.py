@@ -63,6 +63,21 @@ def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
     if queue_id:
         queue_id = str(queue_id)
     
+    # Get parsed_payload (internal use - includes experityAction/experityActions)
+    parsed_payload = record.get('parsed_payload')
+    
+    # Handle JSONB field - convert from string if needed
+    if parsed_payload:
+        if isinstance(parsed_payload, str):
+            try:
+                parsed_payload = json.loads(parsed_payload)
+            except json.JSONDecodeError:
+                parsed_payload = None
+        elif not isinstance(parsed_payload, dict):
+            parsed_payload = None
+    else:
+        parsed_payload = None
+    
     # Format response using snake_case keys (matching format_encounter_response pattern)
     # FastAPI will serialize using field names (camelCase) via response_model
     # Handle emr_id - convert to string if present, otherwise keep as None
@@ -76,6 +91,7 @@ def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
         'status': record.get('status', 'PENDING'),
         'attempts': record.get('attempts', 0),
         'encounter_payload': raw_payload,
+        'parsed_payload': parsed_payload,  # Include parsed_payload for internal use
     }
     
     return formatted
