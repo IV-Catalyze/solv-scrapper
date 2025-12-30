@@ -885,8 +885,14 @@
             validationError.textContent = '';
             modal.classList.add('show');
             
-            // Fetch validation result
-            fetch(`/queue/${queueId}/validation`)
+            // Fetch validation result (using credentials to send session cookie)
+            fetch(`/queue/${queueId}/validation`, {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            })
                 .then(response => {
                     if (response.status === 404) {
                         throw new Error('No validation result found for this entry. Validation may still be processing or not available.');

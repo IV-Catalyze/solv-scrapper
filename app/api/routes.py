@@ -3744,15 +3744,17 @@ async def map_queue_to_experity(
     tags=["Queue"],
     summary="Get validation result for a queue entry",
     response_model=Dict[str, Any],
+    include_in_schema=False,
     responses={
         200: {"description": "Validation result found"},
         404: {"description": "No validation found for this queue entry"},
-        401: {"description": "Authentication required"},
+        303: {"description": "Redirect to login page if not authenticated."},
     },
 )
 async def get_queue_validation(
     queue_id: str,
-    current_client: TokenData = get_auth_dependency()
+    request: Request,
+    current_user: dict = Depends(require_auth)
 ) -> Dict[str, Any]:
     """
     Get validation result for a queue entry.
