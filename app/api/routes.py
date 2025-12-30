@@ -3838,7 +3838,8 @@ async def queue_list_ui(
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Query queue table - we'll extract patient name from encounter payload
+        # Query queue table with LEFT JOIN to patients table to get patient names
+        # Patient names are stored in patients table, not in encounter payload
         query = """
             SELECT 
                 q.queue_id,
@@ -3846,8 +3847,16 @@ async def queue_list_ui(
                 q.emr_id,
                 q.status,
                 q.raw_payload as encounter_payload,
-                q.created_at
+                q.created_at,
+                TRIM(
+                    CONCAT(
+                        COALESCE(p.legal_first_name, ''), 
+                        ' ', 
+                        COALESCE(p.legal_last_name, '')
+                    )
+                ) as patient_name
             FROM queue q
+            LEFT JOIN patients p ON q.emr_id = p.emr_id
         """
         params: List[Any] = []
         
@@ -3877,33 +3886,14 @@ async def queue_list_ui(
             elif encounter_payload is None:
                 encounter_payload = {}
             
-            # Extract patient name from encounter payload
-            # Try various field name combinations (camelCase and snake_case)
-            patient_name = None
-            if isinstance(encounter_payload, dict):
-                # Try legalFirstName/legalLastName first
-                first_name = (
-                    encounter_payload.get('legalFirstName') or 
-                    encounter_payload.get('legal_first_name') or
-                    encounter_payload.get('firstName') or
-                    encounter_payload.get('first_name')
-                )
-                last_name = (
-                    encounter_payload.get('legalLastName') or 
-                    encounter_payload.get('legal_last_name') or
-                    encounter_payload.get('lastName') or
-                    encounter_payload.get('last_name')
-                )
-                
-                # Combine first and last name if available
-                if first_name or last_name:
-                    name_parts = []
-                    if first_name:
-                        name_parts.append(str(first_name).strip())
-                    if last_name:
-                        name_parts.append(str(last_name).strip())
-                    if name_parts:
-                        patient_name = ' '.join(name_parts)
+            # Get patient_name from JOIN result, handling empty strings and NULL
+            patient_name = record.get('patient_name')
+            if patient_name:
+                patient_name = str(patient_name).strip()
+                if not patient_name:
+                    patient_name = None
+            else:
+                patient_name = None
             
             # Format created_at
             created_at = record.get('created_at')
@@ -3919,7 +3909,7 @@ async def queue_list_ui(
                 'emr_id': str(record.get('emr_id')) if record.get('emr_id') else None,
                 'status': record.get('status', 'PENDING'),
                 'created_at': created_at,
-                'patient_name': patient_name if patient_name else None,
+                'patient_name': patient_name,
                 'encounter_payload': encounter_payload,
             })
         
