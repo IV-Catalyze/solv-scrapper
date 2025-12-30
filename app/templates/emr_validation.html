@@ -483,6 +483,48 @@
             background: #c82333;
         }
 
+        .generate-action-btn {
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+            margin-left: 8px;
+        }
+
+        .generate-action-btn:hover {
+            background: #5568d3;
+        }
+
+        .generate-action-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .generate-action-btn.loading {
+            position: relative;
+            color: transparent;
+        }
+
+        .generate-action-btn.loading::after {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            top: 50%;
+            left: 50%;
+            margin-left: -8px;
+            margin-top: -8px;
+            border: 2px solid #ffffff;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 20px;
@@ -523,6 +565,7 @@
                     <div class="selected-image-header">
                         <span class="selected-image-label">Selected Image:</span>
                         <span id="selectedImageName" class="selected-image-name"></span>
+                        <button type="button" id="generateActionBtn" class="generate-action-btn" onclick="generateExperityAction()" style="display: none;">Generate Experity Action</button>
                         <button type="button" class="clear-selection-btn" onclick="clearImageSelection()">Clear</button>
                     </div>
                     <img id="imagePreview" class="image-preview" alt="Preview">
@@ -580,6 +623,8 @@
         const API_BASE_URL = window.location.origin;
         const IMAGES_LIST_URL = `${API_BASE_URL}/images/list`;
         const IMAGES_VIEW_URL = `${API_BASE_URL}/images`;
+        const QUEUE_URL = `${API_BASE_URL}/queue`;
+        const EXPERITY_MAP_URL = `${API_BASE_URL}/experity/map`;
         const STAGING_HMAC_SECRET = '3SaxUjALPb0Ko8Lw-_eUFvNBPjlZWpGVGqJVS7e1BbM';
 
         function generateHMAC(method, path, timestamp, body, secret) {
@@ -805,9 +850,191 @@
                 }
 
                 selectedImageBlob = await response.blob();
+                
+                // Update generate button visibility
+                updateGenerateButtonVisibility();
             } catch (error) {
                 error.textContent = 'Error loading image: ' + error.message;
                 error.classList.add('show');
+            }
+        }
+
+        // Extract encounter ID from image path
+        function extractEncounterId(imagePath) {
+            // Path format: "encounters/{encounter_id}/{image_name}"
+            const parts = imagePath.split('/');
+            if (parts.length >= 2 && parts[0] === 'encounters') {
+                return parts[1]; // Return encounter_id
+            }
+            return null;
+        }
+
+        // Update generate button visibility
+        function updateGenerateButtonVisibility() {
+            const generateBtn = document.getElementById('generateActionBtn');
+            if (!generateBtn) return;
+            
+            if (selectedImagePath && selectedImagePath.startsWith('encounters/')) {
+                const encounterId = extractEncounterId(selectedImagePath);
+                if (encounterId) {
+                    generateBtn.style.display = 'inline-block';
+                } else {
+                    generateBtn.style.display = 'none';
+                }
+            } else {
+                generateBtn.style.display = 'none';
+            }
+        }
+
+        // Generate Experity Action
+        async function generateExperityAction() {
+            const generateBtn = document.getElementById('generateActionBtn');
+            const jsonTextarea = document.getElementById('jsonResponse');
+            const errorDiv = document.getElementById('error');
+            
+            // Validate image is selected
+            if (!selectedImagePath) {
+                errorDiv.textContent = 'Error: No image selected';
+                errorDiv.classList.add('show');
+                return;
+            }
+            
+            // Extract encounter ID
+            const encounterId = extractEncounterId(selectedImagePath);
+            if (!encounterId) {
+                errorDiv.textContent = 'Error: Image path does not contain encounter ID';
+                errorDiv.classList.add('show');
+                return;
+            }
+            
+            // Disable button and show loading
+            generateBtn.disabled = true;
+            generateBtn.classList.add('loading');
+            errorDiv.classList.remove('show');
+            
+            try {
+                // Step 1: Fetch queue entry by encounter_id
+                const timestamp1 = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+                const queuePath = `/queue?encounter_id=${encodeURIComponent(encounterId)}`;
+                const body1 = '';
+                const signature1 = generateHMAC('GET', queuePath, timestamp1, body1, STAGING_HMAC_SECRET);
+                
+                const queueResponse = await fetch(`${QUEUE_URL}?encounter_id=${encodeURIComponent(encounterId)}`, {
+                    method: 'GET',
+                    headers: {
+                        'X-Timestamp': timestamp1,
+                        'X-Signature': signature1
+                    }
+                });
+                
+                if (!queueResponse.ok) {
+                    if (queueResponse.status === 404) {
+                        throw new Error(`Queue entry not found for encounter ID: ${encounterId}`);
+                    }
+                    throw new Error(`Failed to fetch queue entry: ${queueResponse.status} ${queueResponse.statusText}`);
+                }
+                
+                const queueData = await queueResponse.json();
+                if (!queueData || !Array.isArray(queueData) || queueData.length === 0) {
+                    throw new Error(`No queue entries found for encounter ID: ${encounterId}`);
+                }
+                
+                const queueEntry = queueData[0];
+                
+                // Extract raw_payload or encounterPayload
+                let rawPayload = queueEntry.raw_payload || queueEntry.rawPayload || queueEntry.encounterPayload || queueEntry.encounter_payload;
+                
+                // If rawPayload is a string, parse it
+                if (typeof rawPayload === 'string') {
+                    try {
+                        rawPayload = JSON.parse(rawPayload);
+                    } catch (e) {
+                        throw new Error('Failed to parse queue entry payload as JSON');
+                    }
+                }
+                
+                if (!rawPayload) {
+                    throw new Error('Queue entry does not contain encounter payload data');
+                }
+                
+                // Step 2: Call /experity/map with queue entry
+                const mapRequest = {
+                    queue_entry: {
+                        encounter_id: encounterId,
+                        raw_payload: rawPayload
+                    }
+                };
+                
+                const timestamp2 = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+                const mapPath = '/experity/map';
+                const body2 = JSON.stringify(mapRequest);
+                const signature2 = generateHMAC('POST', mapPath, timestamp2, body2, STAGING_HMAC_SECRET);
+                
+                const mapResponse = await fetch(EXPERITY_MAP_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Timestamp': timestamp2,
+                        'X-Signature': signature2
+                    },
+                    body: body2
+                });
+                
+                if (!mapResponse.ok) {
+                    let errorMessage = `Failed to generate Experity action: ${mapResponse.status}`;
+                    try {
+                        const errorData = await mapResponse.json();
+                        errorMessage = errorData.detail || errorData.error?.message || errorMessage;
+                    } catch (e) {
+                        const errorText = await mapResponse.text();
+                        if (errorText) {
+                            errorMessage = errorText.substring(0, 200);
+                        }
+                    }
+                    throw new Error(errorMessage);
+                }
+                
+                const mapData = await mapResponse.json();
+                
+                if (!mapData.success) {
+                    const errorMsg = mapData.error?.message || 'Failed to generate Experity action';
+                    throw new Error(errorMsg);
+                }
+                
+                if (!mapData.data || !mapData.data.experityActions) {
+                    throw new Error('Response does not contain experityActions');
+                }
+                
+                // Step 3: Set JSON in textarea
+                const formattedJson = JSON.stringify(mapData.data.experityActions, null, 2);
+                jsonTextarea.value = formattedJson;
+                
+                // Show success message briefly
+                errorDiv.textContent = '✓ Experity action generated successfully';
+                errorDiv.style.background = '#d4edda';
+                errorDiv.style.color = '#155724';
+                errorDiv.style.borderLeftColor = '#28a745';
+                errorDiv.classList.add('show');
+                
+                // Reset error styling after 3 seconds
+                setTimeout(() => {
+                    errorDiv.classList.remove('show');
+                    errorDiv.style.background = '';
+                    errorDiv.style.color = '';
+                    errorDiv.style.borderLeftColor = '';
+                }, 3000);
+                
+            } catch (err) {
+                errorDiv.textContent = 'Error: ' + err.message;
+                errorDiv.style.background = '#f8d7da';
+                errorDiv.style.color = '#721c24';
+                errorDiv.style.borderLeftColor = '#dc3545';
+                errorDiv.classList.add('show');
+                console.error('Error generating Experity action:', err);
+            } finally {
+                // Re-enable button
+                generateBtn.disabled = false;
+                generateBtn.classList.remove('loading');
             }
         }
 
@@ -826,6 +1053,9 @@
             document.querySelectorAll('.image-item-selectable').forEach(item => {
                 item.classList.remove('selected');
             });
+            
+            // Hide generate button
+            updateGenerateButtonVisibility();
         }
 
         // Initialize - load encounters folder automatically
