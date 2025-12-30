@@ -404,11 +404,23 @@
             transition: all 0.2s ease;
             font-size: 0.875rem;
             font-weight: 500;
+            white-space: nowrap;
         }
 
-        .btn-verify:hover {
+        .btn-verify:hover:not(:disabled) {
             background: #1d4ed8;
             transform: translateY(-1px);
+        }
+
+        .btn-verify:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .btn-verify:disabled:hover {
+            transform: none;
+            background: #6c757d;
         }
 
         .empty-state {
@@ -640,9 +652,14 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        <button class="btn-verify" onclick='showVerification({{ entry.queue_id|tojson }}, {{ entry.encounter_payload|tojson }})'>
-                                            View Verification
-                                        </button>
+                                        <div style="display: flex; gap: 0.5rem;">
+                                            <button class="btn-verify" onclick='showVerification({{ entry.queue_id|tojson }}, {{ entry.encounter_payload|tojson }})'>
+                                                View Encounter
+                                            </button>
+                                            <button class="btn-verify" disabled title="Coming soon">
+                                                View Verification
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             {% endfor %}
@@ -665,7 +682,7 @@
     <div id="verificationModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Queue Entry Verification</h2>
+                <h2>Queue Entry Encounter</h2>
                 <button class="close" onclick="closeVerification()">&times;</button>
             </div>
             <div class="modal-body">
