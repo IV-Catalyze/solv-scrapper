@@ -924,6 +924,31 @@
             // Clear previous results
             resultsContent.innerHTML = '';
 
+            // Handle ERROR status - display error message
+            if (status === 'ERROR' || data.error) {
+                const errorSection = document.createElement('div');
+                errorSection.className = 'error-section';
+                errorSection.style.cssText = 'padding: 20px; background: #f8d7da; border-radius: 8px; border-left: 4px solid #dc3545; margin-bottom: 16px;';
+                
+                let errorHtml = '<div style="font-weight: 600; color: #721c24; margin-bottom: 12px;">Validation Error</div>';
+                
+                if (data.error) {
+                    errorHtml += `<div style="color: #721c24; margin-bottom: 8px;"><strong>Error:</strong> ${escapeHtml(data.error)}</div>`;
+                }
+                
+                if (data.raw_response) {
+                    errorHtml += `<div style="color: #721c24; margin-top: 12px;"><strong>Raw Response:</strong></div>`;
+                    errorHtml += `<pre style="background: white; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin-top: 8px;">${escapeHtml(String(data.raw_response).substring(0, 1000))}</pre>`;
+                }
+                
+                errorSection.innerHTML = errorHtml;
+                resultsContent.appendChild(errorSection);
+                
+                // Show results even with error
+                results.classList.add('show');
+                return;
+            }
+
             // Display each result
             if (data.results) {
                 const fieldNames = {
