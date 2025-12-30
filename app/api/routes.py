@@ -2777,9 +2777,11 @@ def run_validation_internal(image_bytes: bytes, experity_action_json: str) -> Di
         if not response_text:
             raise Exception("No assistant message found in thread")
         
-        # Parse JSON response (handle markdown code blocks)
+        # Parse JSON response (handle markdown code blocks and extra text)
         try:
             cleaned_text = response_text.strip()
+            
+            # Remove markdown code blocks if present
             if cleaned_text.startswith('```json'):
                 cleaned_text = cleaned_text[7:]
             elif cleaned_text.startswith('```'):
@@ -2787,6 +2789,26 @@ def run_validation_internal(image_bytes: bytes, experity_action_json: str) -> Di
             if cleaned_text.endswith('```'):
                 cleaned_text = cleaned_text[:-3]
             cleaned_text = cleaned_text.strip()
+            
+            # Try to extract JSON if there's extra text before or after
+            # Look for the first { and try to find the matching closing }
+            json_start = cleaned_text.find('{')
+            if json_start >= 0:
+                # Find the matching closing brace
+                brace_count = 0
+                json_end = -1
+                for i in range(json_start, len(cleaned_text)):
+                    if cleaned_text[i] == '{':
+                        brace_count += 1
+                    elif cleaned_text[i] == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            json_end = i + 1
+                            break
+                
+                if json_end > json_start:
+                    # Extract just the JSON portion
+                    cleaned_text = cleaned_text[json_start:json_end]
             
             validation_result = json.loads(cleaned_text)
             
@@ -2808,11 +2830,23 @@ def run_validation_internal(image_bytes: bytes, experity_action_json: str) -> Di
                 }
                 
         except json.JSONDecodeError as e:
-            validation_result = {
-                "overall_status": "ERROR",
-                "error": f"Failed to parse response as JSON: {str(e)}",
-                "raw_response": response_text[:500]
-            }
+            # If parsing failed, try to extract JSON from the response more aggressively
+            try:
+                # Try to find JSON object in the response
+                import re
+                json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', cleaned_text, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                    validation_result = json.loads(json_str)
+                    logger.warning(f"Successfully extracted JSON from response with extra text")
+                else:
+                    raise json.JSONDecodeError("No JSON object found", cleaned_text, 0)
+            except (json.JSONDecodeError, Exception) as e2:
+                validation_result = {
+                    "overall_status": "ERROR",
+                    "error": f"Failed to parse response as JSON: {str(e)}",
+                    "raw_response": response_text[:1000]  # Show more context for debugging
+                }
         
         return validation_result
         
@@ -4691,7 +4725,7 @@ async def validate_emr_image(
             if not response_text:
                 raise HTTPException(status_code=500, detail="No assistant message found in thread")
             
-            # Parse JSON response (handle markdown code blocks)
+            # Parse JSON response (handle markdown code blocks and extra text)
             try:
                 # Remove markdown code blocks if present (same pattern as azure_ai_agent_client.py)
                 cleaned_text = response_text.strip()
@@ -4702,6 +4736,26 @@ async def validate_emr_image(
                 if cleaned_text.endswith('```'):
                     cleaned_text = cleaned_text[:-3]
                 cleaned_text = cleaned_text.strip()
+                
+                # Try to extract JSON if there's extra text before or after
+                # Look for the first { and try to find the matching closing }
+                json_start = cleaned_text.find('{')
+                if json_start >= 0:
+                    # Find the matching closing brace
+                    brace_count = 0
+                    json_end = -1
+                    for i in range(json_start, len(cleaned_text)):
+                        if cleaned_text[i] == '{':
+                            brace_count += 1
+                        elif cleaned_text[i] == '}':
+                            brace_count -= 1
+                            if brace_count == 0:
+                                json_end = i + 1
+                                break
+                    
+                    if json_end > json_start:
+                        # Extract just the JSON portion
+                        cleaned_text = cleaned_text[json_start:json_end]
                 
                 validation_result = json.loads(cleaned_text)
                 
@@ -4726,6 +4780,22 @@ async def validate_emr_image(
                     }
                     
             except json.JSONDecodeError as e:
+                # If parsing failed, try to extract JSON from the response more aggressively
+                try:
+                    # Try to find JSON object in the response
+                    import re
+                    json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', cleaned_text, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(0)
+                        validation_result = json.loads(json_str)
+                        logger.warning(f"Successfully extracted JSON from response with extra text")
+                    else:
+                        raise json.JSONDecodeError("No JSON object found", cleaned_text, 0)
+                except (json.JSONDecodeError, Exception) as e2:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to parse validation response as JSON: {str(e)}. Raw response preview: {response_text[:500]}"
+                    )
                 # If not JSON, return as text
                 validation_result = {
                     "overall_status": "ERROR",
