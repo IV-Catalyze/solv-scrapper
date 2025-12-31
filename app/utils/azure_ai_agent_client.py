@@ -23,6 +23,7 @@ import os
 import json
 import logging
 import asyncio
+import uuid
 from typing import Dict, Any, Optional, TYPE_CHECKING
 from dataclasses import dataclass
 from pathlib import Path
@@ -1088,6 +1089,34 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
         encounter_id = encounter_data.get("id") or encounter_data.get("encounterId") or queue_entry.get("encounter_id", "unknown")
         logger.info(f"Processing encounter {encounter_id} through Azure AI Agent (emrId: {original_emr_id})")
         
+        # Pre-extract complaintIds from chiefComplaints
+        # Store as dict: {description: complaintId} and {index: complaintId} for matching later
+        complaint_id_map = {}  # Maps complaint descriptions/indices to complaintIds
+        chief_complaints = encounter_data.get("chiefComplaints") or encounter_data.get("chief_complaints", [])
+        if isinstance(chief_complaints, list):
+            for idx, complaint in enumerate(chief_complaints):
+                if not isinstance(complaint, dict):
+                    continue
+                
+                complaint_id = None
+                # Priority 1: top-level id field
+                if complaint.get("id"):
+                    complaint_id = complaint["id"]
+                # Priority 2: symptom.id field
+                elif complaint.get("symptom", {}).get("id"):
+                    complaint_id = complaint["symptom"]["id"]
+                
+                if complaint_id:
+                    # Store by description for matching
+                    description = complaint.get("description", "")
+                    if description:
+                        complaint_id_map[description] = complaint_id
+                    # Also store by index as fallback
+                    complaint_id_map[idx] = complaint_id
+                    logger.debug(f"Pre-extracted complaintId for complaint[{idx}] '{description}': {complaint_id}")
+        
+        logger.info(f"Pre-extracted {len(complaint_id_map)} complaintIds from {len(chief_complaints)} complaints")
+        
     except Exception as e:
         logger.error(f"Error extracting encounter data: {e}")
         raise AgentClientError(f"Invalid queue_entry format: {e}") from e
@@ -1140,6 +1169,38 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                         logger.debug(f"emrId correctly set to None (was missing/null)")
                     else:
                         logger.debug(f"emrId already correct: {original_emr_id}")
+                
+                # Post-process: Ensure each complaint has a complaintId
+                # Use pre-extracted complaintId if available, generate UUID if missing
+                if "complaints" in actions and isinstance(actions["complaints"], list):
+                    complaints = actions["complaints"]
+                    for idx, complaint in enumerate(complaints):
+                        if not isinstance(complaint, dict):
+                            continue
+                        
+                        complaint_description = complaint.get("description", "")
+                        current_complaint_id = complaint.get("complaintId")
+                        
+                        # Try to match with pre-extracted complaintId by description first, then by index
+                        matched_id = None
+                        if complaint_description and complaint_description in complaint_id_map:
+                            matched_id = complaint_id_map[complaint_description]
+                        elif idx in complaint_id_map:
+                            matched_id = complaint_id_map[idx]
+                        
+                        if matched_id:
+                            # Use pre-extracted ID (always overwrite LLM's value to ensure correctness)
+                            complaint["complaintId"] = matched_id
+                            if current_complaint_id != matched_id:
+                                logger.debug(f"Set complaintId for complaint[{idx}] '{complaint_description}' to pre-extracted: {matched_id}")
+                        elif not current_complaint_id:
+                            # Generate new UUID if missing
+                            new_id = str(uuid.uuid4())
+                            complaint["complaintId"] = new_id
+                            logger.info(f"Generated new complaintId for complaint[{idx}] '{complaint_description}': {new_id}")
+                        # If LLM provided a complaintId and we don't have a match, keep it (already set)
+                    
+                    logger.info(f"Post-processed {len(complaints)} complaints to ensure complaintId is present")
             else:
                 # Could not find experityActions structure - log warning
                 if original_emr_id is None:
