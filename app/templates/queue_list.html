@@ -631,6 +631,72 @@
             color: #dc2626;
         }
 
+        /* Tab Styles */
+        .tab-nav {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            border-bottom: 2px solid #e9ecef;
+            padding-bottom: 0;
+        }
+
+        .tab-btn {
+            padding: 0.75rem 1.5rem;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            color: var(--muted);
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            position: relative;
+            bottom: -2px;
+        }
+
+        .tab-btn:hover {
+            color: var(--accent);
+            background: rgba(37, 99, 235, 0.05);
+        }
+
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+            font-weight: 600;
+        }
+
+        .tab-icon {
+            font-size: 1.1rem;
+        }
+
+        .tab-content-wrapper {
+            position: relative;
+            min-height: 300px;
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
         @media (max-width: 960px) {
             body {
                 padding: 0 1rem 2rem;
@@ -809,26 +875,79 @@
         </div>
     </div>
 
-    <!-- Validation Modal -->
+    <!-- Validation Modal with Tabs -->
     <div id="validationModal" class="modal">
-        <div class="modal-content" style="max-width: 1000px;">
+        <div class="modal-content" style="max-width: 1200px;">
             <div class="modal-header">
-                <h2>Validation Results</h2>
+                <h2>Validation Details</h2>
                 <button class="close" onclick="closeValidation()">&times;</button>
             </div>
             <div class="modal-body">
-                <div id="validationQueueId" style="margin-bottom: 1rem; font-family: monospace; color: var(--muted);"></div>
-                <div id="validationLoading" style="text-align: center; padding: 2rem;">
-                    <div style="color: var(--muted);">Loading validation results...</div>
+                <div id="validationQueueId" style="margin-bottom: 1rem; font-family: monospace; color: var(--muted); font-size: 0.9rem;"></div>
+                
+                <!-- Loading State -->
+                <div id="validationLoading" style="text-align: center; padding: 3rem;">
+                    <div style="color: var(--muted); font-size: 1rem;">Loading validation results...</div>
                 </div>
+                
+                <!-- Error State -->
                 <div id="validationError" style="display: none; padding: 1rem; background: #f8d7da; border-radius: 8px; border-left: 4px solid #dc3545; color: #721c24; margin-bottom: 1rem;"></div>
+                
+                <!-- Tabbed Content -->
                 <div id="validationContent" style="display: none;">
-                    <div style="margin-bottom: 1.5rem;">
-                        <div style="font-weight: 600; margin-bottom: 0.5rem;">Overall Status</div>
-                        <span id="validationStatusBadge" class="status-badge" style="font-size: 0.9rem; padding: 0.5rem 1rem;"></span>
+                    <!-- Tab Navigation -->
+                    <div class="tab-nav">
+                        <button class="tab-btn active" onclick="switchTab('verification')" data-tab="verification">
+                            <span class="tab-icon">✓</span>
+                            Verification
+                        </button>
+                        <button class="tab-btn" onclick="switchTab('experity-action')" data-tab="experity-action">
+                            <span class="tab-icon">📋</span>
+                            Experity Action
+                        </button>
+                        <button class="tab-btn" onclick="switchTab('screenshot')" data-tab="screenshot">
+                            <span class="tab-icon">🖼️</span>
+                            Screenshot
+                        </button>
                     </div>
-                    <div id="validationResults"></div>
-                    <div id="validationMismatches" style="margin-top: 1.5rem;"></div>
+                    
+                    <!-- Tab Content -->
+                    <div class="tab-content-wrapper">
+                        <!-- Verification Tab -->
+                        <div id="tab-verification" class="tab-content active">
+                            <div style="margin-bottom: 1.5rem;">
+                                <div style="font-weight: 600; margin-bottom: 0.75rem; font-size: 1.1rem;">Overall Status</div>
+                                <span id="validationStatusBadge" class="status-badge" style="font-size: 0.9rem; padding: 0.5rem 1rem;"></span>
+                            </div>
+                            <div id="validationResults"></div>
+                            <div id="validationMismatches" style="margin-top: 1.5rem;"></div>
+                        </div>
+                        
+                        <!-- Experity Action Tab -->
+                        <div id="tab-experity-action" class="tab-content">
+                            <div style="margin-bottom: 1rem;">
+                                <div style="font-weight: 600; margin-bottom: 0.5rem; color: var(--text);">Experity Action JSON</div>
+                                <div style="color: var(--muted); font-size: 0.9rem; margin-bottom: 1rem;">The JSON data used for validation</div>
+                            </div>
+                            <pre id="experityActionJson" style="background: #f8f9fa; padding: 1.5rem; border-radius: 8px; overflow-x: auto; font-size: 0.875rem; line-height: 1.6; margin: 0; max-height: 600px; overflow-y: auto;"></pre>
+                        </div>
+                        
+                        <!-- Screenshot Tab -->
+                        <div id="tab-screenshot" class="tab-content">
+                            <div style="margin-bottom: 1rem;">
+                                <div style="font-weight: 600; margin-bottom: 0.5rem; color: var(--text);">HPI Screenshot</div>
+                                <div style="color: var(--muted); font-size: 0.9rem; margin-bottom: 1rem;">The screenshot image used for validation</div>
+                            </div>
+                            <div id="screenshotContainer" style="text-align: center; background: #f8f9fa; border-radius: 8px; padding: 2rem; min-height: 200px; display: flex; align-items: center; justify-content: center;">
+                                <div id="screenshotLoading" style="color: var(--muted);">Loading image...</div>
+                                <img id="screenshotImage" style="display: none; max-width: 100%; max-height: 600px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" alt="HPI Screenshot" />
+                                <div id="screenshotError" style="display: none; color: #dc3545; padding: 1rem;">
+                                    <div style="font-weight: 600; margin-bottom: 0.5rem;">Image not available</div>
+                                    <div style="font-size: 0.9rem;">The screenshot image could not be loaded.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -919,11 +1038,30 @@
             modal.classList.remove('show');
         }
 
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+            document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+        }
+
         function displayValidationResults(data) {
             const validationContent = document.getElementById('validationContent');
             const validationStatusBadge = document.getElementById('validationStatusBadge');
             const validationResults = document.getElementById('validationResults');
             const validationMismatches = document.getElementById('validationMismatches');
+            const experityActionJson = document.getElementById('experityActionJson');
+            const screenshotContainer = document.getElementById('screenshotContainer');
+            const screenshotImage = document.getElementById('screenshotImage');
+            const screenshotLoading = document.getElementById('screenshotLoading');
+            const screenshotError = document.getElementById('screenshotError');
             
             const validationResult = data.validation_result || data;
             const status = validationResult.overall_status || 'UNKNOWN';
@@ -1012,7 +1150,43 @@
                 validationMismatches.appendChild(mismatchesSection);
             }
             
+            // Populate Experity Action tab
+            if (data.experity_action) {
+                experityActionJson.textContent = JSON.stringify(data.experity_action, null, 2);
+            } else {
+                experityActionJson.textContent = 'No experity action data available';
+            }
+            
+            // Populate Screenshot tab
+            screenshotLoading.style.display = 'block';
+            screenshotImage.style.display = 'none';
+            screenshotError.style.display = 'none';
+            
+            if (data.hpi_image_path || data.encounter_id) {
+                // Use session-based endpoint for the validation image
+                const queueId = document.getElementById('validationQueueId').textContent.replace('Queue ID: ', '');
+                const imageUrl = `/queue/${queueId}/validation/image`;
+                screenshotImage.src = imageUrl;
+                screenshotImage.onload = function() {
+                    screenshotLoading.style.display = 'none';
+                    screenshotImage.style.display = 'block';
+                };
+                screenshotImage.onerror = function() {
+                    screenshotLoading.style.display = 'none';
+                    screenshotError.style.display = 'block';
+                };
+            } else {
+                screenshotLoading.style.display = 'none';
+                screenshotError.style.display = 'block';
+                screenshotError.innerHTML = `
+                    <div style="font-weight: 600; margin-bottom: 0.5rem;">Screenshot not available</div>
+                    <div style="font-size: 0.9rem;">The HPI screenshot image could not be found for this encounter.</div>
+                `;
+            }
+            
+            // Show the content and reset to first tab
             validationContent.style.display = 'block';
+            switchTab('verification');
         }
 
         function formatValue(value) {

@@ -3846,16 +3846,114 @@ async def get_queue_validation(
             except json.JSONDecodeError:
                 experity_action = None
         
+        encounter_id_str = str(result.get('encounter_id', ''))
+        
+        # Find HPI image path for this encounter
+        hpi_image_path = find_hpi_image_by_encounter_id(encounter_id_str)
+        
         return {
             "validation_result": validation_result,
             "experity_action": experity_action,
-            "encounter_id": str(result.get('encounter_id', ''))
+            "encounter_id": encounter_id_str,
+            "hpi_image_path": hpi_image_path  # Full blob path, or None if not found
         }
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error fetching validation for queue_id {queue_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.get(
+    "/queue/{queue_id}/validation/image",
+    tags=["Queue"],
+    summary="Get validation screenshot image",
+    include_in_schema=False,
+    responses={
+        200: {"description": "Image retrieved successfully"},
+        404: {"description": "No validation or image found"},
+        303: {"description": "Redirect to login page if not authenticated."},
+    },
+)
+async def get_queue_validation_image(
+    queue_id: str,
+    request: Request,
+    current_user: dict = Depends(require_auth)
+):
+    """
+    Get the HPI screenshot image used for validation.
+    Uses session authentication for UI access.
+    """
+    conn = None
+    cursor = None
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get validation result with encounter_id
+        cursor.execute(
+            """
+            SELECT encounter_id
+            FROM queue_validations
+            WHERE queue_id = %s
+            """,
+            (queue_id,)
+        )
+        result = cursor.fetchone()
+        
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No validation found for queue_id: {queue_id}"
+            )
+        
+        encounter_id_str = str(result['encounter_id'])
+        
+        # Find HPI image path
+        hpi_image_path = find_hpi_image_by_encounter_id(encounter_id_str)
+        
+        if not hpi_image_path:
+            raise HTTPException(
+                status_code=404,
+                detail=f"HPI image not found for encounter_id: {encounter_id_str}"
+            )
+        
+        # Get image bytes
+        image_bytes = get_image_bytes_from_blob(hpi_image_path)
+        
+        if not image_bytes:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Failed to load image from: {hpi_image_path}"
+            )
+        
+        # Determine content type from file extension
+        content_type = get_content_type_from_blob_name(hpi_image_path)
+        
+        # Return image
+        from fastapi.responses import Response
+        return Response(
+            content=image_bytes,
+            media_type=content_type,
+            headers={
+                "Cache-Control": "public, max-age=3600",
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching validation image for queue_id {queue_id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error: {str(e)}"
@@ -4384,6 +4482,8 @@ async def queue_list_ui(
         
         # Query queue table with LEFT JOIN to patients table to get patient names
         # Patient names are stored in patients table, not in encounter payload
+        # Note: We don't join queue_validations here to avoid errors if table doesn't exist
+        # Validation existence is checked when the user clicks "View Verification"
         query = """
             SELECT 
                 q.queue_id,
