@@ -644,7 +644,7 @@ POST /experity/map
 - `502 Bad Gateway`: Azure AI agent returned an error
 - `504 Gateway Timeout`: Request to Azure AI agent timed out
 
-**Note:** This endpoint calls Azure AI to generate Experity mapping. The queue entry status is automatically updated to `PROCESSING` during the request and `DONE` or `ERROR` based on the result.
+**Note:** This endpoint calls Azure AI to generate Experity mapping. The queue entry status is set to `PROCESSING` during the request. On success, experity_actions are stored in parsed_payload but status remains `PROCESSING` (not automatically set to `DONE`). On error, status is set to `ERROR`. Use `PATCH /queue/{queue_id}/status` to manually set status to `DONE` when ready.
 
 ---
 

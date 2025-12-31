@@ -3159,7 +3159,8 @@ async def map_queue_to_experity(
     1. **Queue Entry Wrapper** - Wrap encounter in `queue_entry` object
        - Provide `encounter_id` or `queue_id` 
        - Optionally include `raw_payload` (otherwise fetched from database)
-       - Queue status is automatically updated
+       - Queue status is set to PROCESSING during mapping, experity_actions are stored in parsed_payload
+       - Status is NOT automatically set to DONE - update manually via PATCH /queue/{queue_id}/status if needed
     
     2. **Direct Encounter** - Send encounter JSON directly
        - Must include `id` field
@@ -3649,21 +3650,43 @@ async def map_queue_to_experity(
                     pass
             raise HTTPException(status_code=502, detail=error_response.dict())
         
-        # Update queue status to DONE and store experity_actions (now a full JSON object)
+        # Store experity_actions in parsed_payload without updating status
+        # Status remains as-is (typically PROCESSING) and can be updated manually later
         if queue_id and conn:
             try:
-                update_queue_status_and_experity_action(
-                    conn=conn,
-                    queue_id=queue_id,
-                    status='DONE',
-                    experity_actions=experity_mapping,
-                    increment_attempts=False
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+                # Get current parsed_payload
+                cursor.execute(
+                    "SELECT parsed_payload FROM queue WHERE queue_id = %s",
+                    (queue_id,)
                 )
-                # Trigger validation in background
-                background_tasks.add_task(trigger_validation_for_queue_entry, queue_id)
-                logger.info(f"Triggered validation background task for queue_id: {queue_id}")
+                queue_entry = cursor.fetchone()
+                
+                if queue_entry:
+                    # Parse current parsed_payload
+                    parsed_payload = queue_entry.get('parsed_payload')
+                    if isinstance(parsed_payload, str):
+                        try:
+                            parsed_payload = json.loads(parsed_payload)
+                        except json.JSONDecodeError:
+                            parsed_payload = {}
+                    elif parsed_payload is None:
+                        parsed_payload = {}
+                    
+                    # Store experity_actions without changing status
+                    parsed_payload['experityAction'] = experity_mapping
+                    
+                    # Update only parsed_payload, keep status unchanged
+                    from psycopg2.extras import Json
+                    cursor.execute(
+                        "UPDATE queue SET parsed_payload = %s, updated_at = CURRENT_TIMESTAMP WHERE queue_id = %s",
+                        (Json(parsed_payload), queue_id)
+                    )
+                    conn.commit()
+                    logger.info(f"Stored experity_actions for queue_id: {queue_id} (status unchanged)")
+                cursor.close()
             except Exception as e:
-                logger.warning(f"Failed to update queue status to DONE: {str(e)}")
+                logger.warning(f"Failed to store experity_actions: {str(e)}")
                 # Continue even if database update fails
         
         # Build success response with camelCase field names.
