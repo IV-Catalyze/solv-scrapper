@@ -11,7 +11,7 @@ import uuid
 import logging
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
 # Configure logging
@@ -2649,7 +2649,6 @@ async def get_vm_health(
                 last_heartbeat_dt = datetime.fromisoformat(timestamp_str)
                 # If no timezone info, assume UTC
                 if last_heartbeat_dt.tzinfo is None:
-                    from datetime import timezone
                     last_heartbeat_dt = last_heartbeat_dt.replace(tzinfo=timezone.utc)
             except (ValueError, AttributeError) as e:
                 # Invalid timestamp format - consider system down
@@ -2679,7 +2678,6 @@ async def get_vm_health(
             return JSONResponse(content=response_dict)
         
         # Calculate time difference (2 minutes = 120 seconds)
-        from datetime import timezone
         current_time = datetime.now(timezone.utc)
         # If last_heartbeat_dt doesn't have timezone, assume UTC
         if last_heartbeat_dt.tzinfo is None:
