@@ -193,6 +193,75 @@
             background-color: rgba(220, 53, 69, 0.1);
         }
 
+        .system-status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: white;
+            cursor: help;
+            position: relative;
+        }
+
+        .system-status-indicator.up {
+            background: rgba(40, 167, 69, 0.9);
+        }
+
+        .system-status-indicator.down {
+            background: rgba(220, 53, 69, 0.9);
+        }
+
+        .system-status-indicator.unknown {
+            background: rgba(108, 117, 125, 0.9);
+        }
+
+        .system-status-indicator .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .system-status-tooltip {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            white-space: normal;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(5px);
+            transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
+            z-index: 1002;
+            pointer-events: none;
+            line-height: 1.5;
+            min-width: 200px;
+            max-width: 300px;
+            text-align: left;
+        }
+
+        .system-status-tooltip::before {
+            content: '';
+            position: absolute;
+            bottom: 100%;
+            right: 12px;
+            border: 5px solid transparent;
+            border-bottom-color: rgba(0, 0, 0, 0.9);
+        }
+
+        .system-status-indicator:hover .system-status-tooltip {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
         .page {
             max-width: 100%;
             margin: 0;
@@ -706,6 +775,13 @@
                     <a href="/queue/list" class="nav-link">Encounters</a>
                     <a href="/experity/chat" class="nav-link">Chat UI</a>
                     <a href="/images/" class="nav-link">Images</a>
+                </div>
+                <div class="system-status-indicator unknown" id="systemStatusIndicator">
+                    <div class="status-dot"></div>
+                    <span id="systemStatusText">Checking...</span>
+                    <div class="system-status-tooltip" id="systemStatusTooltip">
+                        Loading system status...
+                    </div>
                 </div>
                 <div class="user-menu">
                     <div class="user-avatar" id="userAvatar" onclick="toggleUserMenu()">
@@ -1221,20 +1297,110 @@
         }
     });
 
-        // Prevent back button from showing cached page after logout
-        // Only check authentication when page is restored from cache (back button only)
-        // Server-side authentication is the primary check - this is just a safety net
-        (function() {
-            let isCheckingAuth = false; // Prevent multiple simultaneous checks
+    // System status polling
+    (function() {
+        const statusIndicator = document.getElementById('systemStatusIndicator');
+        const statusText = document.getElementById('systemStatusText');
+        const statusTooltip = document.getElementById('systemStatusTooltip');
+        let statusPollInterval = null;
 
-            // Function to check if user is authenticated (only for cached pages from back button)
-            function checkAuthentication() {
-                // Prevent multiple simultaneous checks
-                if (isCheckingAuth) {
-                    return;
+        async function fetchSystemStatus() {
+            try {
+                const response = await fetch('/vm/health');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
+                const data = await response.json();
+                updateSystemStatus(data);
+            } catch (error) {
+                console.error('Error fetching system status:', error);
+                updateSystemStatus({
+                    systemStatus: 'unknown',
+                    vmId: null,
+                    lastHeartbeat: null,
+                    status: null,
+                    processingQueueId: null
+                });
+            }
+        }
 
-                isCheckingAuth = true;
+        function updateSystemStatus(data) {
+            if (!statusIndicator || !statusText || !statusTooltip) {
+                return;
+            }
+
+            const systemStatus = data.systemStatus || 'unknown';
+            const vmId = data.vmId || 'N/A';
+            const lastHeartbeat = data.lastHeartbeat || null;
+            const vmStatus = data.status || 'N/A';
+            const processingQueueId = data.processingQueueId || null;
+
+            // Update indicator class
+            statusIndicator.className = `system-status-indicator ${systemStatus}`;
+
+            // Update status text
+            if (systemStatus === 'up') {
+                statusText.textContent = 'System Up';
+            } else if (systemStatus === 'down') {
+                statusText.textContent = 'System Down';
+            } else {
+                statusText.textContent = 'Unknown';
+            }
+
+            // Build tooltip content
+            let tooltipContent = '';
+            if (systemStatus === 'up') {
+                tooltipContent = `<strong>System Status:</strong> Up and Running<br>`;
+            } else if (systemStatus === 'down') {
+                tooltipContent = `<strong>System Status:</strong> Down / Not Running<br>`;
+            } else {
+                tooltipContent = `<strong>System Status:</strong> Unknown<br>`;
+            }
+            tooltipContent += `<strong>VM ID:</strong> ${vmId}<br>`;
+            tooltipContent += `<strong>VM Status:</strong> ${vmStatus}<br>`;
+            if (lastHeartbeat) {
+                const heartbeatDate = new Date(lastHeartbeat);
+                const formattedDate = heartbeatDate.toLocaleString();
+                tooltipContent += `<strong>Last Heartbeat:</strong> ${formattedDate}<br>`;
+                const secondsAgo = Math.floor((Date.now() - heartbeatDate.getTime()) / 1000);
+                tooltipContent += `<strong>Time Ago:</strong> ${secondsAgo} second${secondsAgo !== 1 ? 's' : ''} ago`;
+            } else {
+                tooltipContent += `<strong>Last Heartbeat:</strong> Never`;
+            }
+            if (processingQueueId) {
+                tooltipContent += `<br><strong>Processing Queue:</strong> ${processingQueueId}`;
+            }
+            statusTooltip.innerHTML = tooltipContent;
+        }
+
+        // Fetch status immediately on page load
+        fetchSystemStatus();
+
+        // Poll every 30 seconds
+        statusPollInterval = setInterval(fetchSystemStatus, 30000);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (statusPollInterval) {
+                clearInterval(statusPollInterval);
+            }
+        });
+    })();
+
+    // Prevent back button from showing cached page after logout
+    // Only check authentication when page is restored from cache (back button only)
+    // Server-side authentication is the primary check - this is just a safety net
+    (function() {
+        let isCheckingAuth = false; // Prevent multiple simultaneous checks
+
+        // Function to check if user is authenticated (only for cached pages from back button)
+        function checkAuthentication() {
+            // Prevent multiple simultaneous checks
+            if (isCheckingAuth) {
+                return;
+            }
+
+            isCheckingAuth = true;
 
                 // Check for session cookie
                 const hasSessionCookie = document.cookie.split(';').some(cookie => {

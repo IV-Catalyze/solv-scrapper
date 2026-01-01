@@ -498,6 +498,28 @@ class VmHeartbeatResponse(BaseModel):
         extra = "allow"
 
 
+class VmHealthStatusResponse(BaseModel):
+    """Response model for VM health status."""
+    systemStatus: str = Field(..., description="Overall system status: 'up' or 'down'", example="up")
+    vmId: Optional[str] = Field(None, description="VM identifier", example="vm-worker-1", alias="vm_id")
+    lastHeartbeat: Optional[str] = Field(None, description="ISO 8601 timestamp of the last heartbeat", example="2025-01-21T10:30:00Z", alias="last_heartbeat")
+    status: Optional[str] = Field(None, description="Current VM status: healthy, unhealthy, or idle", example="healthy")
+    processingQueueId: Optional[str] = Field(None, description="Queue ID that the VM is currently processing", example="660e8400-e29b-41d4-a716-446655440000", alias="processing_queue_id")
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "systemStatus": "up",
+                "vmId": "vm-worker-1",
+                "lastHeartbeat": "2025-01-21T10:30:00Z",
+                "status": "healthy",
+                "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
+            }
+        }
+        extra = "allow"
+
+
 class ImageUploadResponse(BaseModel):
     """Response model for image upload."""
     success: bool

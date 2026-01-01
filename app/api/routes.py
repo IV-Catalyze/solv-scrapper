@@ -406,6 +406,7 @@ from app.api.models import (
     SummaryResponse,
     VmHeartbeatRequest,
     VmHeartbeatResponse,
+    VmHealthStatusResponse,
     ImageUploadResponse,
 )
 from app.api.utils import (
@@ -427,6 +428,7 @@ from app.api.database import (
     save_queue,
     save_summary,
     save_vm_health,
+    get_latest_vm_health,
     get_summary_by_emr_id,
     create_queue_from_encounter,
     update_queue_status_and_experity_action,
@@ -2547,6 +2549,197 @@ async def vm_heartbeat(
             conn.close()
 
 
+@app.get(
+    "/vm/health",
+    tags=["VM"],
+    summary="Get VM health status",
+    description="Retrieve the current system health status based on the latest VM heartbeat. System is considered 'up' if a heartbeat was received within the last 2 minutes.",
+    response_model=VmHealthStatusResponse,
+    status_code=200,
+    responses={
+        200: {
+            "description": "VM health status retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "systemStatus": "up",
+                        "vmId": "vm-worker-1",
+                        "lastHeartbeat": "2025-01-21T10:30:00Z",
+                        "status": "healthy",
+                        "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
+                    }
+                }
+            }
+        },
+        401: {"description": "Authentication required"},
+        500: {"description": "Server error"},
+    },
+)
+async def get_vm_health(
+    request: Request,
+    current_user: dict = Depends(require_auth)
+) -> VmHealthStatusResponse:
+    """
+    Get the current VM health status.
+    
+    Returns the latest VM heartbeat information and determines if the system is up or down.
+    System is considered 'up' if:
+    - A heartbeat exists and was received within the last 2 minutes (120 seconds)
+    - The VM status is 'healthy' or 'idle'
+    
+    System is considered 'down' if:
+    - No heartbeat exists
+    - The last heartbeat is older than 2 minutes
+    - The VM status is 'unhealthy'
+    
+    **Response:**
+    Returns a status object with `systemStatus` ('up' or 'down'), `vmId`, `lastHeartbeat`, `status`, and optional `processingQueueId`.
+    """
+    conn = None
+    
+    try:
+        # Get database connection
+        conn = get_db_connection()
+        
+        # Get the latest VM health record
+        vm_health = get_latest_vm_health(conn)
+        
+        if not vm_health:
+            # No heartbeat exists - system is down
+            response_data = {
+                'systemStatus': 'down',
+                'vmId': None,
+                'lastHeartbeat': None,
+                'status': None,
+                'processingQueueId': None,
+            }
+            vm_response = VmHealthStatusResponse(**response_data)
+            response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+            from fastapi.responses import JSONResponse
+            return JSONResponse(content=response_dict)
+        
+        # Parse the last heartbeat timestamp
+        last_heartbeat = vm_health.get('last_heartbeat')
+        if not last_heartbeat:
+            # No heartbeat timestamp - system is down
+            response_data = {
+                'systemStatus': 'down',
+                'vmId': vm_health.get('vm_id'),
+                'lastHeartbeat': None,
+                'status': vm_health.get('status'),
+                'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
+            }
+            vm_response = VmHealthStatusResponse(**response_data)
+            response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+            from fastapi.responses import JSONResponse
+            return JSONResponse(content=response_dict)
+        
+        # Parse timestamp - it might be a datetime object or a string
+        last_heartbeat_dt = None
+        last_heartbeat_str = None
+        
+        if isinstance(last_heartbeat, datetime):
+            last_heartbeat_dt = last_heartbeat
+            last_heartbeat_str = last_heartbeat.isoformat() + 'Z'
+        elif isinstance(last_heartbeat, str):
+            last_heartbeat_str = last_heartbeat
+            try:
+                # Replace 'Z' with '+00:00' for UTC timezone if present
+                timestamp_str = last_heartbeat_str.replace('Z', '+00:00')
+                last_heartbeat_dt = datetime.fromisoformat(timestamp_str)
+                # If no timezone info, assume UTC
+                if last_heartbeat_dt.tzinfo is None:
+                    from datetime import timezone
+                    last_heartbeat_dt = last_heartbeat_dt.replace(tzinfo=timezone.utc)
+            except (ValueError, AttributeError) as e:
+                # Invalid timestamp format - consider system down
+                response_data = {
+                    'systemStatus': 'down',
+                    'vmId': vm_health.get('vm_id'),
+                    'lastHeartbeat': last_heartbeat_str,
+                    'status': vm_health.get('status'),
+                    'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
+                }
+                vm_response = VmHealthStatusResponse(**response_data)
+                response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+                from fastapi.responses import JSONResponse
+                return JSONResponse(content=response_dict)
+        else:
+            # Unknown type - consider system down
+            response_data = {
+                'systemStatus': 'down',
+                'vmId': vm_health.get('vm_id'),
+                'lastHeartbeat': None,
+                'status': vm_health.get('status'),
+                'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
+            }
+            vm_response = VmHealthStatusResponse(**response_data)
+            response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+            from fastapi.responses import JSONResponse
+            return JSONResponse(content=response_dict)
+        
+        # Calculate time difference (2 minutes = 120 seconds)
+        from datetime import timezone
+        current_time = datetime.now(timezone.utc)
+        # If last_heartbeat_dt doesn't have timezone, assume UTC
+        if last_heartbeat_dt.tzinfo is None:
+            last_heartbeat_dt = last_heartbeat_dt.replace(tzinfo=timezone.utc)
+        time_diff = (current_time - last_heartbeat_dt).total_seconds()
+        timeout_threshold = 120  # 2 minutes
+        
+        vm_status = vm_health.get('status', '').lower()
+        
+        # Determine system status
+        if time_diff > timeout_threshold:
+            # Heartbeat is too old - system is down
+            system_status = 'down'
+        elif vm_status == 'unhealthy':
+            # VM status is unhealthy - system is down
+            system_status = 'down'
+        elif vm_status in ('healthy', 'idle'):
+            # Recent heartbeat and healthy/idle status - system is up
+            system_status = 'up'
+        else:
+            # Unknown status - consider down
+            system_status = 'down'
+        
+        # Format the response
+        response_data = {
+            'systemStatus': system_status,
+            'vmId': vm_health.get('vm_id'),
+            'lastHeartbeat': last_heartbeat_str,
+            'status': vm_health.get('status'),
+            'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
+        }
+        
+        # Create response model and serialize with by_alias=False to output camelCase field names
+        vm_response = VmHealthStatusResponse(**response_data)
+        response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+        
+        from fastapi.responses import JSONResponse
+        return JSONResponse(content=response_dict)
+        
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
+
+
 # ============================================================================
 # VALIDATION HELPER FUNCTIONS
 # ============================================================================
@@ -3035,7 +3228,10 @@ def trigger_validation_for_queue_entry(queue_id: str) -> None:
             
             complaint_id = complaint.get('complaintId')
             if not complaint_id:
-                logger.warning(f"Complaint at index {idx} has no complaintId, skipping validation")
+                # This should not happen - azure_ai_agent_client.py guarantees complaintId exists
+                # But handle gracefully if it does
+                logger.error(f"Complaint at index {idx} has no complaintId - this should not happen! Skipping validation.")
+                logger.error(f"Complaint data: {json.dumps(complaint, indent=2)}")
                 continue
             
             complaint_id_str = str(complaint_id)
@@ -4000,12 +4196,13 @@ async def get_queue_validation(
                     validation_result = {}
             
             # Find HPI image path for this specific complaint
+            # complaint_id is always required (guaranteed by azure_ai_agent_client.py)
             hpi_image_path = None
             if complaint_id_str:
                 hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, complaint_id_str)
             else:
-                # Fallback to old method for backward compatibility
-                hpi_image_path = find_hpi_image_by_encounter_id(encounter_id_str)
+                logger.warning(f"Validation missing complaint_id for queue_id: {queue_id}, validation_id: {result.get('validation_id')}")
+                # Should not happen, but log warning if it does
             
             validations.append({
                 "complaint_id": complaint_id_str,
@@ -4048,11 +4245,16 @@ async def get_queue_validation(
 async def get_queue_validation_image(
     queue_id: str,
     request: Request,
+    complaint_id: Optional[str] = Query(None, description="Complaint ID for complaint-specific HPI image"),
     current_user: dict = Depends(require_auth)
 ):
     """
     Get the HPI screenshot image used for validation.
+    If complaint_id is provided, returns the complaint-specific HPI image.
+    Otherwise, returns the first complaint's HPI image found.
     Uses session authentication for UI access.
+    
+    Note: complaint_id is always present in new validations (guaranteed by azure_ai_agent_client.py).
     """
     conn = None
     cursor = None
@@ -4061,32 +4263,56 @@ async def get_queue_validation_image(
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Get validation result with encounter_id
-        cursor.execute(
-            """
-            SELECT encounter_id
-            FROM queue_validations
-            WHERE queue_id = %s
-            """,
-            (queue_id,)
-        )
+        # Get validation result with encounter_id and complaint_id
+        if complaint_id:
+            # Get specific complaint validation
+            cursor.execute(
+                """
+                SELECT encounter_id, complaint_id
+                FROM queue_validations
+                WHERE queue_id = %s AND complaint_id = %s
+                LIMIT 1
+                """,
+                (queue_id, complaint_id)
+            )
+        else:
+            # Get first validation (if complaint_id not provided, use first one found)
+            cursor.execute(
+                """
+                SELECT encounter_id, complaint_id
+                FROM queue_validations
+                WHERE queue_id = %s AND complaint_id IS NOT NULL
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (queue_id,)
+            )
+        
         result = cursor.fetchone()
         
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail=f"No validation found for queue_id: {queue_id}"
+                detail=f"No validation found for queue_id: {queue_id}" + (f" and complaint_id: {complaint_id}" if complaint_id else "")
             )
         
         encounter_id_str = str(result['encounter_id'])
+        complaint_id_from_db = result.get('complaint_id')
         
-        # Find HPI image path
-        hpi_image_path = find_hpi_image_by_encounter_id(encounter_id_str)
+        # Find HPI image path - complaint_id is always required
+        hpi_image_path = None
+        if complaint_id_from_db:
+            hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, str(complaint_id_from_db))
+        elif complaint_id:
+            # Use provided complaint_id parameter
+            hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, complaint_id)
+        else:
+            logger.warning(f"Missing complaint_id for queue_id: {queue_id} - cannot find complaint-specific HPI image")
         
         if not hpi_image_path:
             raise HTTPException(
                 status_code=404,
-                detail=f"HPI image not found for encounter_id: {encounter_id_str}"
+                detail=f"HPI image not found for encounter_id: {encounter_id_str}" + (f" and complaint_id: {complaint_id_from_db}" if complaint_id_from_db else "")
             )
         
         # Get image bytes

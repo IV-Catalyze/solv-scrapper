@@ -556,6 +556,59 @@ def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
         cursor.close()
 
 
+def get_latest_vm_health(conn) -> Optional[Dict[str, Any]]:
+    """Get the latest VM health record from the database.
+    
+    Args:
+        conn: PostgreSQL database connection
+        
+    Returns:
+        Dictionary with the latest VM health data, or None if no records exist
+        
+    Raises:
+        psycopg2.Error: If database operation fails
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        # Get the most recent VM health record
+        query = """
+            SELECT *
+            FROM vm_health
+            ORDER BY last_heartbeat DESC
+            LIMIT 1
+        """
+        
+        cursor.execute(query)
+        result = cursor.fetchone()
+        
+        if not result:
+            return None
+        
+        # Format the result
+        formatted_result = dict(result)
+        
+        # Convert timestamps to ISO format strings
+        if formatted_result.get('last_heartbeat'):
+            if isinstance(formatted_result['last_heartbeat'], datetime):
+                formatted_result['last_heartbeat'] = formatted_result['last_heartbeat'].isoformat() + 'Z'
+        
+        if formatted_result.get('created_at'):
+            if isinstance(formatted_result['created_at'], datetime):
+                formatted_result['created_at'] = formatted_result['created_at'].isoformat() + 'Z'
+        
+        if formatted_result.get('updated_at'):
+            if isinstance(formatted_result['updated_at'], datetime):
+                formatted_result['updated_at'] = formatted_result['updated_at'].isoformat() + 'Z'
+        
+        return formatted_result
+        
+    except psycopg2.Error as e:
+        raise e
+    finally:
+        cursor.close()
+
+
 def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
     """Create a queue entry from an encounter record.
     
