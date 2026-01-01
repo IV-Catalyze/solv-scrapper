@@ -737,6 +737,119 @@
             margin-top: 0;
         }
 
+        /* Complaint List Sidebar */
+        .validation-layout {
+            display: flex;
+            gap: 1.5rem;
+            min-height: 500px;
+        }
+
+        .complaint-sidebar {
+            width: 280px;
+            flex-shrink: 0;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 1rem;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .complaint-sidebar-title {
+            font-weight: 600;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #6b7280;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .complaint-item {
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .complaint-item:hover {
+            border-color: #3b82f6;
+            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
+        }
+
+        .complaint-item.active {
+            border-color: #3b82f6;
+            background: #eff6ff;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+        }
+
+        .complaint-id {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Courier New', monospace;
+            font-size: 0.8125rem;
+            color: #374151;
+            word-break: break-all;
+        }
+
+        .complaint-status {
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.375rem;
+        }
+
+        .complaint-status.pass {
+            color: #059669;
+        }
+
+        .complaint-status.fail {
+            color: #dc2626;
+        }
+
+        .complaint-status.partial {
+            color: #d97706;
+        }
+
+        .complaint-status.error {
+            color: #6b7280;
+        }
+
+        .complaint-description {
+            font-size: 0.8125rem;
+            color: #6b7280;
+            margin-top: 0.25rem;
+        }
+
+        .validation-main-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .no-complaints {
+            padding: 2rem;
+            text-align: center;
+            color: #6b7280;
+            font-size: 0.875rem;
+        }
+
+        @media (max-width: 960px) {
+            .validation-layout {
+                flex-direction: column;
+            }
+
+            .complaint-sidebar {
+                width: 100%;
+                max-height: 200px;
+            }
+        }
+
         @media (max-width: 960px) {
             body {
                 padding: 0 1rem 2rem;
@@ -935,8 +1048,18 @@
                 
                 <!-- Tabbed Content -->
                 <div id="validationContent" style="display: none;">
-                    <!-- Tab Navigation -->
-                    <div class="tab-nav">
+                    <!-- Complaint List Sidebar + Main Content Layout -->
+                    <div class="validation-layout">
+                        <!-- Left Sidebar: Complaint List -->
+                        <div class="complaint-sidebar">
+                            <div class="complaint-sidebar-title">Complaints</div>
+                            <div id="complaintList"></div>
+                        </div>
+                        
+                        <!-- Main Content Area -->
+                        <div class="validation-main-content">
+                            <!-- Tab Navigation -->
+                            <div class="tab-nav">
                         <button class="tab-btn active" onclick="switchTab('verification')" data-tab="verification">
                             <span class="tab-icon">✓</span>
                             <span>Verification</span>
@@ -987,6 +1110,8 @@
                                     <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9375rem;">Image not available</div>
                                     <div style="font-size: 0.875rem; color: #991b1b;">The screenshot image could not be loaded.</div>
                                 </div>
+                            </div>
+                        </div>
                             </div>
                         </div>
                     </div>
@@ -1094,19 +1219,109 @@
             document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
         }
 
+        // Store validation data globally
+        let currentValidationData = null;
+        let currentQueueId = null;
+
         function displayValidationResults(data) {
             const validationContent = document.getElementById('validationContent');
+            const complaintList = document.getElementById('complaintList');
+            
+            // Store data globally
+            currentValidationData = data;
+            currentQueueId = document.getElementById('validationQueueId').textContent.replace('Queue ID: ', '');
+            
+            // Get validations array (always expected to have complaint_id)
+            const validations = data.validations || [];
+            
+            // Clear complaint list
+            complaintList.innerHTML = '';
+            
+            if (validations.length === 0) {
+                complaintList.innerHTML = '<div class="no-complaints">No validations found</div>';
+                validationContent.style.display = 'block';
+                return;
+            }
+            
+            // Build complaint list - each validation must have a complaint_id
+            validations.forEach((validation, index) => {
+                const complaintId = validation.complaint_id;
+                
+                // Skip if complaint_id is missing (shouldn't happen, but handle gracefully)
+                if (!complaintId) {
+                    console.warn('Validation missing complaint_id:', validation);
+                    return;
+                }
+                
+                const validationResult = validation.validation_result || {};
+                const status = validationResult.overall_status || 'UNKNOWN';
+                const description = getComplaintDescription(complaintId, data.experity_action);
+                
+                const complaintItem = document.createElement('div');
+                complaintItem.className = 'complaint-item' + (index === 0 ? ' active' : '');
+                complaintItem.setAttribute('data-complaint-id', complaintId);
+                complaintItem.onclick = () => selectComplaint(complaintId);
+                
+                const statusClass = status.toLowerCase().replace('_', '-');
+                const statusIcon = getStatusIcon(status);
+                
+                complaintItem.innerHTML = `
+                    <div class="complaint-id" title="${complaintId}">${truncateId(complaintId)}</div>
+                    <div class="complaint-status ${statusClass}">
+                        <span>${statusIcon}</span>
+                        <span>${status}</span>
+                    </div>
+                    ${description ? `<div class="complaint-description">${escapeHtml(description)}</div>` : ''}
+                `;
+                
+                complaintList.appendChild(complaintItem);
+            });
+            
+            // Display first complaint by default
+            if (validations.length > 0 && validations[0].complaint_id) {
+                selectComplaint(validations[0].complaint_id);
+            }
+            
+            validationContent.style.display = 'block';
+        }
+
+        function selectComplaint(complaintId) {
+            // Update active state in complaint list
+            document.querySelectorAll('.complaint-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.getAttribute('data-complaint-id') === complaintId) {
+                    item.classList.add('active');
+                }
+            });
+            
+            // Find validation data for this complaint
+            if (!currentValidationData) return;
+            
+            const validations = currentValidationData.validations || [];
+            
+            // Find matching complaint by complaint_id
+            const complaintData = validations.find(v => v.complaint_id === complaintId);
+            
+            if (!complaintData) {
+                console.error(`Complaint ${complaintId} not found in validations`);
+                return;
+            }
+            
+            displayComplaintValidation(complaintData);
+        }
+
+        function displayComplaintValidation(complaintData) {
             const validationStatusBadge = document.getElementById('validationStatusBadge');
             const validationResults = document.getElementById('validationResults');
             const validationMismatches = document.getElementById('validationMismatches');
             const experityActionJson = document.getElementById('experityActionJson');
-            const screenshotContainer = document.getElementById('screenshotContainer');
             const screenshotImage = document.getElementById('screenshotImage');
             const screenshotLoading = document.getElementById('screenshotLoading');
             const screenshotError = document.getElementById('screenshotError');
             
-            const validationResult = data.validation_result || data;
+            const validationResult = complaintData.validation_result || complaintData;
             const status = validationResult.overall_status || 'UNKNOWN';
+            const complaintId = complaintData.complaint_id;
             
             // Set status badge
             validationStatusBadge.textContent = status;
@@ -1125,7 +1340,6 @@
                     <div>${escapeHtml(validationResult.error || 'Unknown error')}</div>
                 `;
                 validationResults.appendChild(errorSection);
-                validationContent.style.display = 'block';
                 return;
             }
             
@@ -1192,22 +1406,38 @@
                 validationMismatches.appendChild(mismatchesSection);
             }
             
-            // Populate Experity Action tab
-            if (data.experity_action) {
-                experityActionJson.textContent = JSON.stringify(data.experity_action, null, 2);
+            // Populate Experity Action tab - show only this complaint's data
+            if (complaintId && currentValidationData && currentValidationData.experity_action) {
+                const experityAction = currentValidationData.experity_action;
+                const complaints = experityAction.complaints || [];
+                const complaint = complaints.find(c => c.complaintId === complaintId);
+                
+                if (complaint) {
+                    experityActionJson.textContent = JSON.stringify(complaint, null, 2);
+                } else {
+                    experityActionJson.textContent = JSON.stringify(experityAction, null, 2);
+                }
+            } else if (currentValidationData && currentValidationData.experity_action) {
+                experityActionJson.textContent = JSON.stringify(currentValidationData.experity_action, null, 2);
             } else {
                 experityActionJson.textContent = 'No experity action data available';
             }
             
-            // Populate Screenshot tab
+            // Populate Screenshot tab - use complaint-specific image
             screenshotLoading.style.display = 'block';
             screenshotImage.style.display = 'none';
             screenshotError.style.display = 'none';
             
-            if (data.hpi_image_path || data.encounter_id) {
-                // Use session-based endpoint for the validation image
-                const queueId = document.getElementById('validationQueueId').textContent.replace('Queue ID: ', '');
-                const imageUrl = `/queue/${queueId}/validation/image`;
+            const hpiImagePath = complaintData.hpi_image_path;
+            const encounterId = currentValidationData ? currentValidationData.encounter_id : null;
+            
+            if (hpiImagePath || (complaintId && encounterId)) {
+                // Build image URL with complaint_id parameter
+                let imageUrl = `/queue/${currentQueueId}/validation/image`;
+                if (complaintId) {
+                    imageUrl += `?complaint_id=${encodeURIComponent(complaintId)}`;
+                }
+                
                 screenshotImage.src = imageUrl;
                 screenshotImage.onload = function() {
                     screenshotLoading.style.display = 'none';
@@ -1222,13 +1452,34 @@
                 screenshotError.style.display = 'block';
                 screenshotError.innerHTML = `
                     <div style="font-weight: 600; margin-bottom: 0.5rem;">Screenshot not available</div>
-                    <div style="font-size: 0.9rem;">The HPI screenshot image could not be found for this encounter.</div>
+                    <div style="font-size: 0.9rem;">The HPI screenshot image could not be found for this complaint.</div>
                 `;
             }
             
-            // Show the content and reset to first tab
-            validationContent.style.display = 'block';
+            // Reset to first tab
             switchTab('verification');
+        }
+
+        function getStatusIcon(status) {
+            const statusUpper = status.toUpperCase();
+            if (statusUpper === 'PASS') return '✓';
+            if (statusUpper === 'FAIL') return '✗';
+            if (statusUpper === 'PARTIAL') return '⚠';
+            if (statusUpper === 'ERROR') return '⚠';
+            return '○';
+        }
+
+        function truncateId(id) {
+            if (!id) return 'N/A';
+            if (id.length <= 12) return id;
+            return id.substring(0, 8) + '...';
+        }
+
+        function getComplaintDescription(complaintId, experityAction) {
+            if (!complaintId || !experityAction) return null;
+            const complaints = experityAction.complaints || [];
+            const complaint = complaints.find(c => c.complaintId === complaintId);
+            return complaint ? (complaint.description || complaint.mainProblem || null) : null;
         }
 
         function formatValue(value) {
