@@ -868,6 +868,30 @@
             return null;
         }
 
+        // Extract complaint ID from image filename
+        function extractComplaintId(imagePath, imageName) {
+            // Image filename format: "{complaint_id}_hpi.{ext}" or "{complaint_id}-hpi.{ext}"
+            // Examples: "00f9612e-f37d-451b-9172-25cbddee58a9_hpi.png" or "00f9612e-f37d-451b-9172-25cbddee58a9-hpi.jpg"
+            
+            // Use imageName if provided, otherwise extract from path
+            const filename = imageName || imagePath.split('/').pop() || '';
+            
+            // Try pattern: {complaint_id}_hpi.{ext}
+            const underscoreMatch = filename.match(/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})_hpi\./i);
+            if (underscoreMatch) {
+                return underscoreMatch[1];
+            }
+            
+            // Try pattern: {complaint_id}-hpi.{ext}
+            const hyphenMatch = filename.match(/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})-hpi\./i);
+            if (hyphenMatch) {
+                return hyphenMatch[1];
+            }
+            
+            // If no match, return null
+            return null;
+        }
+
         // Update generate button visibility
         function updateGenerateButtonVisibility() {
             const generateBtn = document.getElementById('generateActionBtn');
@@ -898,10 +922,18 @@
                 return;
             }
             
-            // Extract encounter ID
+            // Extract encounter ID from path
             const encounterId = extractEncounterId(selectedImagePath);
             if (!encounterId) {
                 errorDiv.textContent = 'Error: Image path does not contain encounter ID';
+                errorDiv.classList.add('show');
+                return;
+            }
+            
+            // Extract complaint ID from image filename
+            const complaintId = extractComplaintId(selectedImagePath, selectedImageName.textContent);
+            if (!complaintId) {
+                errorDiv.textContent = 'Error: Image filename must be in format: {complaint_id}_hpi.{ext} (e.g., 00f9612e-f37d-451b-9172-25cbddee58a9_hpi.png)';
                 errorDiv.classList.add('show');
                 return;
             }
@@ -983,12 +1015,29 @@
                     throw new Error('No saved Experity action found in queue entry. The encounter may not have been processed yet.');
                 }
                 
-                // Format and set JSON in textarea
-                const formattedJson = JSON.stringify(experityActions, null, 2);
+                // Find the specific complaint that matches the complaint_id
+                let targetComplaint = null;
+                
+                // Check if experityActions has a complaints array
+                if (experityActions.complaints && Array.isArray(experityActions.complaints)) {
+                    // Search for complaint with matching complaintId
+                    targetComplaint = experityActions.complaints.find(c => {
+                        const cId = c.complaintId || c.complaint_id;
+                        // Compare as strings (case-insensitive) to handle UUID variations
+                        return cId && String(cId).toLowerCase() === String(complaintId).toLowerCase();
+                    });
+                }
+                
+                if (!targetComplaint) {
+                    throw new Error(`Complaint with ID "${complaintId}" not found in experityAction.complaints[]. Please ensure the image filename matches a complaint ID in the queue entry.`);
+                }
+                
+                // Format and set JSON in textarea (only the specific complaint)
+                const formattedJson = JSON.stringify(targetComplaint, null, 2);
                 jsonTextarea.value = formattedJson;
                 
                 // Show success message briefly
-                errorDiv.textContent = '✓ Saved Experity action loaded successfully';
+                errorDiv.textContent = `✓ Complaint ${complaintId.substring(0, 8)}... loaded successfully`;
                 errorDiv.style.background = '#d4edda';
                 errorDiv.style.color = '#155724';
                 errorDiv.style.borderLeftColor = '#28a745';
@@ -1062,10 +1111,21 @@
                 }
 
                 // Validate JSON
+                let jsonData;
                 try {
-                    JSON.parse(jsonResponse);
+                    jsonData = JSON.parse(jsonResponse);
                 } catch (e) {
                     throw new Error('Invalid JSON format: ' + e.message);
+                }
+                
+                // Optional: If image has complaint_id format, warn if JSON doesn't match
+                const complaintId = extractComplaintId(selectedImagePath, selectedImageName.textContent);
+                if (complaintId) {
+                    const jsonComplaintId = jsonData.complaintId || jsonData.complaint_id;
+                    if (jsonComplaintId && String(jsonComplaintId).toLowerCase() !== String(complaintId).toLowerCase()) {
+                        // Warning: complaint_id mismatch, but allow validation to proceed
+                        console.warn(`Warning: Image complaint_id (${complaintId}) does not match JSON complaintId (${jsonComplaintId}). Validation will proceed.`);
+                    }
                 }
 
                 // Convert blob to File for FormData
