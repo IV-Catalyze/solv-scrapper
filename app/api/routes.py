@@ -2555,6 +2555,9 @@ def find_hpi_image_by_encounter_id(encounter_id: str) -> Optional[str]:
     """
     Find the first image with 'hpi' in the filename in the encounters/{encounter_id}/ folder.
     
+    DEPRECATED: Use find_hpi_image_by_complaint() instead for complaint-specific images.
+    Kept for backward compatibility.
+    
     Returns:
         The full blob path to the HPI image, or None if not found
     """
@@ -2582,6 +2585,61 @@ def find_hpi_image_by_encounter_id(encounter_id: str) -> Optional[str]:
         
     except Exception as e:
         logger.error(f"Error finding HPI image for encounter {encounter_id}: {str(e)}")
+        return None
+
+
+def find_hpi_image_by_complaint(encounter_id: str, complaint_id: str) -> Optional[str]:
+    """
+    Find HPI image for a specific complaint using format: {complaint_id}_hpi.{ext}
+    
+    Searches for images matching the pattern: {complaint_id}_hpi.{ext}
+    Supports multiple image formats: .png, .jpg, .jpeg, .gif, .webp
+    
+    Args:
+        encounter_id: The encounter ID
+        complaint_id: The complaint ID (UUID format)
+    
+    Returns:
+        The full blob path to the HPI image, or None if not found
+    """
+    if not AZURE_BLOB_AVAILABLE or not container_client:
+        logger.warning("Azure Blob Storage not available, cannot find HPI image")
+        return None
+    
+    if not complaint_id:
+        logger.warning(f"complaint_id is required for finding complaint-specific HPI image")
+        return None
+    
+    try:
+        folder_path = f"encounters/{encounter_id}/"
+        
+        # List blobs with the prefix
+        blobs = container_client.list_blobs(name_starts_with=folder_path)
+        
+        # Search for image with pattern: {complaint_id}_hpi.{ext}
+        # Try both underscore and hyphen separators for flexibility
+        patterns = [
+            f"{complaint_id}_hpi",
+            f"{complaint_id}-hpi"
+        ]
+        
+        image_extensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp']
+        
+        for blob in blobs:
+            blob_name_lower = blob.name.lower()
+            # Check if it's an image file
+            if any(blob_name_lower.endswith(ext) for ext in image_extensions):
+                # Check if it matches any of our patterns
+                for pattern in patterns:
+                    if pattern.lower() in blob_name_lower:
+                        logger.info(f"Found HPI image for complaint {complaint_id}: {blob.name}")
+                        return blob.name
+        
+        logger.warning(f"No HPI image found for complaint {complaint_id} in folder: {folder_path}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error finding HPI image for complaint {complaint_id} in encounter {encounter_id}: {str(e)}")
         return None
 
 
@@ -2858,29 +2916,37 @@ def run_validation_internal(image_bytes: bytes, experity_action_json: str) -> Di
         }
 
 
-def save_validation_result(conn, queue_id: str, encounter_id: str, validation_result: Dict[str, Any]) -> None:
+def save_validation_result(conn, queue_id: str, encounter_id: str, validation_result: Dict[str, Any], complaint_id: Optional[str] = None) -> None:
     """
     Save or update validation result in queue_validations table (upsert).
+    
+    Args:
+        conn: Database connection
+        queue_id: Queue identifier
+        encounter_id: Encounter identifier
+        validation_result: Validation result dictionary
+        complaint_id: Optional complaint ID (for complaint-specific validations)
     """
     from psycopg2.extras import Json
     
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     try:
-        # Upsert validation result
+        # Upsert validation result using composite unique constraint (queue_id, complaint_id)
         cursor.execute(
             """
-            INSERT INTO queue_validations (queue_id, encounter_id, validation_result, updated_at)
-            VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
-            ON CONFLICT (queue_id) 
+            INSERT INTO queue_validations (queue_id, encounter_id, complaint_id, validation_result, updated_at)
+            VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (queue_id, complaint_id) 
             DO UPDATE SET 
                 validation_result = EXCLUDED.validation_result,
                 updated_at = CURRENT_TIMESTAMP
             """,
-            (queue_id, encounter_id, Json(validation_result))
+            (queue_id, encounter_id, complaint_id, Json(validation_result))
         )
         conn.commit()
-        logger.info(f"Saved validation result for queue_id: {queue_id}")
+        complaint_info = f"complaint_id: {complaint_id}" if complaint_id else "no complaint_id"
+        logger.info(f"Saved validation result for queue_id: {queue_id}, {complaint_info}")
         
     except Exception as e:
         conn.rollback()
@@ -2895,9 +2961,11 @@ def trigger_validation_for_queue_entry(queue_id: str) -> None:
     Main orchestrator function to trigger validation for a queue entry.
     This function:
     1. Reads encounter_id and experityAction from queue table
-    2. Finds HPI image in Azure Blob Storage
-    3. Runs validation
-    4. Saves validation result
+    2. Extracts complaints from experityAction
+    3. For each complaint:
+       - Finds its specific HPI image using format: {complaint_id}_hpi.{ext}
+       - Validates that complaint's data against the HPI image
+       - Saves validation result with complaint_id
     
     This is designed to be called as a background task.
     """
@@ -2942,29 +3010,77 @@ def trigger_validation_for_queue_entry(queue_id: str) -> None:
             logger.warning(f"No experityAction found in parsed_payload for queue_id: {queue_id}")
             return
         
-        # Find HPI image
-        hpi_image_path = find_hpi_image_by_encounter_id(encounter_id_str)
-        if not hpi_image_path:
-            logger.warning(f"No HPI image found for encounter_id: {encounter_id_str}")
+        # Extract complaints from experityAction
+        # Handle both new format (complaints array) and legacy format (array of actions)
+        complaints = []
+        if isinstance(experity_action, dict):
+            # New format: experityAction.complaints[]
+            complaints = experity_action.get('complaints', [])
+        elif isinstance(experity_action, list):
+            # Legacy format: array of complaint objects
+            complaints = experity_action
+        
+        if not complaints or len(complaints) == 0:
+            logger.warning(f"No complaints found in experityAction for queue_id: {queue_id}")
             return
         
-        # Download image bytes
-        image_bytes = get_image_bytes_from_blob(hpi_image_path)
-        if not image_bytes:
-            logger.warning(f"Failed to download image from: {hpi_image_path}")
-            return
+        logger.info(f"Found {len(complaints)} complaints to validate for queue_id: {queue_id}")
         
-        # Convert experityAction to JSON string
-        experity_action_json = json.dumps(experity_action) if not isinstance(experity_action, str) else experity_action
+        # Validate each complaint separately
+        validation_count = 0
+        for idx, complaint in enumerate(complaints):
+            if not isinstance(complaint, dict):
+                logger.warning(f"Complaint at index {idx} is not a dictionary, skipping")
+                continue
+            
+            complaint_id = complaint.get('complaintId')
+            if not complaint_id:
+                logger.warning(f"Complaint at index {idx} has no complaintId, skipping validation")
+                continue
+            
+            complaint_id_str = str(complaint_id)
+            logger.info(f"Validating complaint {idx + 1}/{len(complaints)}: complaint_id={complaint_id_str}")
+            
+            # Find HPI image for this specific complaint
+            hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, complaint_id_str)
+            if not hpi_image_path:
+                logger.warning(f"No HPI image found for complaint {complaint_id_str} in encounter {encounter_id_str}")
+                # Save error result for this complaint
+                error_result = {
+                    "overall_status": "ERROR",
+                    "error": f"HPI image not found for complaint {complaint_id_str}. Expected format: {complaint_id_str}_hpi.{{ext}}"
+                }
+                save_validation_result(conn, queue_id, encounter_id_str, error_result, complaint_id_str)
+                continue
+            
+            # Download image bytes
+            image_bytes = get_image_bytes_from_blob(hpi_image_path)
+            if not image_bytes:
+                logger.warning(f"Failed to download image from: {hpi_image_path}")
+                # Save error result for this complaint
+                error_result = {
+                    "overall_status": "ERROR",
+                    "error": f"Failed to download HPI image from: {hpi_image_path}"
+                }
+                save_validation_result(conn, queue_id, encounter_id_str, error_result, complaint_id_str)
+                continue
+            
+            # Convert single complaint to JSON string for validation
+            # The validation agent expects a complaint object, not the full experityAction
+            complaint_json = json.dumps(complaint, indent=2)
+            
+            # Run validation for this complaint
+            logger.info(f"Running validation for complaint {complaint_id_str} (queue_id: {queue_id})")
+            validation_result = run_validation_internal(image_bytes, complaint_json)
+            
+            # Save validation result with complaint_id
+            save_validation_result(conn, queue_id, encounter_id_str, validation_result, complaint_id_str)
+            validation_count += 1
+            
+            status = validation_result.get('overall_status', 'UNKNOWN')
+            logger.info(f"Validation completed for complaint {complaint_id_str}: {status}")
         
-        # Run validation
-        logger.info(f"Running validation for queue_id: {queue_id}")
-        validation_result = run_validation_internal(image_bytes, experity_action_json)
-        
-        # Save validation result
-        save_validation_result(conn, queue_id, encounter_id_str, validation_result)
-        
-        logger.info(f"Validation completed for queue_id: {queue_id}, status: {validation_result.get('overall_status', 'UNKNOWN')}")
+        logger.info(f"Validation completed for queue_id: {queue_id}. Validated {validation_count}/{len(complaints)} complaints")
         
     except Exception as e:
         logger.error(f"Error in trigger_validation_for_queue_entry for queue_id {queue_id}: {str(e)}", exc_info=True)
@@ -3814,10 +3930,13 @@ async def get_queue_validation(
     current_user: dict = Depends(require_auth)
 ) -> Dict[str, Any]:
     """
-    Get validation result for a queue entry.
+    Get validation results for a queue entry.
     
-    Returns:
-    - validation_result: The validation results from emr/validate
+    Returns multiple validations (one per complaint):
+    - validations: Array of validation objects, each with:
+      - complaint_id: The complaint ID
+      - validation_result: The validation results from emr/validate
+      - hpi_image_path: Path to the HPI image used for validation
     - experity_action: The experityAction from queue.parsed_payload (for reference)
     - encounter_id: The encounter ID
     
@@ -3830,10 +3949,12 @@ async def get_queue_validation(
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Get validation result
+        # Get all validation results for this queue (one per complaint)
         cursor.execute(
             """
             SELECT 
+                qv.validation_id,
+                qv.complaint_id,
                 qv.validation_result,
                 qv.encounter_id,
                 q.parsed_payload->'experityAction' as experity_action_1,
@@ -3841,27 +3962,20 @@ async def get_queue_validation(
             FROM queue_validations qv
             JOIN queue q ON qv.queue_id = q.queue_id
             WHERE qv.queue_id = %s
+            ORDER BY qv.created_at ASC
             """,
             (queue_id,)
         )
-        result = cursor.fetchone()
+        results = cursor.fetchall()
         
-        if not result:
+        if not results or len(results) == 0:
             raise HTTPException(
                 status_code=404,
                 detail=f"No validation found for queue_id: {queue_id}"
             )
         
-        # Get experity_action (could be in either key)
-        experity_action = result.get('experity_action_1') or result.get('experity_action_2')
-        
-        # Parse JSONB fields if they're strings
-        validation_result = result.get('validation_result')
-        if isinstance(validation_result, str):
-            try:
-                validation_result = json.loads(validation_result)
-            except json.JSONDecodeError:
-                validation_result = {}
+        # Get experity_action (could be in either key) - use first result
+        experity_action = results[0].get('experity_action_1') or results[0].get('experity_action_2')
         
         if isinstance(experity_action, str):
             try:
@@ -3869,16 +3983,40 @@ async def get_queue_validation(
             except json.JSONDecodeError:
                 experity_action = None
         
-        encounter_id_str = str(result.get('encounter_id', ''))
+        encounter_id_str = str(results[0].get('encounter_id', ''))
         
-        # Find HPI image path for this encounter
-        hpi_image_path = find_hpi_image_by_encounter_id(encounter_id_str)
+        # Build validations array
+        validations = []
+        for result in results:
+            complaint_id = result.get('complaint_id')
+            complaint_id_str = str(complaint_id) if complaint_id else None
+            
+            # Parse JSONB fields if they're strings
+            validation_result = result.get('validation_result')
+            if isinstance(validation_result, str):
+                try:
+                    validation_result = json.loads(validation_result)
+                except json.JSONDecodeError:
+                    validation_result = {}
+            
+            # Find HPI image path for this specific complaint
+            hpi_image_path = None
+            if complaint_id_str:
+                hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, complaint_id_str)
+            else:
+                # Fallback to old method for backward compatibility
+                hpi_image_path = find_hpi_image_by_encounter_id(encounter_id_str)
+            
+            validations.append({
+                "complaint_id": complaint_id_str,
+                "validation_result": validation_result,
+                "hpi_image_path": hpi_image_path
+            })
         
         return {
-            "validation_result": validation_result,
+            "validations": validations,
             "experity_action": experity_action,
-            "encounter_id": encounter_id_str,
-            "hpi_image_path": hpi_image_path  # Full blob path, or None if not found
+            "encounter_id": encounter_id_str
         }
         
     except HTTPException:
