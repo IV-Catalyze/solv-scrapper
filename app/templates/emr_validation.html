@@ -873,7 +873,10 @@
         // Extract complaint ID from image filename
         function extractComplaintId(imagePath, imageName) {
             // Image filename format: "{complaint_id}_hpi.{ext}" or "{complaint_id}-hpi.{ext}"
-            // Examples: "00f9612e-f37d-451b-9172-25cbddee58a9_hpi.png" or "00f9612e-f37d-451b-9172-25cbddee58a9-hpi.jpg"
+            // May also have prefixes: "prefix_{complaint_id}_hpi.{ext}"
+            // Examples: 
+            //   - "00f9612e-f37d-451b-9172-25cbddee58a9_hpi.png"
+            //   - "20260102_114422_72d2f328_45f50d46-e63e-4aef-9573-77bba25486ed_hpi.png"
             
             // Use imageName if provided and not empty, otherwise extract from path
             let filename = '';
@@ -889,14 +892,15 @@
                 return null;
             }
             
-            // Try pattern: {complaint_id}_hpi.{ext}
-            const underscoreMatch = filename.match(/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})_hpi\./i);
+            // Try pattern: ...{complaint_id}_hpi.{ext} (UUID can appear anywhere before _hpi)
+            // This handles both "uuid_hpi.png" and "prefix_uuid_hpi.png" formats
+            const underscoreMatch = filename.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})_hpi\./i);
             if (underscoreMatch) {
                 return underscoreMatch[1];
             }
             
-            // Try pattern: {complaint_id}-hpi.{ext}
-            const hyphenMatch = filename.match(/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})-hpi\./i);
+            // Try pattern: ...{complaint_id}-hpi.{ext} (UUID can appear anywhere before -hpi)
+            const hyphenMatch = filename.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})-hpi\./i);
             if (hyphenMatch) {
                 return hyphenMatch[1];
             }
