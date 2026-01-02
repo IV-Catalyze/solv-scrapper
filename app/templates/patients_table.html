@@ -1342,7 +1342,7 @@
             if (systemStatus === 'up') {
                 statusText.textContent = 'System Up';
             } else if (systemStatus === 'down') {
-                statusText.textContent = 'System Down';
+                statusText.textContent = 'System in Sleep Mode';
             } else {
                 statusText.textContent = 'Unknown';
             }
@@ -1352,7 +1352,7 @@
             if (systemStatus === 'up') {
                 tooltipContent = `<strong>System Status:</strong> Up and Running<br>`;
             } else if (systemStatus === 'down') {
-                tooltipContent = `<strong>System Status:</strong> Down / Not Running<br>`;
+                tooltipContent = `<strong>System Status:</strong> System in Sleep Mode<br>`;
             } else {
                 tooltipContent = `<strong>System Status:</strong> Unknown<br>`;
             }
