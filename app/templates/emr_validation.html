@@ -615,6 +615,7 @@
 
         // Image selection state
         let selectedImagePath = null;
+        let selectedImageNameValue = null; // Store image name separately from DOM
         let selectedImageBlob = null;
         let currentImageFolder = '';
         const imageBlobCache = new Map();
@@ -813,6 +814,7 @@
             try {
                 // Update selected state
                 selectedImagePath = imagePath;
+                selectedImageNameValue = imageName; // Store in variable for reliable access
                 selectedImageName.textContent = imageName;
                 
                 // Update UI - highlight selected image
@@ -873,8 +875,19 @@
             // Image filename format: "{complaint_id}_hpi.{ext}" or "{complaint_id}-hpi.{ext}"
             // Examples: "00f9612e-f37d-451b-9172-25cbddee58a9_hpi.png" or "00f9612e-f37d-451b-9172-25cbddee58a9-hpi.jpg"
             
-            // Use imageName if provided, otherwise extract from path
-            const filename = imageName || imagePath.split('/').pop() || '';
+            // Use imageName if provided and not empty, otherwise extract from path
+            let filename = '';
+            if (imageName && imageName.trim() !== '') {
+                filename = imageName;
+            } else {
+                // Extract filename from path
+                const pathParts = imagePath.split('/');
+                filename = pathParts[pathParts.length - 1] || '';
+            }
+            
+            if (!filename) {
+                return null;
+            }
             
             // Try pattern: {complaint_id}_hpi.{ext}
             const underscoreMatch = filename.match(/^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})_hpi\./i);
@@ -931,9 +944,10 @@
             }
             
             // Extract complaint ID from image filename
-            const complaintId = extractComplaintId(selectedImagePath, selectedImageName.textContent);
+            const complaintId = extractComplaintId(selectedImagePath, selectedImageNameValue);
             if (!complaintId) {
-                errorDiv.textContent = 'Error: Image filename must be in format: {complaint_id}_hpi.{ext} (e.g., 00f9612e-f37d-451b-9172-25cbddee58a9_hpi.png)';
+                const filename = selectedImageNameValue || selectedImagePath.split('/').pop() || 'unknown';
+                errorDiv.textContent = `Error: Image filename must be in format: {complaint_id}_hpi.{ext} (e.g., 00f9612e-f37d-451b-9172-25cbddee58a9_hpi.png). Current filename: "${filename}"`;
                 errorDiv.classList.add('show');
                 return;
             }
@@ -1071,6 +1085,7 @@
 
         function clearImageSelection() {
             selectedImagePath = null;
+            selectedImageNameValue = null;
             selectedImageBlob = null;
             selectedImageName.textContent = '';
             imagePreview.classList.remove('show');
@@ -1119,7 +1134,7 @@
                 }
                 
                 // Optional: If image has complaint_id format, warn if JSON doesn't match
-                const complaintId = extractComplaintId(selectedImagePath, selectedImageName.textContent);
+                const complaintId = extractComplaintId(selectedImagePath, selectedImageNameValue);
                 if (complaintId) {
                     const jsonComplaintId = jsonData.complaintId || jsonData.complaint_id;
                     if (jsonComplaintId && String(jsonComplaintId).toLowerCase() !== String(complaintId).toLowerCase()) {
