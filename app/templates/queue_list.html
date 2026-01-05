@@ -992,9 +992,15 @@
                                             <button class="btn-verify" onclick='showVerification({{ entry.queue_id|tojson }}, {{ entry.encounter_payload|tojson }})'>
                                                 View Encounter
                                             </button>
-                                            <button class="btn-verify" onclick='showValidation({{ entry.queue_id|tojson }})'>
-                                                View Verification
-                                            </button>
+                                            {% if entry.encounter_id %}
+                                                <a href="/queue/validation/{{ entry.encounter_id }}" class="btn-verify" style="text-decoration: none; display: inline-block;">
+                                                    View Verification
+                                                </a>
+                                            {% else %}
+                                                <button class="btn-verify" onclick='showValidation({{ entry.queue_id|tojson }})' title="No encounter_id available - using modal view">
+                                                    View Verification
+                                                </button>
+                                            {% endif %}
                                         </div>
                                     </td>
                                 </tr>
@@ -1058,8 +1064,8 @@
                         
                         <!-- Main Content Area -->
                         <div class="validation-main-content">
-                            <!-- Tab Navigation -->
-                            <div class="tab-nav">
+                    <!-- Tab Navigation -->
+                    <div class="tab-nav">
                         <button class="tab-btn active" onclick="switchTab('verification')" data-tab="verification">
                             <span class="tab-icon">✓</span>
                             <span>Verification</span>
@@ -1111,7 +1117,7 @@
                                     <div style="font-size: 0.875rem; color: #991b1b;">The screenshot image could not be loaded.</div>
                                 </div>
                             </div>
-                        </div>
+                                </div>
                             </div>
                         </div>
                     </div>
