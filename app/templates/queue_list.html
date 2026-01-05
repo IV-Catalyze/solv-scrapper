@@ -993,18 +993,12 @@
                                                 View Encounter
                                             </button>
                                             {% if entry.encounter_id %}
-                                                {% if entry.has_screenshots %}
-                                                    <a href="/queue/validation/{{ entry.encounter_id }}" class="btn-verify" style="text-decoration: none; display: inline-block;">
-                                                        {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
-                                                    </a>
-                                                {% else %}
-                                                    <button class="btn-verify" 
-                                                            onclick='showScreenshotError({{ entry.screenshot_error|tojson }})' 
-                                                            style="cursor: pointer;"
-                                                            title="{{ entry.screenshot_error or 'No screenshots available' }}">
-                                                        {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
-                                                    </button>
-                                                {% endif %}
+                                                <a href="/queue/validation/{{ entry.encounter_id }}" 
+                                                   class="btn-verify" 
+                                                   style="text-decoration: none; display: inline-block;"
+                                                   onclick="return handleValidationNavigation(event, '{{ entry.encounter_id }}', {{ entry.has_screenshots|tojson }}, {{ entry.screenshot_error|tojson }})">
+                                                    {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
+                                                </a>
                                             {% else %}
                                                 <button class="btn-verify" onclick='showValidation({{ entry.queue_id|tojson }})' title="No encounter_id available - using modal view">
                                                     {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
@@ -1151,6 +1145,54 @@
                 errorMessage = 'No HPI screenshots available. Validation requires screenshots to compare with data.';
             }
             alert(errorMessage);
+        }
+
+        async function handleValidationNavigation(event, encounterId, hasScreenshots, screenshotError) {
+            // If we already know there are no screenshots, show error and prevent navigation
+            if (!hasScreenshots) {
+                event.preventDefault();
+                showScreenshotError(screenshotError);
+                return false;
+            }
+
+            // Try to fetch the page - if it returns an error, show alert
+            try {
+                const response = await fetch(`/queue/validation/${encounterId}`, {
+                    method: 'GET',
+                    credentials: 'same-origin'
+                });
+
+                // If response is not OK, it might be a JSON error
+                if (!response.ok) {
+                    event.preventDefault();
+                    try {
+                        const errorData = await response.json();
+                        const errorMessage = errorData.message || errorData.error || 'An error occurred';
+                        alert(errorMessage);
+                    } catch (e) {
+                        // If not JSON, use status text
+                        alert(`Error: ${response.statusText || 'Failed to load validation page'}`);
+                    }
+                    return false;
+                }
+
+                // Check if response is HTML (success) or JSON (error)
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    event.preventDefault();
+                    const errorData = await response.json();
+                    const errorMessage = errorData.message || errorData.error || 'An error occurred';
+                    alert(errorMessage);
+                    return false;
+                }
+
+                // If we get here, it's a valid HTML page - allow navigation
+                return true;
+            } catch (error) {
+                event.preventDefault();
+                alert('Error checking validation page: ' + error.message);
+                return false;
+            }
         }
 
         function closeVerification() {

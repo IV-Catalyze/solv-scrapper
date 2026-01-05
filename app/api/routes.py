@@ -4217,6 +4217,7 @@ async def get_queue_validation(
     include_in_schema=False,
     responses={
         200: {"description": "Manual validation page"},
+        400: {"description": "Error with validation (e.g., no screenshots, no complaints)"},
         404: {"description": "Queue entry not found for encounter_id"},
         303: {"description": "Redirect to login page if not authenticated."},
     },
@@ -4229,6 +4230,7 @@ async def manual_validation_page(
     """
     Render the manual validation page for an encounter.
     Shows complaints as tabs with fields and radio buttons for manual validation.
+    Returns JSON error if validation cannot proceed (no screenshots, no complaints, etc.).
     """
     conn = None
     cursor = None
@@ -4254,16 +4256,13 @@ async def manual_validation_page(
         queue_entry = cursor.fetchone()
         
         if not queue_entry:
-            # Return error page instead of raising exception
-            return templates.TemplateResponse(
-                "error_page.html",
-                {
-                    "request": request,
-                    "error_title": "Queue Entry Not Found",
-                    "error_message": f"Queue entry not found for encounter_id: {encounter_id}",
-                    "back_url": "/queue/list"
-                },
-                status_code=404
+            # Return JSON error for client-side handling
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "error": "Queue Entry Not Found",
+                    "message": f"Queue entry not found for encounter_id: {encounter_id}"
+                }
             )
         
         queue_id = str(queue_entry.get('queue_id'))
@@ -4279,31 +4278,25 @@ async def manual_validation_page(
             experity_actions = experity_actions[0]
         
         if not experity_actions or not isinstance(experity_actions, dict):
-            # Return error page instead of raising exception
-            return templates.TemplateResponse(
-                "error_page.html",
-                {
-                    "request": request,
-                    "error_title": "No Experity Actions Found",
-                    "error_message": f"No experityActions found for encounter_id: {encounter_id}",
-                    "back_url": "/queue/list"
-                },
-                status_code=404
+            # Return JSON error for client-side handling
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "No Experity Actions Found",
+                    "message": f"No experityActions found for encounter_id: {encounter_id}"
+                }
             )
         
         # Get complaints array
         complaints = experity_actions.get('complaints', [])
         if not complaints or not isinstance(complaints, list) or len(complaints) == 0:
-            # Return error page instead of raising exception
-            return templates.TemplateResponse(
-                "error_page.html",
-                {
-                    "request": request,
-                    "error_title": "No Complaints Found",
-                    "error_message": f"No complaints found for encounter_id: {encounter_id}",
-                    "back_url": "/queue/list"
-                },
-                status_code=404
+            # Return JSON error for client-side handling
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "No Complaints Found",
+                    "message": f"No complaints found for encounter_id: {encounter_id}"
+                }
             )
         
         # Check if screenshots exist for all complaints
@@ -4325,15 +4318,12 @@ async def manual_validation_page(
         
         # If no screenshots found for any complaint, return error
         if len(complaints_with_screenshots) == 0:
-            return templates.TemplateResponse(
-                "error_page.html",
-                {
-                    "request": request,
-                    "error_title": "No Screenshots Available",
-                    "error_message": f"No HPI screenshots found for encounter_id: {encounter_id}. Validation requires screenshots to compare with data.",
-                    "back_url": "/queue/list"
-                },
-                status_code=404
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "No Screenshots Available",
+                    "message": f"No HPI screenshots found for encounter_id: {encounter_id}. Validation requires screenshots to compare with data."
+                }
             )
         
         # Use only complaints with screenshots
