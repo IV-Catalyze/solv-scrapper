@@ -1694,7 +1694,6 @@ async def list_queue(
 async def update_queue_status(
     queue_id: str,
     status_data: QueueStatusUpdateRequest,
-    background_tasks: BackgroundTasks,
     current_client: TokenData = get_auth_dependency()
 ) -> QueueResponse:
     """
@@ -1822,24 +1821,6 @@ async def update_queue_status(
             (queue_id_clean,)
         )
         updated_entry = cursor.fetchone()
-        
-        # Trigger validation in background if status is DONE
-        if status_data.status == 'DONE':
-            # Check if experityAction exists in parsed_payload (could be 'experityAction' or 'experityActions')
-            parsed_payload_check = updated_entry.get('parsed_payload')
-            if isinstance(parsed_payload_check, str):
-                try:
-                    parsed_payload_check = json.loads(parsed_payload_check)
-                except json.JSONDecodeError:
-                    parsed_payload_check = {}
-            elif parsed_payload_check is None:
-                parsed_payload_check = {}
-            
-            experity_action = parsed_payload_check.get('experityAction') or parsed_payload_check.get('experityActions')
-            if experity_action:
-                # Trigger validation as background task
-                background_tasks.add_task(trigger_validation_for_queue_entry, queue_id_clean)
-                logger.info(f"Triggered validation background task for queue_id: {queue_id_clean}")
         
         # Format the response
         formatted_response = format_queue_response(updated_entry)
@@ -4227,6 +4208,254 @@ async def get_queue_validation(
             cursor.close()
         if conn:
             conn.close()
+
+
+@app.get(
+    "/queue/validation/{encounter_id}",
+    summary="Validation Page",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    responses={
+        200: {"description": "Manual validation page"},
+        404: {"description": "Queue entry not found for encounter_id"},
+        303: {"description": "Redirect to login page if not authenticated."},
+    },
+)
+async def manual_validation_page(
+    encounter_id: str,
+    request: Request,
+    current_user: dict = Depends(require_auth)
+):
+    """
+    Render the manual validation page for an encounter.
+    Shows complaints as tabs with fields and radio buttons for manual validation.
+    """
+    conn = None
+    cursor = None
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Fetch queue entry by encounter_id
+        cursor.execute(
+            """
+            SELECT 
+                queue_id,
+                encounter_id,
+                parsed_payload
+            FROM queue
+            WHERE encounter_id = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (encounter_id,)
+        )
+        queue_entry = cursor.fetchone()
+        
+        if not queue_entry:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Queue entry not found for encounter_id: {encounter_id}"
+            )
+        
+        queue_id = str(queue_entry.get('queue_id'))
+        parsed_payload = queue_entry.get('parsed_payload')
+        
+        # Extract experityActions from parsed_payload
+        experity_actions = None
+        if isinstance(parsed_payload, dict):
+            experity_actions = parsed_payload.get('experityActions') or parsed_payload.get('experityAction')
+        
+        # Handle legacy array format
+        if isinstance(experity_actions, list) and len(experity_actions) > 0:
+            experity_actions = experity_actions[0]
+        
+        if not experity_actions or not isinstance(experity_actions, dict):
+            raise HTTPException(
+                status_code=404,
+                detail=f"No experityActions found for encounter_id: {encounter_id}"
+            )
+        
+        # Get complaints array
+        complaints = experity_actions.get('complaints', [])
+        if not complaints or not isinstance(complaints, list):
+            raise HTTPException(
+                status_code=404,
+                detail=f"No complaints found for encounter_id: {encounter_id}"
+            )
+        
+        # Build complaints data with HPI image paths
+        complaints_data = []
+        for complaint in complaints:
+            complaint_id = complaint.get('complaintId')
+            if not complaint_id:
+                continue  # Skip complaints without complaintId
+            
+            complaint_id_str = str(complaint_id)
+            
+            # Find HPI image for this complaint
+            hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
+            
+            # Extract curated fields for validation
+            curated_fields = {
+                "mainProblem": complaint.get('mainProblem', ''),
+                "bodyAreaKey": complaint.get('bodyAreaKey', ''),
+                "notesFreeText": complaint.get('notesFreeText', ''),
+                "quality": complaint.get('notesPayload', {}).get('quality', []),
+                "severity": complaint.get('notesPayload', {}).get('severity', None)
+            }
+            
+            complaints_data.append({
+                "complaint_id": complaint_id_str,
+                "complaint_data": complaint,
+                "curated_fields": curated_fields,
+                "hpi_image_path": hpi_image_path
+            })
+        
+        if not complaints_data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No valid complaints found for encounter_id: {encounter_id}"
+            )
+        
+        return templates.TemplateResponse(
+            "queue_validation_manual.html",
+            {
+                "request": request,
+                "encounter_id": encounter_id,
+                "queue_id": queue_id,
+                "complaints": complaints_data
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error loading manual validation page for encounter_id {encounter_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.post(
+    "/queue/validation/{encounter_id}/save",
+    summary="Save Manual Validation",
+    include_in_schema=False,
+    responses={
+        200: {"description": "Manual validation saved successfully"},
+        400: {"description": "Invalid request data"},
+        404: {"description": "Queue entry not found"},
+        303: {"description": "Redirect to login page if not authenticated."},
+    },
+)
+async def save_manual_validation(
+    encounter_id: str,
+    request: Request,
+    current_user: dict = Depends(require_auth)
+):
+    """
+    Save manual validation results for a complaint.
+    Expects JSON body with complaint_id and field_validations.
+    """
+    try:
+        body = await request.json()
+        complaint_id = body.get('complaint_id')
+        field_validations = body.get('field_validations', {})
+        
+        if not complaint_id:
+            raise HTTPException(
+                status_code=400,
+                detail="complaint_id is required"
+            )
+        
+        if not field_validations:
+            raise HTTPException(
+                status_code=400,
+                detail="field_validations is required"
+            )
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        try:
+            # Get queue_id from encounter_id
+            cursor.execute(
+                "SELECT queue_id, encounter_id FROM queue WHERE encounter_id = %s LIMIT 1",
+                (encounter_id,)
+            )
+            queue_entry = cursor.fetchone()
+            
+            if not queue_entry:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Queue entry not found for encounter_id: {encounter_id}"
+                )
+            
+            queue_id = str(queue_entry.get('queue_id'))
+            encounter_id_from_db = str(queue_entry.get('encounter_id'))
+            
+            # Calculate overall status from field validations
+            # PASS = all correct, PARTIAL = some correct, FAIL = all incorrect
+            all_values = list(field_validations.values())
+            correct_count = sum(1 for v in all_values if v == 'correct')
+            total_count = len(all_values)
+            
+            if correct_count == total_count:
+                overall_status = "PASS"
+            elif correct_count == 0:
+                overall_status = "FAIL"
+            else:
+                overall_status = "PARTIAL"
+            
+            # Build manual validation result
+            manual_validation_result = {
+                "overall_status": overall_status,
+                "manual_validation": {
+                    "field_validations": field_validations,
+                    "validated_by": current_user.get('username', 'unknown'),
+                    "validated_at": datetime.now(timezone.utc).isoformat()
+                },
+                "field_summary": {
+                    "total_fields": total_count,
+                    "correct_fields": correct_count,
+                    "incorrect_fields": total_count - correct_count
+                }
+            }
+            
+            # Save using existing save_validation_result function
+            save_validation_result(
+                conn,
+                queue_id,
+                encounter_id_from_db,
+                manual_validation_result,
+                complaint_id
+            )
+            
+            return {
+                "success": True,
+                "message": "Manual validation saved successfully",
+                "overall_status": overall_status
+            }
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving manual validation for encounter_id {encounter_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
 
 
 @app.get(
