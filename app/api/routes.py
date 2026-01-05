@@ -4256,13 +4256,22 @@ async def manual_validation_page(
         queue_entry = cursor.fetchone()
         
         if not queue_entry:
-            # Return JSON error for client-side handling
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "error": "Queue Entry Not Found",
-                    "message": f"Queue entry not found for encounter_id: {encounter_id}"
-                }
+            # Return HTML page with alert and redirect
+            error_message = f"Queue entry not found for encounter_id: {encounter_id}"
+            # Escape single quotes in error message
+            error_message_escaped = error_message.replace("'", "\\'")
+            return HTMLResponse(
+                content=f"""<!DOCTYPE html>
+<html>
+<head><title>Error</title></head>
+<body>
+    <script>
+        alert('Queue Entry Not Found\\n\\n{error_message_escaped}');
+        window.location.href = '/queue/list';
+    </script>
+</body>
+</html>""",
+                status_code=404
             )
         
         queue_id = str(queue_entry.get('queue_id'))
@@ -4278,25 +4287,41 @@ async def manual_validation_page(
             experity_actions = experity_actions[0]
         
         if not experity_actions or not isinstance(experity_actions, dict):
-            # Return JSON error for client-side handling
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "error": "No Experity Actions Found",
-                    "message": f"No experityActions found for encounter_id: {encounter_id}"
-                }
+            # Return HTML page with alert and redirect
+            error_message = f"No experityActions found for encounter_id: {encounter_id}"
+            error_message_escaped = error_message.replace("'", "\\'")
+            return HTMLResponse(
+                content=f"""<!DOCTYPE html>
+<html>
+<head><title>Error</title></head>
+<body>
+    <script>
+        alert('No Experity Actions Found\\n\\n{error_message_escaped}');
+        window.location.href = '/queue/list';
+    </script>
+</body>
+</html>""",
+                status_code=400
             )
         
         # Get complaints array
         complaints = experity_actions.get('complaints', [])
         if not complaints or not isinstance(complaints, list) or len(complaints) == 0:
-            # Return JSON error for client-side handling
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "error": "No Complaints Found",
-                    "message": f"No complaints found for encounter_id: {encounter_id}"
-                }
+            # Return HTML page with alert and redirect
+            error_message = f"No complaints found for encounter_id: {encounter_id}"
+            error_message_escaped = error_message.replace("'", "\\'")
+            return HTMLResponse(
+                content=f"""<!DOCTYPE html>
+<html>
+<head><title>Error</title></head>
+<body>
+    <script>
+        alert('No Complaints Found\\n\\n{error_message_escaped}');
+        window.location.href = '/queue/list';
+    </script>
+</body>
+</html>""",
+                status_code=400
             )
         
         # Check if screenshots exist for all complaints
@@ -4318,12 +4343,20 @@ async def manual_validation_page(
         
         # If no screenshots found for any complaint, return error
         if len(complaints_with_screenshots) == 0:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "error": "No Screenshots Available",
-                    "message": f"No HPI screenshots found for encounter_id: {encounter_id}. Validation requires screenshots to compare with data."
-                }
+            error_message = f"No HPI screenshots found for encounter_id: {encounter_id}. Validation requires screenshots to compare with data."
+            error_message_escaped = error_message.replace("'", "\\'")
+            return HTMLResponse(
+                content=f"""<!DOCTYPE html>
+<html>
+<head><title>Error</title></head>
+<body>
+    <script>
+        alert('No Screenshots Available\\n\\n{error_message_escaped}');
+        window.location.href = '/queue/list';
+    </script>
+</body>
+</html>""",
+                status_code=400
             )
         
         # Use only complaints with screenshots

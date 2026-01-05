@@ -1186,6 +1186,25 @@
                     return false;
                 }
 
+                // Check if HTML response contains error script (error page)
+                if (contentType && contentType.includes('text/html')) {
+                    const htmlText = await response.text();
+                    // If it's an error page with alert script, show alert and prevent navigation
+                    if (htmlText.includes('alert(') && htmlText.includes('window.location.href')) {
+                        event.preventDefault();
+                        // Extract error message from the HTML
+                        const alertMatch = htmlText.match(/alert\('([^']+)'\)/);
+                        if (alertMatch) {
+                            const errorMessage = alertMatch[1].replace(/\\n/g, '\n');
+                            alert(errorMessage);
+                        } else {
+                            alert('An error occurred. Redirecting to queue list...');
+                        }
+                        window.location.href = '/queue/list';
+                        return false;
+                    }
+                }
+
                 // If we get here, it's a valid HTML page - allow navigation
                 return true;
             } catch (error) {
