@@ -1148,23 +1148,24 @@
         }
 
         async function handleValidationNavigation(event, encounterId, hasScreenshots, screenshotError) {
-            // If we already know there are no screenshots, show error and prevent navigation
+            // ALWAYS prevent default navigation first (synchronously)
+            event.preventDefault();
+            
+            // If we already know there are no screenshots, show error and don't navigate
             if (!hasScreenshots) {
-                event.preventDefault();
                 showScreenshotError(screenshotError);
                 return false;
             }
 
-            // Try to fetch the page - if it returns an error, show alert
+            // Try to fetch the page - if it returns an error, show alert (navigation already prevented)
             try {
                 const response = await fetch(`/queue/validation/${encounterId}`, {
                     method: 'GET',
                     credentials: 'same-origin'
                 });
 
-                // If response is not OK, it might be a JSON error
+                // If response is not OK, it might be an error
                 if (!response.ok) {
-                    event.preventDefault();
                     try {
                         const errorData = await response.json();
                         const errorMessage = errorData.message || errorData.error || 'An error occurred';
@@ -1179,7 +1180,6 @@
                 // Check if response is HTML (success) or JSON (error)
                 const contentType = response.headers.get('content-type');
                 if (contentType && contentType.includes('application/json')) {
-                    event.preventDefault();
                     const errorData = await response.json();
                     const errorMessage = errorData.message || errorData.error || 'An error occurred';
                     alert(errorMessage);
@@ -1189,9 +1189,8 @@
                 // Check if HTML response contains error script (error page)
                 if (contentType && contentType.includes('text/html')) {
                     const htmlText = await response.text();
-                    // If it's an error page with alert script, show alert and prevent navigation
+                    // If it's an error page with alert script, show alert and don't navigate
                     if (htmlText.includes('alert(') && htmlText.includes('window.location.href')) {
-                        event.preventDefault();
                         // Extract error message from the HTML
                         const alertMatch = htmlText.match(/alert\('([^']+)'\)/);
                         if (alertMatch) {
@@ -1200,15 +1199,16 @@
                         } else {
                             alert('An error occurred. Redirecting to queue list...');
                         }
+                        // Don't navigate to validation page, but redirect to queue list
                         window.location.href = '/queue/list';
                         return false;
                     }
                 }
 
-                // If we get here, it's a valid HTML page - allow navigation
-                return true;
+                // If we get here, it's a valid HTML page - manually navigate
+                window.location.href = `/queue/validation/${encounterId}`;
+                return false;
             } catch (error) {
-                event.preventDefault();
                 alert('Error checking validation page: ' + error.message);
                 return false;
             }
