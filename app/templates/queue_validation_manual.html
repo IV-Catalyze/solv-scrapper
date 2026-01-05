@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Manual Validation - {{ encounter_id }}</title>
+    <title>Encounter Validation - {{ encounter_id }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link
         href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
@@ -57,6 +57,18 @@
             font-weight: 500;
             color: #6b7280;
             transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+        .complaint-tab-name {
+            font-weight: 500;
+        }
+        .complaint-tab-id {
+            font-size: 11px;
+            opacity: 0.7;
+            font-weight: 400;
         }
         .complaint-tab:hover {
             background: #e5e7eb;
@@ -285,7 +297,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Manual Validation</h1>
+            <h1>Encounter Validation</h1>
             <div class="subtitle">Encounter ID: {{ encounter_id }}</div>
         </div>
 
@@ -295,7 +307,8 @@
             <button class="complaint-tab {% if loop.first %}active{% endif %}" 
                     onclick="switchComplaint({{ loop.index0 }})"
                     data-complaint-index="{{ loop.index0 }}">
-                Complaint {{ loop.index }} ({{ complaint.complaint_id[:8] }}...)
+                <span class="complaint-tab-name">Complaint {{ loop.index }}</span>
+                <span class="complaint-tab-id">{{ complaint.complaint_id }}</span>
             </button>
             {% endfor %}
         </div>
