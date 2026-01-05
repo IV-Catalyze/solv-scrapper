@@ -1087,7 +1087,7 @@
                                             {% else %}
                                                 <button class="btn-verify" onclick='showValidation({{ entry.queue_id|tojson }})' title="No encounter_id available - using modal view">
                                                     {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
-                                                </button>
+                                            </button>
                                             {% endif %}
                                         </div>
                                     </td>
@@ -1298,92 +1298,15 @@
             handleValidationNavigation(encounterId);
         }
 
-        async function handleValidationNavigation(encounterId) {
-            // Screenshot availability is now checked on-demand via the validation page endpoint
-            // The endpoint will return an error if screenshots are missing
-
-            // Try to fetch the page - if it returns an error, show alert (navigation already prevented)
-            try {
-                const response = await fetch(`/queue/validation/${encounterId}`, {
-                    method: 'GET',
-                    credentials: 'same-origin'
-                });
-
-                // Check content type first to determine how to handle the response
-                const contentType = response.headers.get('content-type') || '';
-                
-                // If response is not OK, handle error appropriately
-                if (!response.ok) {
-                    // Check if it's HTML (error page with script)
-                    if (contentType.includes('text/html')) {
-                        const htmlText = await response.text();
-                        // If it's an error page with alert script, extract and show the error
-                        if (htmlText.includes('alert(') && htmlText.includes('window.location.href')) {
-                            // Extract error message from the HTML
-                            // Use non-greedy match to handle escaped quotes properly
-                            const alertMatch = htmlText.match(/alert\('(.+?)'\);/s);
-                            if (alertMatch) {
-                                // Unescape the error message
-                                let errorMessage = alertMatch[1]
-                                    .replace(/\\n/g, '\n')
-                                    .replace(/\\'/g, "'")
-                                    .replace(/\\\\/g, '\\');
-                                alert(errorMessage);
-                            } else {
-                                alert(`Error: ${response.statusText || 'Failed to load validation page'}`);
-                            }
-                            return;
-                        }
-                        // If HTML but no alert script, show generic error
-                        alert(`Error: ${response.statusText || 'Failed to load validation page'}`);
-                        return;
-                    }
-                    
-                    // If it's JSON, parse it
-                    if (contentType.includes('application/json')) {
-                        try {
-                            const errorData = await response.json();
-                            const errorMessage = errorData.message || errorData.error || 'An error occurred';
-                            alert(errorMessage);
-                        } catch (e) {
-                            alert(`Error: ${response.statusText || 'Failed to load validation page'}`);
-                        }
-                        return;
-                    }
-                    
-                    // Fallback for other content types
-                    alert(`Error: ${response.statusText || 'Failed to load validation page'}`);
-                    return;
-                }
-
-                // Response is OK - check if it's HTML (success) or JSON (shouldn't happen for OK)
-                if (contentType.includes('text/html')) {
-                    const htmlText = await response.text();
-                    // Check if HTML response contains error script (shouldn't happen for OK, but check anyway)
-                    if (htmlText.includes('alert(') && htmlText.includes('window.location.href')) {
-                        // Extract error message from the HTML
-                        // Use non-greedy match to handle escaped quotes properly
-                        const alertMatch = htmlText.match(/alert\('(.+?)'\);/s);
-                        if (alertMatch) {
-                            // Unescape the error message
-                            let errorMessage = alertMatch[1]
-                                .replace(/\\n/g, '\n')
-                                .replace(/\\'/g, "'")
-                                .replace(/\\\\/g, '\\');
-                            alert(errorMessage);
-                        } else {
-                            alert('An error occurred. Redirecting to queue list...');
-                        }
-                        window.location.href = '/queue/list';
-                        return;
-                    }
-                }
-
-                // If we get here, it's a valid HTML page - manually navigate
-                window.location.href = `/queue/validation/${encounterId}`;
-            } catch (error) {
-                alert('Error checking validation page: ' + error.message);
-            }
+        function handleValidationNavigation(encounterId) {
+            // Navigate directly to validation page - much faster!
+            // The page itself will handle errors and show alerts if needed
+            // This avoids:
+            //   - Fetching entire HTML page before navigating
+            //   - Reading large HTML response in JavaScript
+            //   - Double work (fetch then navigate)
+            // Browser can start loading immediately, page handles errors
+            window.location.href = `/queue/validation/${encounterId}`;
         }
 
         function closeVerification() {

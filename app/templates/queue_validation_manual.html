@@ -486,7 +486,7 @@
             </div>
 
             <div class="actions">
-                <button class="btn btn-secondary" onclick="window.location.href='/queue/list'">Cancel</button>
+                <button class="btn btn-secondary" onclick="if (window.history.length > 1) { window.history.back(); } else { window.location.href='/queue/list'; }">Cancel</button>
                 <button class="btn btn-primary" 
                         onclick="saveValidation('{{ complaint.complaint_id }}')"
                         id="saveBtn_{{ complaint.complaint_id }}">
