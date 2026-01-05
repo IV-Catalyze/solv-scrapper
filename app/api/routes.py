@@ -4110,7 +4110,7 @@ async def get_queue_validation(
     Returns multiple validations (one per complaint):
     - validations: Array of validation objects, each with:
       - complaint_id: The complaint ID
-      - validation_result: The validation results from emr/validate
+    - validation_result: The validation results from emr/validate
       - hpi_image_path: Path to the HPI image used for validation
     - experity_action: The experityAction from queue.parsed_payload (for reference)
     - encounter_id: The encounter ID
@@ -4165,15 +4165,15 @@ async def get_queue_validation(
         for result in results:
             complaint_id = result.get('complaint_id')
             complaint_id_str = str(complaint_id) if complaint_id else None
-            
-            # Parse JSONB fields if they're strings
-            validation_result = result.get('validation_result')
-            if isinstance(validation_result, str):
-                try:
-                    validation_result = json.loads(validation_result)
-                except json.JSONDecodeError:
-                    validation_result = {}
-            
+        
+        # Parse JSONB fields if they're strings
+        validation_result = result.get('validation_result')
+        if isinstance(validation_result, str):
+            try:
+                validation_result = json.loads(validation_result)
+            except json.JSONDecodeError:
+                validation_result = {}
+        
             # Find HPI image path for this specific complaint
             # complaint_id is always required (guaranteed by azure_ai_agent_client.py)
             hpi_image_path = None
@@ -4341,22 +4341,15 @@ async def manual_validation_page(
             else:
                 complaints_without_screenshots.append(complaint)
         
-        # If no screenshots found for any complaint, return error
+        # If no screenshots found for any complaint, return JSON error (no redirect)
         if len(complaints_with_screenshots) == 0:
             error_message = f"No HPI screenshots found for encounter_id: {encounter_id}. Validation requires screenshots to compare with data."
-            error_message_escaped = error_message.replace("'", "\\'")
-            return HTMLResponse(
-                content=f"""<!DOCTYPE html>
-<html>
-<head><title>Error</title></head>
-<body>
-    <script>
-        alert('No Screenshots Available\\n\\n{error_message_escaped}');
-        window.location.href = '/queue/list';
-    </script>
-</body>
-</html>""",
-                status_code=400
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "No Screenshots Available",
+                    "message": error_message
+                }
             )
         
         # Use only complaints with screenshots
@@ -4399,8 +4392,26 @@ async def manual_validation_page(
             
             complaint_id_str = str(complaint_id)
             
-            # Find HPI image for this complaint
+            # Find HPI image for this complaint - verify it actually exists
             hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
+            
+            # Double-check: if hpi_image_path was set but image doesn't actually exist, clear it
+            if hpi_image_path:
+                # Verify the image actually exists in blob storage
+                try:
+                    from app.utils.azure_blob_client import get_blob_client
+                    blob_client = get_blob_client()
+                    if not blob_client.blob_exists(hpi_image_path):
+                        logger.warning(f"HPI image path found but blob doesn't exist: {hpi_image_path}")
+                        hpi_image_path = None
+                except Exception as e:
+                    logger.warning(f"Could not verify blob existence for {hpi_image_path}: {e}")
+                    # If we can't verify, assume it exists (don't block validation)
+            
+            # Only add complaint if it has a valid screenshot
+            if not hpi_image_path:
+                logger.warning(f"Skipping complaint {complaint_id_str} - no valid screenshot found")
+                continue
             
             # Extract curated fields for validation
             curated_fields = {
@@ -4425,9 +4436,14 @@ async def manual_validation_page(
             })
         
         if not complaints_data:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No valid complaints found for encounter_id: {encounter_id}"
+            # Return JSON error (no redirect) if no valid complaints with screenshots
+            error_message = f"No valid complaints with screenshots found for encounter_id: {encounter_id}. Validation requires screenshots to compare with data."
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "No Screenshots Available",
+                    "message": error_message
+                }
             )
         
         return templates.TemplateResponse(
@@ -4622,9 +4638,9 @@ async def get_queue_validation_image(
                 WHERE queue_id = %s AND complaint_id IS NOT NULL
                 ORDER BY created_at ASC
                 LIMIT 1
-                """,
-                (queue_id,)
-            )
+            """,
+            (queue_id,)
+        )
         
         result = cursor.fetchone()
         

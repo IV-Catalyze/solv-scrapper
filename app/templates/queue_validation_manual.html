@@ -478,7 +478,8 @@
                              src="/queue/{{ queue_id }}/validation/image?complaint_id={{ complaint.complaint_id }}"
                              alt="HPI Screenshot"
                              onclick="viewScreenshotFullscreen('/queue/{{ queue_id }}/validation/image?complaint_id={{ complaint.complaint_id }}')"
-                             onerror="this.parentElement.innerHTML='<div class=\'no-image\'>Screenshot not available</div>'">
+                             onerror="handleImageError(this, '{{ complaint.complaint_id }}')"
+                             loading="lazy">
                     {% else %}
                         <div class="no-image">Screenshot not available</div>
                     {% endif %}
@@ -554,6 +555,15 @@
             
             // Prevent body scroll when modal is open
             document.body.style.overflow = 'hidden';
+        }
+
+        function handleImageError(imgElement, complaintId) {
+            // Handle 404 or other image loading errors gracefully
+            const container = imgElement.parentElement;
+            if (container) {
+                container.innerHTML = '<div class="no-image">Screenshot not available</div>';
+                console.warn(`Image failed to load for complaint ${complaintId}`);
+            }
         }
 
         function closeImageModal(event) {

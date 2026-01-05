@@ -1298,15 +1298,37 @@
             handleValidationNavigation(encounterId);
         }
 
-        function handleValidationNavigation(encounterId) {
-            // Navigate directly to validation page - much faster!
-            // The page itself will handle errors and show alerts if needed
-            // This avoids:
-            //   - Fetching entire HTML page before navigating
-            //   - Reading large HTML response in JavaScript
-            //   - Double work (fetch then navigate)
-            // Browser can start loading immediately, page handles errors
-            window.location.href = `/queue/validation/${encounterId}`;
+        async function handleValidationNavigation(encounterId) {
+            // Check for screenshots first - show alert only if missing (no redirect)
+            try {
+                const response = await fetch(`/queue/validation/${encounterId}`, {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Accept': 'application/json, text/html'
+                    }
+                });
+
+                // Check if it's a JSON error (no screenshots)
+                const contentType = response.headers.get('content-type') || '';
+                if (!response.ok && contentType.includes('application/json')) {
+                    const errorData = await response.json();
+                    const errorMessage = errorData.message || errorData.error || 'No screenshots available';
+                    alert(errorMessage);
+                    return; // Show alert only, no navigation
+                }
+
+                // If response is OK or HTML, navigate to the page
+                if (response.ok || contentType.includes('text/html')) {
+                    window.location.href = `/queue/validation/${encounterId}`;
+                } else {
+                    alert('Error loading validation page');
+                }
+            } catch (error) {
+                // On network error, still try to navigate (let page handle it)
+                console.error('Error checking validation page:', error);
+                window.location.href = `/queue/validation/${encounterId}`;
+            }
         }
 
         function closeVerification() {
