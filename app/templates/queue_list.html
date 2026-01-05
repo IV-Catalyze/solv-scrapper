@@ -994,11 +994,11 @@
                                             </button>
                                             {% if entry.encounter_id %}
                                                 <a href="/queue/validation/{{ entry.encounter_id }}" class="btn-verify" style="text-decoration: none; display: inline-block;">
-                                                    View Verification
+                                                    {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
                                                 </a>
                                             {% else %}
                                                 <button class="btn-verify" onclick='showValidation({{ entry.queue_id|tojson }})' title="No encounter_id available - using modal view">
-                                                    View Verification
+                                                    {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
                                                 </button>
                                             {% endif %}
                                         </div>

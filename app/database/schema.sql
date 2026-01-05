@@ -432,8 +432,9 @@ CREATE TRIGGER update_vm_health_updated_at
 -- Create queue_validations table
 CREATE TABLE IF NOT EXISTS queue_validations (
     validation_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    queue_id UUID NOT NULL UNIQUE REFERENCES queue(queue_id) ON DELETE CASCADE,
+    queue_id UUID NOT NULL REFERENCES queue(queue_id) ON DELETE CASCADE,
     encounter_id UUID NOT NULL,
+    complaint_id UUID,  -- Nullable: allows multiple validations per queue (one per complaint)
     validation_result JSONB NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -442,6 +443,7 @@ CREATE TABLE IF NOT EXISTS queue_validations (
 -- Create indexes for queue_validations table
 CREATE INDEX IF NOT EXISTS idx_queue_validations_queue_id ON queue_validations(queue_id);
 CREATE INDEX IF NOT EXISTS idx_queue_validations_encounter_id ON queue_validations(encounter_id);
+CREATE INDEX IF NOT EXISTS idx_queue_validations_complaint_id ON queue_validations(complaint_id);
 CREATE INDEX IF NOT EXISTS idx_queue_validations_created_at ON queue_validations(created_at);
 
 -- Ensure new columns exist (for legacy tables)
@@ -449,12 +451,18 @@ ALTER TABLE queue_validations
     ADD COLUMN IF NOT EXISTS validation_id UUID DEFAULT gen_random_uuid(),
     ADD COLUMN IF NOT EXISTS queue_id UUID,
     ADD COLUMN IF NOT EXISTS encounter_id UUID,
+    ADD COLUMN IF NOT EXISTS complaint_id UUID,  -- Nullable: allows multiple validations per queue
     ADD COLUMN IF NOT EXISTS validation_result JSONB,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
--- Ensure uniqueness on queue_id
-CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_validations_queue_id_unique ON queue_validations(queue_id);
+-- Drop old unique constraint on queue_id (if exists)
+DROP INDEX IF EXISTS idx_queue_validations_queue_id_unique;
+
+-- Create new composite unique constraint: one validation per (queue_id, complaint_id) combination
+-- Note: PostgreSQL allows multiple NULL values in unique constraints, so multiple NULL complaint_ids are allowed
+CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_validations_queue_complaint_unique 
+ON queue_validations(queue_id, complaint_id);
 
 -- Add foreign key constraint if it doesn't exist
 DO $$

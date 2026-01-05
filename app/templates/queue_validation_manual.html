@@ -272,14 +272,16 @@
                                     <input type="radio" 
                                            name="mainProblem_{{ complaint.complaint_id }}" 
                                            id="mainProblem_correct_{{ complaint.complaint_id }}"
-                                           value="correct">
+                                           value="correct"
+                                           {% if complaint.existing_validation.get('mainProblem') == 'correct' %}checked{% endif %}>
                                     <label for="mainProblem_correct_{{ complaint.complaint_id }}">Correct</label>
                                 </div>
                                 <div class="radio-option">
                                     <input type="radio" 
                                            name="mainProblem_{{ complaint.complaint_id }}" 
                                            id="mainProblem_incorrect_{{ complaint.complaint_id }}"
-                                           value="incorrect">
+                                           value="incorrect"
+                                           {% if complaint.existing_validation.get('mainProblem') == 'incorrect' %}checked{% endif %}>
                                     <label for="mainProblem_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
                                 </div>
                             </div>
@@ -294,14 +296,16 @@
                                     <input type="radio" 
                                            name="bodyAreaKey_{{ complaint.complaint_id }}" 
                                            id="bodyAreaKey_correct_{{ complaint.complaint_id }}"
-                                           value="correct">
+                                           value="correct"
+                                           {% if complaint.existing_validation.get('bodyAreaKey') == 'correct' %}checked{% endif %}>
                                     <label for="bodyAreaKey_correct_{{ complaint.complaint_id }}">Correct</label>
                                 </div>
                                 <div class="radio-option">
                                     <input type="radio" 
                                            name="bodyAreaKey_{{ complaint.complaint_id }}" 
                                            id="bodyAreaKey_incorrect_{{ complaint.complaint_id }}"
-                                           value="incorrect">
+                                           value="incorrect"
+                                           {% if complaint.existing_validation.get('bodyAreaKey') == 'incorrect' %}checked{% endif %}>
                                     <label for="bodyAreaKey_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
                                 </div>
                             </div>
@@ -318,14 +322,16 @@
                                     <input type="radio" 
                                            name="notesFreeText_{{ complaint.complaint_id }}" 
                                            id="notesFreeText_correct_{{ complaint.complaint_id }}"
-                                           value="correct">
+                                           value="correct"
+                                           {% if complaint.existing_validation.get('notesFreeText') == 'correct' %}checked{% endif %}>
                                     <label for="notesFreeText_correct_{{ complaint.complaint_id }}">Correct</label>
                                 </div>
                                 <div class="radio-option">
                                     <input type="radio" 
                                            name="notesFreeText_{{ complaint.complaint_id }}" 
                                            id="notesFreeText_incorrect_{{ complaint.complaint_id }}"
-                                           value="incorrect">
+                                           value="incorrect"
+                                           {% if complaint.existing_validation.get('notesFreeText') == 'incorrect' %}checked{% endif %}>
                                     <label for="notesFreeText_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
                                 </div>
                             </div>
@@ -350,14 +356,16 @@
                                     <input type="radio" 
                                            name="quality_{{ complaint.complaint_id }}" 
                                            id="quality_correct_{{ complaint.complaint_id }}"
-                                           value="correct">
+                                           value="correct"
+                                           {% if complaint.existing_validation.get('quality') == 'correct' %}checked{% endif %}>
                                     <label for="quality_correct_{{ complaint.complaint_id }}">Correct</label>
                                 </div>
                                 <div class="radio-option">
                                     <input type="radio" 
                                            name="quality_{{ complaint.complaint_id }}" 
                                            id="quality_incorrect_{{ complaint.complaint_id }}"
-                                           value="incorrect">
+                                           value="incorrect"
+                                           {% if complaint.existing_validation.get('quality') == 'incorrect' %}checked{% endif %}>
                                     <label for="quality_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
                                 </div>
                             </div>
@@ -378,14 +386,16 @@
                                     <input type="radio" 
                                            name="severity_{{ complaint.complaint_id }}" 
                                            id="severity_correct_{{ complaint.complaint_id }}"
-                                           value="correct">
+                                           value="correct"
+                                           {% if complaint.existing_validation.get('severity') == 'correct' %}checked{% endif %}>
                                     <label for="severity_correct_{{ complaint.complaint_id }}">Correct</label>
                                 </div>
                                 <div class="radio-option">
                                     <input type="radio" 
                                            name="severity_{{ complaint.complaint_id }}" 
                                            id="severity_incorrect_{{ complaint.complaint_id }}"
-                                           value="incorrect">
+                                           value="incorrect"
+                                           {% if complaint.existing_validation.get('severity') == 'incorrect' %}checked{% endif %}>
                                     <label for="severity_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
                                 </div>
                             </div>
@@ -410,7 +420,11 @@
 
             <div class="actions">
                 <button class="btn btn-secondary" onclick="window.location.href='/queue/list'">Cancel</button>
-                <button class="btn btn-primary" onclick="saveValidation('{{ complaint.complaint_id }}')">Save Validation</button>
+                <button class="btn btn-primary" 
+                        onclick="saveValidation('{{ complaint.complaint_id }}')"
+                        id="saveBtn_{{ complaint.complaint_id }}">
+                    {% if complaint.has_existing_validation %}Update Validation{% else %}Save Validation{% endif %}
+                </button>
             </div>
         </div>
         {% endfor %}
@@ -477,10 +491,20 @@
                 return;
             }
 
+            // Get the save button
+            const saveBtn = document.getElementById(`saveBtn_${complaintId}`);
+            if (!saveBtn) {
+                showAlert('Error: Could not find save button', 'error');
+                return;
+            }
+            
+            // Check if this is an update or new save
+            const isUpdate = saveBtn.textContent.trim().includes('Update');
+            const originalText = saveBtn.textContent;
+            
             // Disable save button
-            const saveBtn = event.target;
             saveBtn.disabled = true;
-            saveBtn.textContent = 'Saving...';
+            saveBtn.textContent = isUpdate ? 'Updating...' : 'Saving...';
 
             try {
                 const response = await fetch(`/queue/validation/${encounterId}/save`, {
@@ -498,7 +522,10 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    showAlert(`Validation saved successfully! Overall status: ${data.overall_status}`, 'success');
+                    const actionText = isUpdate ? 'updated' : 'saved';
+                    showAlert(`Validation ${actionText} successfully! Overall status: ${data.overall_status}`, 'success');
+                    // Update button text to "Update" since validation now exists
+                    saveBtn.textContent = 'Update Validation';
                     // Optionally redirect after a delay
                     setTimeout(() => {
                         window.location.href = '/queue/list';
@@ -506,12 +533,12 @@
                 } else {
                     showAlert(data.detail || 'Failed to save validation', 'error');
                     saveBtn.disabled = false;
-                    saveBtn.textContent = 'Save Validation';
+                    saveBtn.textContent = originalText;
                 }
             } catch (error) {
                 showAlert('Error saving validation: ' + error.message, 'error');
                 saveBtn.disabled = false;
-                saveBtn.textContent = 'Save Validation';
+                saveBtn.textContent = originalText;
             }
         }
     </script>

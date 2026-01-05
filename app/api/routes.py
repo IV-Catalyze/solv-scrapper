@@ -4285,7 +4285,35 @@ async def manual_validation_page(
                 detail=f"No complaints found for encounter_id: {encounter_id}"
             )
         
-        # Build complaints data with HPI image paths
+        # Fetch existing validations for this queue
+        existing_validations = {}
+        try:
+            cursor.execute(
+                """
+                SELECT complaint_id, validation_result
+                FROM queue_validations
+                WHERE queue_id = %s AND complaint_id IS NOT NULL
+                """,
+                (queue_id,)
+            )
+            validation_results = cursor.fetchall()
+            for v_result in validation_results:
+                complaint_id_from_db = str(v_result.get('complaint_id')) if v_result.get('complaint_id') else None
+                if complaint_id_from_db:
+                    validation_result = v_result.get('validation_result')
+                    if isinstance(validation_result, str):
+                        try:
+                            validation_result = json.loads(validation_result)
+                        except json.JSONDecodeError:
+                            validation_result = {}
+                    # Extract manual validation field_validations if exists
+                    manual_validation = validation_result.get('manual_validation', {})
+                    field_validations = manual_validation.get('field_validations', {})
+                    existing_validations[complaint_id_from_db] = field_validations
+        except Exception as e:
+            logger.warning(f"Could not fetch existing validations: {e}")
+        
+        # Build complaints data with HPI image paths and existing validations
         complaints_data = []
         for complaint in complaints:
             complaint_id = complaint.get('complaintId')
@@ -4306,11 +4334,17 @@ async def manual_validation_page(
                 "severity": complaint.get('notesPayload', {}).get('severity', None)
             }
             
+            # Get existing validation for this complaint (if any)
+            existing_validation = existing_validations.get(complaint_id_str, {})
+            has_existing_validation = bool(existing_validation)
+            
             complaints_data.append({
                 "complaint_id": complaint_id_str,
                 "complaint_data": complaint,
                 "curated_fields": curated_fields,
-                "hpi_image_path": hpi_image_path
+                "hpi_image_path": hpi_image_path,
+                "existing_validation": existing_validation,
+                "has_existing_validation": has_existing_validation
             })
         
         if not complaints_data:
@@ -5128,9 +5162,34 @@ async def queue_list_ui(
         cursor.execute(query, tuple(params))
         results = cursor.fetchall()
         
+        # Get all queue_ids to check for validations
+        queue_ids = [str(r.get('queue_id', '')) for r in results if r.get('queue_id')]
+        
+        # Check which queue entries have validations
+        has_validation_set = set()
+        if queue_ids:
+            try:
+                # Use IN clause with tuple for PostgreSQL
+                placeholders = ','.join(['%s'] * len(queue_ids))
+                cursor.execute(
+                    f"""
+                    SELECT DISTINCT queue_id 
+                    FROM queue_validations 
+                    WHERE queue_id IN ({placeholders})
+                    """,
+                    tuple(queue_ids)
+                )
+                validation_results = cursor.fetchall()
+                has_validation_set = {str(r.get('queue_id')) for r in validation_results if r.get('queue_id')}
+            except Exception as e:
+                # If queue_validations table doesn't exist or error, just continue without validation info
+                logger.warning(f"Could not check validation existence: {e}")
+        
         # Format the results for template
         queue_entries = []
         for record in results:
+            queue_id = str(record.get('queue_id', ''))
+            
             # Get encounter_id as string
             encounter_id = str(record.get('encounter_id', '')) if record.get('encounter_id') else None
             
@@ -5161,14 +5220,18 @@ async def queue_list_ui(
                 else:
                     created_at = str(created_at)
             
+            # Check if this queue entry has validations
+            has_validation = queue_id in has_validation_set
+            
             queue_entries.append({
-                'queue_id': str(record.get('queue_id', '')),
+                'queue_id': queue_id,
                 'encounter_id': encounter_id,
                 'emr_id': str(record.get('emr_id')) if record.get('emr_id') else None,
                 'status': record.get('status', 'PENDING'),
                 'created_at': created_at,
                 'patient_name': patient_name,
                 'encounter_payload': encounter_payload,
+                'has_validation': has_validation,
             })
         
         response = templates.TemplateResponse(

@@ -4,6 +4,8 @@
 
 The automatic validation feature automatically validates queue entries when they are marked as "DONE". It compares the data extracted from HPI (History of Present Illness) screenshots against the JSON data stored in the queue entry's `experityAction`.
 
+**Important:** The system now validates each complaint separately. Each complaint has its own HPI image (named `{complaint_id}_hpi.{ext}`) and its own validation result.
+
 ## When Validation Triggers
 
 Validation runs automatically in the background when:
@@ -14,7 +16,7 @@ Validation runs automatically in the background when:
 
 2. **AND** the queue entry has `experityAction` in its `parsed_payload`
 
-3. **AND** an HPI image exists in Azure Blob Storage for that encounter
+3. **AND** HPI images exist in Azure Blob Storage for the complaints (format: `{complaint_id}_hpi.{ext}`)
 
 ## High-Level Flow
 
@@ -39,47 +41,56 @@ Validation runs automatically in the background when:
                        │
                        ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 4. Find HPI Image                                               │
-│    • Search Azure Blob Storage                                  │
-│    • Look in: encounters/{encounter_id}/                        │
-│    • Find first image with "hpi" in filename (case-insensitive)│
+│ 4. Extract Complaints from experityAction                      │
+│    • Get complaints array from experityAction.complaints[]      │
+│    • Each complaint must have a complaintId                     │
 └──────────────────────┬──────────────────────────────────────────┘
                        │
                        ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 5. Download HPI Image                                           │
-│    • Download image bytes from Azure Blob Storage               │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ 6. Run Validation via Azure AI                                  │
-│    • Use Azure AI ImageMapper agent                             │
-│    • Send: HPI image + experityAction JSON                      │
-│    • Agent compares image content vs JSON data                  │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ 7. Get Validation Results                                       │
-│    • Overall status: PASS, PARTIAL, FAIL, or ERROR             │
-│    • Field-by-field comparison (Main Problem, Body Area, etc.) │
-│    • Match/Mismatch indicators                                  │
-│    • List of any mismatches found                               │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ 8. Save Results to Database                                     │
-│    • Store in queue_validations table                           │
-│    • Upsert: Update if exists, Insert if new                    │
-│    • Links to queue_id and encounter_id                         │
+│ 5. For Each Complaint:                                          │
+│    ┌─────────────────────────────────────────────────────────┐ │
+│    │ 5a. Find HPI Image                                      │ │
+│    │    • Search: encounters/{encounter_id}/                │ │
+│    │    • Pattern: {complaint_id}_hpi.{ext}                  │ │
+│    │    • Supports: .png, .jpg, .jpeg, .gif, .webp          │ │
+│    └──────────────────────┬──────────────────────────────────┘ │
+│                           │                                     │
+│                           ▼                                     │
+│    ┌─────────────────────────────────────────────────────────┐ │
+│    │ 5b. Download HPI Image                                  │ │
+│    │    • Download image bytes from Azure Blob Storage        │ │
+│    └──────────────────────┬──────────────────────────────────┘ │
+│                           │                                     │
+│                           ▼                                     │
+│    ┌─────────────────────────────────────────────────────────┐ │
+│    │ 5c. Run Validation via Azure AI                         │ │
+│    │    • Use Azure AI ImageMapper agent                     │ │
+│    │    • Send: HPI image + complaint JSON                   │ │
+│    │    • Agent compares image content vs complaint data     │ │
+│    └──────────────────────┬──────────────────────────────────┘ │
+│                           │                                     │
+│                           ▼                                     │
+│    ┌─────────────────────────────────────────────────────────┐ │
+│    │ 5d. Get Validation Results                               │ │
+│    │    • Overall status: PASS, PARTIAL, FAIL, or ERROR     │ │
+│    │    • Field-by-field comparison                          │ │
+│    │    • Match/Mismatch indicators                          │ │
+│    └──────────────────────┬──────────────────────────────────┘ │
+│                           │                                     │
+│                           ▼                                     │
+│    ┌─────────────────────────────────────────────────────────┐ │
+│    │ 5e. Save Result to Database                            │ │
+│    │    • Store in queue_validations table                   │ │
+│    │    • Upsert: Update if exists, Insert if new            │ │
+│    │    • Links to queue_id, encounter_id, and complaint_id  │ │
+│    └─────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## What Gets Validated
 
-The system validates the following fields from the `experityAction` JSON against what's extracted from the HPI screenshot:
+The system validates each complaint separately. For each complaint, it validates the following fields from the complaint object against what's extracted from that complaint's HPI screenshot:
 
 - **Main Problem** - The primary complaint/problem
 - **Body Area** - The body area/part affected
@@ -92,15 +103,18 @@ For each field, the system:
 - Determines if they MATCH or MISMATCH
 - Flags any discrepancies
 
+**Note:** Each complaint is validated independently. A queue entry with 3 complaints will have 3 separate validation results.
+
 ## Where Results Are Stored
 
-Validation results are stored in the `queue_validations` table:
+Validation results are stored in the `queue_validations` table. **Multiple validations can exist per queue** (one per complaint):
 
 ```sql
 queue_validations
 ├── validation_id (UUID, primary key)
-├── queue_id (UUID, foreign key → queue.queue_id, unique)
+├── queue_id (UUID, foreign key → queue.queue_id)
 ├── encounter_id (UUID)
+├── complaint_id (UUID, nullable) - Links to specific complaint
 ├── validation_result (JSONB) - Contains:
 │   ├── overall_status (PASS/PARTIAL/FAIL/ERROR)
 │   ├── results (field-by-field comparison)
@@ -108,7 +122,11 @@ queue_validations
 │   └── error (if validation failed)
 ├── created_at (timestamp)
 └── updated_at (timestamp, auto-updated)
+
+Unique constraint: (queue_id, complaint_id)
 ```
+
+**Important:** The unique constraint is on `(queue_id, complaint_id)`, allowing multiple validations per queue (one per complaint).
 
 ## How to View Validation Results
 
@@ -130,27 +148,40 @@ GET /queue/{queue_id}/validation
 
 Response:
 {
-  "validation_result": {
-    "overall_status": "PASS",
-    "results": {
-      "main_problem": {
-        "match": true,
-        "json": "Cough",
-        "screenshot": "Cough"
+  "validations": [
+    {
+      "complaint_id": "00f9612e-f37d-451b-9172-25cbddee58a9",
+      "validation_result": {
+        "overall_status": "PASS",
+        "results": {
+          "main_problem": {
+            "match": true,
+            "json": "Cough",
+            "screenshot": "Cough"
+          },
+          "body_area": {
+            "match": true,
+            "json": "Chest",
+            "screenshot": "Chest"
+          },
+          ...
+        },
+        "mismatches": []
       },
-      "body_area": {
-        "match": true,
-        "json": "Chest",
-        "screenshot": "Chest"
-      },
-      ...
+      "hpi_image_path": "encounters/{encounter_id}/{complaint_id}_hpi.png"
     },
-    "mismatches": []
-  },
+    {
+      "complaint_id": "another-complaint-uuid",
+      "validation_result": {...},
+      "hpi_image_path": "..."
+    }
+  ],
   "experity_action": {...},
   "encounter_id": "uuid"
 }
 ```
+
+**Note:** The response now returns an array of validations (one per complaint) instead of a single validation result.
 
 ## Important Notes
 
@@ -168,10 +199,22 @@ If validation fails at any step:
 - The queue entry status is NOT affected (remains "DONE")
 
 ### Common Failure Reasons
-- **No HPI image found**: Image doesn't exist or doesn't contain "hpi" in filename
+- **No HPI image found**: Image doesn't exist or doesn't match expected format `{complaint_id}_hpi.{ext}`
+- **Missing complaintId**: Complaint doesn't have a complaintId (required for finding the correct HPI image)
 - **Image download failed**: Azure Blob Storage connection issue
 - **Azure AI error**: Agent timeout, network issue, or parsing error
 - **Missing experityAction**: Validation won't trigger if experityAction doesn't exist
+- **No complaints**: experityAction exists but has no complaints array
+
+### HPI Image Naming Convention
+
+HPI images must be named using the format: `{complaint_id}_hpi.{ext}`
+
+- **Location**: `encounters/{encounter_id}/{complaint_id}_hpi.{ext}`
+- **Supported formats**: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`
+- **Example**: `encounters/abc-123/00f9612e-f37d-451b-9172-25cbddee58a9_hpi.png`
+
+**Important:** Each complaint must have its own HPI image file. The system searches for images matching the complaint's `complaintId`.
 
 ### Manual Trigger
 To manually trigger validation for an existing entry:
@@ -213,8 +256,19 @@ python3 trigger_validation.py {queue_id}
 ## Database Schema
 
 The validation system uses the `queue_validations` table which:
-- Has a one-to-one relationship with `queue` table (unique `queue_id`)
+- Has a one-to-many relationship with `queue` table (multiple validations per queue)
+- Unique constraint on `(queue_id, complaint_id)` - allows one validation per complaint
 - Automatically updates `updated_at` timestamp on changes
 - Uses JSONB for flexible storage of validation results
 - Cascades deletion when queue entry is deleted
+- `complaint_id` is required for all new validations (guaranteed by `azure_ai_agent_client.py`)
+
+## Migration Notes
+
+If you're upgrading from the old single-validation system:
+
+1. **Database Migration**: Run the schema update to add `complaint_id` column and update the unique constraint
+2. **Image Naming**: Rename existing HPI images to use the format `{complaint_id}_hpi.{ext}`
+3. **API Changes**: The `GET /queue/{queue_id}/validation` endpoint now returns an array of validations instead of a single result
+4. **Important**: All new validations will have `complaint_id` (guaranteed by `azure_ai_agent_client.py`). The system expects `complaint_id` to always be present.
 
