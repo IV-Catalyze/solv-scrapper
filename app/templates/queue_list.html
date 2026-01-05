@@ -850,6 +850,74 @@
             }
         }
 
+        /* Pagination Styles */
+        .pagination-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--panel-border);
+        }
+
+        .pagination-info {
+            color: var(--muted);
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .pagination-controls {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .pagination-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 36px;
+            height: 36px;
+            padding: 0 12px;
+            background: white;
+            border: 1px solid var(--field-border);
+            border-radius: 8px;
+            color: var(--text);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .pagination-btn:hover:not(.disabled):not(.active) {
+            background: var(--accent-soft);
+            border-color: var(--accent);
+            color: var(--accent);
+            transform: translateY(-1px);
+        }
+
+        .pagination-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+            font-weight: 600;
+        }
+
+        .pagination-btn.disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            background: #f1f5f9;
+        }
+
+        .pagination-ellipsis {
+            padding: 0 8px;
+            color: var(--muted);
+            font-size: 0.875rem;
+        }
+
         @media (max-width: 960px) {
             body {
                 padding: 0 1rem 2rem;
@@ -872,6 +940,16 @@
                 display: block;
                 overflow-x: auto;
                 white-space: nowrap;
+            }
+
+            .pagination-container {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .pagination-controls {
+                flex-wrap: wrap;
+                justify-content: center;
             }
         }
     </style>
@@ -918,7 +996,13 @@
                         {% if total_count is defined %}
                             <span class="pill">{{ total_count }} record{{ total_count != 1 and 's' or '' }}</span>
                         {% else %}
-                            <span class="pill">{{ queue_entries|length }} record{{ queue_entries|length != 1 and 's' or '' }}</span>
+                            <span class="pill">
+                                {% if total_count %}
+                                    Showing {{ (current_page - 1) * per_page + 1 }} - {{ [current_page * per_page, total_count]|min }} of {{ total_count }} record{{ total_count != 1 and 's' or '' }}
+                                {% else %}
+                                    0 records
+                                {% endif %}
+                            </span>
                         {% endif %}
                     </div>
                 </div>
@@ -997,8 +1081,6 @@
                                                    class="btn-verify" 
                                                    style="text-decoration: none; display: inline-block; cursor: pointer;"
                                                    data-encounter-id="{{ entry.encounter_id }}"
-                                                   data-has-screenshots="{{ entry.has_screenshots|tojson }}"
-                                                   {% if entry.screenshot_error %}data-screenshot-error="{{ entry.screenshot_error|tojson }}"{% endif %}
                                                    onclick="handleValidationNavigationClick(this); return false;">
                                                     {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
                                                 </a>
@@ -1013,6 +1095,62 @@
                             {% endfor %}
                         </tbody>
                     </table>
+                    
+                    <!-- Pagination Controls -->
+                    {% if total_pages > 1 %}
+                    <div class="pagination-container">
+                        <div class="pagination-info">
+                            Page {{ current_page }} of {{ total_pages }}
+                        </div>
+                        <div class="pagination-controls">
+                            {% if has_prev %}
+                                <a href="?page=1{% if status_filter %}&status={{ status_filter }}{% endif %}" class="pagination-btn" title="First page">
+                                    ««
+                                </a>
+                                <a href="?page={{ current_page - 1 }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="pagination-btn" title="Previous page">
+                                    «
+                                </a>
+                            {% else %}
+                                <span class="pagination-btn disabled" title="First page">««</span>
+                                <span class="pagination-btn disabled" title="Previous page">«</span>
+                            {% endif %}
+                            
+                            {% if start_page > 1 %}
+                                <a href="?page=1{% if status_filter %}&status={{ status_filter }}{% endif %}" class="pagination-btn">1</a>
+                                {% if start_page > 2 %}
+                                    <span class="pagination-ellipsis">...</span>
+                                {% endif %}
+                            {% endif %}
+                            
+                            {% for p in page_numbers %}
+                                {% if p == current_page %}
+                                    <span class="pagination-btn active">{{ p }}</span>
+                                {% else %}
+                                    <a href="?page={{ p }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="pagination-btn">{{ p }}</a>
+                                {% endif %}
+                            {% endfor %}
+                            
+                            {% if end_page < total_pages %}
+                                {% if end_page < total_pages - 1 %}
+                                    <span class="pagination-ellipsis">...</span>
+                                {% endif %}
+                                <a href="?page={{ total_pages }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="pagination-btn">{{ total_pages }}</a>
+                            {% endif %}
+                            
+                            {% if has_next %}
+                                <a href="?page={{ current_page + 1 }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="pagination-btn" title="Next page">
+                                    »
+                                </a>
+                                <a href="?page={{ total_pages }}{% if status_filter %}&status={{ status_filter }}{% endif %}" class="pagination-btn" title="Last page">
+                                    »»
+                                </a>
+                            {% else %}
+                                <span class="pagination-btn disabled" title="Next page">»</span>
+                                <span class="pagination-btn disabled" title="Last page">»»</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
                 {% else %}
                     <div class="empty-state">
                         {% if status_filter %}
@@ -1151,21 +1289,18 @@
         }
 
         function handleValidationNavigationClick(element) {
-            // Get values from data attributes
+            // Get encounter ID from data attribute
             const encounterId = element.dataset.encounterId;
-            const hasScreenshots = element.dataset.hasScreenshots === 'true';
-            const screenshotError = element.dataset.screenshotError ? element.dataset.screenshotError : null;
             
-            // Call async function
-            handleValidationNavigation(encounterId, hasScreenshots, screenshotError);
+            // Screenshot checking is now done on-demand when user clicks Verify
+            // This avoids 100+ Azure API calls on page load
+            // Always check screenshots when user clicks (hasScreenshots is no longer pre-checked)
+            handleValidationNavigation(encounterId);
         }
 
-        async function handleValidationNavigation(encounterId, hasScreenshots, screenshotError) {
-            // If we already know there are no screenshots, show error and don't navigate
-            if (!hasScreenshots) {
-                showScreenshotError(screenshotError);
-                return;
-            }
+        async function handleValidationNavigation(encounterId) {
+            // Screenshot availability is now checked on-demand via the validation page endpoint
+            // The endpoint will return an error if screenshots are missing
 
             // Try to fetch the page - if it returns an error, show alert (navigation already prevented)
             try {
@@ -1174,42 +1309,71 @@
                     credentials: 'same-origin'
                 });
 
-                // If response is not OK, it might be an error
+                // Check content type first to determine how to handle the response
+                const contentType = response.headers.get('content-type') || '';
+                
+                // If response is not OK, handle error appropriately
                 if (!response.ok) {
-                    try {
-                        const errorData = await response.json();
-                        const errorMessage = errorData.message || errorData.error || 'An error occurred';
-                        alert(errorMessage);
-                    } catch (e) {
-                        // If not JSON, use status text
+                    // Check if it's HTML (error page with script)
+                    if (contentType.includes('text/html')) {
+                        const htmlText = await response.text();
+                        // If it's an error page with alert script, extract and show the error
+                        if (htmlText.includes('alert(') && htmlText.includes('window.location.href')) {
+                            // Extract error message from the HTML
+                            // Use non-greedy match to handle escaped quotes properly
+                            const alertMatch = htmlText.match(/alert\('(.+?)'\);/s);
+                            if (alertMatch) {
+                                // Unescape the error message
+                                let errorMessage = alertMatch[1]
+                                    .replace(/\\n/g, '\n')
+                                    .replace(/\\'/g, "'")
+                                    .replace(/\\\\/g, '\\');
+                                alert(errorMessage);
+                            } else {
+                                alert(`Error: ${response.statusText || 'Failed to load validation page'}`);
+                            }
+                            return;
+                        }
+                        // If HTML but no alert script, show generic error
                         alert(`Error: ${response.statusText || 'Failed to load validation page'}`);
+                        return;
                     }
+                    
+                    // If it's JSON, parse it
+                    if (contentType.includes('application/json')) {
+                        try {
+                            const errorData = await response.json();
+                            const errorMessage = errorData.message || errorData.error || 'An error occurred';
+                            alert(errorMessage);
+                        } catch (e) {
+                            alert(`Error: ${response.statusText || 'Failed to load validation page'}`);
+                        }
+                        return;
+                    }
+                    
+                    // Fallback for other content types
+                    alert(`Error: ${response.statusText || 'Failed to load validation page'}`);
                     return;
                 }
 
-                // Check if response is HTML (success) or JSON (error)
-                const contentType = response.headers.get('content-type');
-                if (contentType && contentType.includes('application/json')) {
-                    const errorData = await response.json();
-                    const errorMessage = errorData.message || errorData.error || 'An error occurred';
-                    alert(errorMessage);
-                    return;
-                }
-
-                // Check if HTML response contains error script (error page)
-                if (contentType && contentType.includes('text/html')) {
+                // Response is OK - check if it's HTML (success) or JSON (shouldn't happen for OK)
+                if (contentType.includes('text/html')) {
                     const htmlText = await response.text();
-                    // If it's an error page with alert script, show alert and don't navigate
+                    // Check if HTML response contains error script (shouldn't happen for OK, but check anyway)
                     if (htmlText.includes('alert(') && htmlText.includes('window.location.href')) {
                         // Extract error message from the HTML
-                        const alertMatch = htmlText.match(/alert\('([^']+)'\)/);
+                        // Use non-greedy match to handle escaped quotes properly
+                        const alertMatch = htmlText.match(/alert\('(.+?)'\);/s);
                         if (alertMatch) {
-                            const errorMessage = alertMatch[1].replace(/\\n/g, '\n');
+                            // Unescape the error message
+                            let errorMessage = alertMatch[1]
+                                .replace(/\\n/g, '\n')
+                                .replace(/\\'/g, "'")
+                                .replace(/\\\\/g, '\\');
                             alert(errorMessage);
                         } else {
                             alert('An error occurred. Redirecting to queue list...');
                         }
-                        // Don't navigate to validation page, but redirect to queue list
                         window.location.href = '/queue/list';
                         return;
                     }

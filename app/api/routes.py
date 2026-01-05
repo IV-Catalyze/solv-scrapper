@@ -5180,6 +5180,19 @@ async def queue_list_ui(
         alias="status",
         description="Filter by status: PENDING, PROCESSING, DONE, ERROR"
     ),
+    page: int = Query(
+        default=1,
+        ge=1,
+        alias="page",
+        description="Page number (1-indexed)"
+    ),
+    per_page: int = Query(
+        default=50,
+        ge=1,
+        le=200,
+        alias="per_page",
+        description="Number of records per page (1-200)"
+    ),
     current_user: dict = Depends(require_auth),
 ):
     """
@@ -5227,12 +5240,46 @@ async def queue_list_ui(
         """
         params: List[Any] = []
         
+        # Build WHERE clause
+        where_clause = ""
         if status:
-            query += " WHERE q.status = %s"
+            where_clause = " WHERE q.status = %s"
             params.append(status)
         
-        # Order by created_at DESC (newest first)
-        query += " ORDER BY q.created_at DESC LIMIT 1000"
+        # Count total records for pagination
+        count_query = f"SELECT COUNT(*) as total FROM queue q{where_clause}"
+        cursor.execute(count_query, tuple(params))
+        total_count = cursor.fetchone().get('total', 0)
+        
+        # Calculate pagination
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+        current_page = min(page, total_pages) if total_pages > 0 else 1
+        offset = (current_page - 1) * per_page
+        
+        # Build main query with pagination
+        query = f"""
+            SELECT 
+                q.queue_id,
+                q.encounter_id,
+                q.emr_id,
+                q.status,
+                q.raw_payload as encounter_payload,
+                q.created_at,
+                TRIM(
+                    CONCAT(
+                        COALESCE(p.legal_first_name, ''), 
+                        ' ', 
+                        COALESCE(p.legal_last_name, '')
+                    )
+                ) as patient_name
+            FROM queue q
+            LEFT JOIN patients p ON q.emr_id = p.emr_id
+            {where_clause}
+            ORDER BY q.created_at DESC
+            LIMIT %s OFFSET %s
+        """
+        params.append(per_page)
+        params.append(offset)
         
         cursor.execute(query, tuple(params))
         results = cursor.fetchall()
@@ -5260,53 +5307,10 @@ async def queue_list_ui(
                 # If queue_validations table doesn't exist or error, just continue without validation info
                 logger.warning(f"Could not check validation existence: {e}")
         
-        # Helper function to check if screenshots exist for an encounter
-        def check_screenshots_available(encounter_id: str, parsed_payload: dict) -> Tuple[bool, Optional[str]]:
-            """
-            Check if screenshots exist for all complaints in an encounter.
-            Returns (has_screenshots, error_message)
-            """
-            if not encounter_id:
-                return False, "No encounter_id available"
-            
-            # Extract experityActions from parsed_payload
-            experity_actions = None
-            if isinstance(parsed_payload, dict):
-                experity_actions = parsed_payload.get('experityActions') or parsed_payload.get('experityAction')
-            
-            if not experity_actions:
-                return False, "No experityActions found"
-            
-            # Handle legacy array format
-            if isinstance(experity_actions, list) and len(experity_actions) > 0:
-                experity_actions = experity_actions[0]
-            
-            if not isinstance(experity_actions, dict):
-                return False, "Invalid experityActions format"
-            
-            # Get complaints array
-            complaints = experity_actions.get('complaints', [])
-            if not complaints or not isinstance(complaints, list) or len(complaints) == 0:
-                return False, f"No complaints found for encounter_id: {encounter_id}"
-            
-            # Check if screenshots exist for all complaints
-            missing_screenshots = []
-            for complaint in complaints:
-                complaint_id = complaint.get('complaintId')
-                if not complaint_id:
-                    continue
-                
-                complaint_id_str = str(complaint_id)
-                hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
-                if not hpi_image_path:
-                    missing_screenshots.append(complaint_id_str)
-            
-            if missing_screenshots:
-                return False, f"No HPI screenshots found for {len(missing_screenshots)} complaint(s). Validation requires screenshots to compare with data."
-            
-            return True, None
-        
         # Format the results for template
+        # NOTE: Screenshot checking removed from page load for performance
+        # Screenshot availability is checked when user clicks "Verify" button
+        # This avoids 100+ Azure Blob Storage API calls per page load
         queue_entries = []
         for record in results:
             queue_id = str(record.get('queue_id', ''))
@@ -5324,29 +5328,11 @@ async def queue_list_ui(
             elif encounter_payload is None:
                 encounter_payload = {}
             
-            # Get parsed_payload for screenshot checking
-            parsed_payload = None
-            try:
-                cursor.execute(
-                    "SELECT parsed_payload FROM queue WHERE queue_id = %s",
-                    (queue_id,)
-                )
-                parsed_result = cursor.fetchone()
-                if parsed_result:
-                    parsed_payload = parsed_result.get('parsed_payload')
-                    if isinstance(parsed_payload, str):
-                        try:
-                            parsed_payload = json.loads(parsed_payload)
-                        except json.JSONDecodeError:
-                            parsed_payload = {}
-            except Exception as e:
-                logger.warning(f"Could not fetch parsed_payload for queue_id {queue_id}: {e}")
-            
-            # Check if screenshots are available for validation
-            has_screenshots = False
+            # Screenshot checking removed from page load for performance
+            # Screenshot availability is checked when user clicks "Verify" button
+            # This avoids 100+ Azure Blob Storage API calls per page load
+            has_screenshots = None  # Will be checked on-demand when user clicks Verify
             screenshot_error = None
-            if encounter_id and parsed_payload:
-                has_screenshots, screenshot_error = check_screenshots_available(encounter_id, parsed_payload)
             
             # Get patient_name from JOIN result, handling empty strings and NULL
             patient_name = record.get('patient_name')
@@ -5377,9 +5363,17 @@ async def queue_list_ui(
                 'patient_name': patient_name,
                 'encounter_payload': encounter_payload,
                 'has_validation': has_validation,
-                'has_screenshots': has_screenshots,
-                'screenshot_error': screenshot_error,
+                # has_screenshots and screenshot_error removed - checked on-demand when user clicks Verify
             })
+        
+        # Calculate pagination metadata
+        has_next = current_page < total_pages
+        has_prev = current_page > 1
+        
+        # Calculate page numbers to display (5 pages around current)
+        start_page = max(1, current_page - 2)
+        end_page = min(total_pages, current_page + 2)
+        page_numbers = list(range(start_page, end_page + 1))
         
         response = templates.TemplateResponse(
             "queue_list.html",
@@ -5388,7 +5382,15 @@ async def queue_list_ui(
                 "current_user": current_user,
                 "queue_entries": queue_entries,
                 "status_filter": status,
-                "total_count": len(queue_entries),
+                "total_count": total_count,
+                "current_page": current_page,
+                "per_page": per_page,
+                "total_pages": total_pages,
+                "has_next": has_next,
+                "has_prev": has_prev,
+                "page_numbers": page_numbers,
+                "start_page": start_page,
+                "end_page": end_page,
             },
         )
         # Use no-cache instead of no-store to allow history navigation while preventing stale cache
