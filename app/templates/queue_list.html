@@ -993,10 +993,10 @@
                                                 View Encounter
                                             </button>
                                             {% if entry.encounter_id %}
-                                                <a href="/queue/validation/{{ entry.encounter_id }}" 
+                                                <a href="#" 
                                                    class="btn-verify" 
-                                                   style="text-decoration: none; display: inline-block;"
-                                                   onclick="return handleValidationNavigation(event, '{{ entry.encounter_id }}', {{ entry.has_screenshots|tojson }}, {{ entry.screenshot_error|tojson }})">
+                                                   style="text-decoration: none; display: inline-block; cursor: pointer;"
+                                                   onclick="handleValidationNavigation(event, '{{ entry.encounter_id }}', {{ entry.has_screenshots|tojson }}, {{ entry.screenshot_error|tojson }}); return false;">
                                                     {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
                                                 </a>
                                             {% else %}
