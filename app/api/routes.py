@@ -4813,10 +4813,8 @@ async def upload_image(
             detail="Empty file uploaded"
         )
     
-    # Generate unique blob name
+    # Generate blob name from original filename
     file_extension = ALLOWED_IMAGE_TYPES[content_type]
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    unique_id = str(uuid.uuid4())[:8]
     
     # Sanitize original filename (remove extension, we'll add the correct one)
     original_name = file.filename or "image"
@@ -4835,9 +4833,9 @@ async def upload_image(
             for part in folder.split("/") 
             if part
         )
-        blob_name = f"{safe_folder}/{timestamp}_{unique_id}_{safe_name}{file_extension}"
+        blob_name = f"{safe_folder}/{safe_name}{file_extension}"
     else:
-        blob_name = f"{timestamp}_{unique_id}_{safe_name}{file_extension}"
+        blob_name = f"{safe_name}{file_extension}"
     
     # Upload to Azure Blob Storage
     try:
