@@ -4617,56 +4617,40 @@ async def get_queue_validation_image(
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Get validation result with encounter_id and complaint_id
-        if complaint_id:
-            # Get specific complaint validation
-            cursor.execute(
-                """
-                SELECT encounter_id, complaint_id
-                FROM queue_validations
-                WHERE queue_id = %s AND complaint_id = %s
-                LIMIT 1
-                """,
-                (queue_id, complaint_id)
-            )
-        else:
-            # Get first validation (if complaint_id not provided, use first one found)
-            cursor.execute(
-                """
-                SELECT encounter_id, complaint_id
-                FROM queue_validations
-                WHERE queue_id = %s AND complaint_id IS NOT NULL
-                ORDER BY created_at ASC
-                LIMIT 1
+        # First, get encounter_id from queue table (more reliable than queue_validations)
+        cursor.execute(
+            """
+            SELECT encounter_id
+            FROM queue
+            WHERE queue_id = %s
+            LIMIT 1
             """,
             (queue_id,)
         )
+        queue_result = cursor.fetchone()
         
-        result = cursor.fetchone()
-        
-        if not result:
+        if not queue_result:
             raise HTTPException(
                 status_code=404,
-                detail=f"No validation found for queue_id: {queue_id}" + (f" and complaint_id: {complaint_id}" if complaint_id else "")
+                detail=f"Queue entry not found for queue_id: {queue_id}"
             )
         
-        encounter_id_str = str(result['encounter_id'])
-        complaint_id_from_db = result.get('complaint_id')
+        encounter_id_str = str(queue_result['encounter_id'])
         
-        # Find HPI image path - complaint_id is always required
-        hpi_image_path = None
-        if complaint_id_from_db:
-            hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, str(complaint_id_from_db))
-        elif complaint_id:
-            # Use provided complaint_id parameter
-            hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, complaint_id)
-        else:
-            logger.warning(f"Missing complaint_id for queue_id: {queue_id} - cannot find complaint-specific HPI image")
+        # complaint_id is required for finding complaint-specific HPI image
+        if not complaint_id:
+            raise HTTPException(
+                status_code=400,
+                detail="complaint_id parameter is required for complaint-specific HPI image"
+            )
+        
+        # Find HPI image path using encounter_id and complaint_id
+        hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, complaint_id)
         
         if not hpi_image_path:
             raise HTTPException(
                 status_code=404,
-                detail=f"HPI image not found for encounter_id: {encounter_id_str}" + (f" and complaint_id: {complaint_id_from_db}" if complaint_id_from_db else "")
+                detail=f"HPI image not found for encounter_id: {encounter_id_str} and complaint_id: {complaint_id}"
             )
         
         # Get image bytes
