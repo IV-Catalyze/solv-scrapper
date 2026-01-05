@@ -993,9 +993,18 @@
                                                 View Encounter
                                             </button>
                                             {% if entry.encounter_id %}
-                                                <a href="/queue/validation/{{ entry.encounter_id }}" class="btn-verify" style="text-decoration: none; display: inline-block;">
-                                                    {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
-                                                </a>
+                                                {% if entry.has_screenshots %}
+                                                    <a href="/queue/validation/{{ entry.encounter_id }}" class="btn-verify" style="text-decoration: none; display: inline-block;">
+                                                        {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
+                                                    </a>
+                                                {% else %}
+                                                    <button class="btn-verify" 
+                                                            onclick='showScreenshotError({{ entry.screenshot_error|tojson }})' 
+                                                            style="cursor: pointer;"
+                                                            title="{{ entry.screenshot_error or 'No screenshots available' }}">
+                                                        {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
+                                                    </button>
+                                                {% endif %}
                                             {% else %}
                                                 <button class="btn-verify" onclick='showValidation({{ entry.queue_id|tojson }})' title="No encounter_id available - using modal view">
                                                     {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
@@ -1135,6 +1144,13 @@
             modalQueueId.textContent = 'Queue ID: ' + queueId;
             modalContent.textContent = JSON.stringify(encounterPayload, null, 2);
             modal.classList.add('show');
+        }
+
+        function showScreenshotError(errorMessage) {
+            if (!errorMessage) {
+                errorMessage = 'No HPI screenshots available. Validation requires screenshots to compare with data.';
+            }
+            alert(errorMessage);
         }
 
         function closeVerification() {

@@ -12,7 +12,7 @@ import logging
 import json
 import base64
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -4254,9 +4254,16 @@ async def manual_validation_page(
         queue_entry = cursor.fetchone()
         
         if not queue_entry:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Queue entry not found for encounter_id: {encounter_id}"
+            # Return error page instead of raising exception
+            return templates.TemplateResponse(
+                "error_page.html",
+                {
+                    "request": request,
+                    "error_title": "Queue Entry Not Found",
+                    "error_message": f"Queue entry not found for encounter_id: {encounter_id}",
+                    "back_url": "/queue/list"
+                },
+                status_code=404
             )
         
         queue_id = str(queue_entry.get('queue_id'))
@@ -4272,18 +4279,65 @@ async def manual_validation_page(
             experity_actions = experity_actions[0]
         
         if not experity_actions or not isinstance(experity_actions, dict):
-            raise HTTPException(
-                status_code=404,
-                detail=f"No experityActions found for encounter_id: {encounter_id}"
+            # Return error page instead of raising exception
+            return templates.TemplateResponse(
+                "error_page.html",
+                {
+                    "request": request,
+                    "error_title": "No Experity Actions Found",
+                    "error_message": f"No experityActions found for encounter_id: {encounter_id}",
+                    "back_url": "/queue/list"
+                },
+                status_code=404
             )
         
         # Get complaints array
         complaints = experity_actions.get('complaints', [])
-        if not complaints or not isinstance(complaints, list):
-            raise HTTPException(
-                status_code=404,
-                detail=f"No complaints found for encounter_id: {encounter_id}"
+        if not complaints or not isinstance(complaints, list) or len(complaints) == 0:
+            # Return error page instead of raising exception
+            return templates.TemplateResponse(
+                "error_page.html",
+                {
+                    "request": request,
+                    "error_title": "No Complaints Found",
+                    "error_message": f"No complaints found for encounter_id: {encounter_id}",
+                    "back_url": "/queue/list"
+                },
+                status_code=404
             )
+        
+        # Check if screenshots exist for all complaints
+        complaints_with_screenshots = []
+        complaints_without_screenshots = []
+        
+        for complaint in complaints:
+            complaint_id = complaint.get('complaintId')
+            if not complaint_id:
+                continue
+            
+            complaint_id_str = str(complaint_id)
+            hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
+            
+            if hpi_image_path:
+                complaints_with_screenshots.append(complaint)
+            else:
+                complaints_without_screenshots.append(complaint)
+        
+        # If no screenshots found for any complaint, return error
+        if len(complaints_with_screenshots) == 0:
+            return templates.TemplateResponse(
+                "error_page.html",
+                {
+                    "request": request,
+                    "error_title": "No Screenshots Available",
+                    "error_message": f"No HPI screenshots found for encounter_id: {encounter_id}. Validation requires screenshots to compare with data.",
+                    "back_url": "/queue/list"
+                },
+                status_code=404
+            )
+        
+        # Use only complaints with screenshots
+        complaints = complaints_with_screenshots
         
         # Fetch existing validations for this queue
         existing_validations = {}
@@ -5185,6 +5239,52 @@ async def queue_list_ui(
                 # If queue_validations table doesn't exist or error, just continue without validation info
                 logger.warning(f"Could not check validation existence: {e}")
         
+        # Helper function to check if screenshots exist for an encounter
+        def check_screenshots_available(encounter_id: str, parsed_payload: dict) -> Tuple[bool, Optional[str]]:
+            """
+            Check if screenshots exist for all complaints in an encounter.
+            Returns (has_screenshots, error_message)
+            """
+            if not encounter_id:
+                return False, "No encounter_id available"
+            
+            # Extract experityActions from parsed_payload
+            experity_actions = None
+            if isinstance(parsed_payload, dict):
+                experity_actions = parsed_payload.get('experityActions') or parsed_payload.get('experityAction')
+            
+            if not experity_actions:
+                return False, "No experityActions found"
+            
+            # Handle legacy array format
+            if isinstance(experity_actions, list) and len(experity_actions) > 0:
+                experity_actions = experity_actions[0]
+            
+            if not isinstance(experity_actions, dict):
+                return False, "Invalid experityActions format"
+            
+            # Get complaints array
+            complaints = experity_actions.get('complaints', [])
+            if not complaints or not isinstance(complaints, list) or len(complaints) == 0:
+                return False, f"No complaints found for encounter_id: {encounter_id}"
+            
+            # Check if screenshots exist for all complaints
+            missing_screenshots = []
+            for complaint in complaints:
+                complaint_id = complaint.get('complaintId')
+                if not complaint_id:
+                    continue
+                
+                complaint_id_str = str(complaint_id)
+                hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
+                if not hpi_image_path:
+                    missing_screenshots.append(complaint_id_str)
+            
+            if missing_screenshots:
+                return False, f"No HPI screenshots found for {len(missing_screenshots)} complaint(s). Validation requires screenshots to compare with data."
+            
+            return True, None
+        
         # Format the results for template
         queue_entries = []
         for record in results:
@@ -5202,6 +5302,30 @@ async def queue_list_ui(
                     encounter_payload = {}
             elif encounter_payload is None:
                 encounter_payload = {}
+            
+            # Get parsed_payload for screenshot checking
+            parsed_payload = None
+            try:
+                cursor.execute(
+                    "SELECT parsed_payload FROM queue WHERE queue_id = %s",
+                    (queue_id,)
+                )
+                parsed_result = cursor.fetchone()
+                if parsed_result:
+                    parsed_payload = parsed_result.get('parsed_payload')
+                    if isinstance(parsed_payload, str):
+                        try:
+                            parsed_payload = json.loads(parsed_payload)
+                        except json.JSONDecodeError:
+                            parsed_payload = {}
+            except Exception as e:
+                logger.warning(f"Could not fetch parsed_payload for queue_id {queue_id}: {e}")
+            
+            # Check if screenshots are available for validation
+            has_screenshots = False
+            screenshot_error = None
+            if encounter_id and parsed_payload:
+                has_screenshots, screenshot_error = check_screenshots_available(encounter_id, parsed_payload)
             
             # Get patient_name from JOIN result, handling empty strings and NULL
             patient_name = record.get('patient_name')
@@ -5232,6 +5356,8 @@ async def queue_list_ui(
                 'patient_name': patient_name,
                 'encounter_payload': encounter_payload,
                 'has_validation': has_validation,
+                'has_screenshots': has_screenshots,
+                'screenshot_error': screenshot_error,
             })
         
         response = templates.TemplateResponse(
