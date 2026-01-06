@@ -236,7 +236,7 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
       },
       "labOrders": [{"orderId": string|null, "name": string, "status": string|null, "priority": string|null, "reason": string|null}],
       "icdUpdates": [],  // AUTOMATIC - Will be populated by system from additionalQuestions.conditions
-      "complaints": [{"encounterId": string|null, "complaintId": string|null, "description": string, "traumaType": string, "bodyPartRaw": string|null, "reviewOfSystemsCategory": string|null, "gender": string, "bodyAreaKey": string, "subLocationLabel": string|null, "experityTemplate": string, "coordKey": string, "bodyMapSide": "front"|"back", "ui": {"bodyMapClick": {"x": number, "y": number}, "bodyPartId": number}, "mainProblem": string, "notesTemplateKey": string, "notesPayload": object, "notesFreeText": string, "reasoning": string}]
+      "complaints": [{"encounterId": string|null, "complaintId": string, "description": string, "traumaType": string, "bodyPartRaw": string|null, "reviewOfSystemsCategory": string|null, "gender": string, "bodyAreaKey": string, "subLocationLabel": string|null, "experityTemplate": string, "coordKey": string, "bodyMapSide": "front"|"back", "ui": {"bodyMapClick": {"x": number, "y": number}, "bodyPartId": number}, "mainProblem": string, "notesTemplateKey": string, "notesPayload": object, "notesFreeText": string, "reasoning": string}]
     },
     "encounterId": "string",
     "processedAt": "ISO 8601 timestamp",
@@ -262,6 +262,7 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
 
 **REQUIRED FIELDS IN complaints:**
 - `encounterId`: REQUIRED (use encounter id)
+- `complaintId`: REQUIRED (extract from complaint - see extraction rules below)
 - `description`: REQUIRED (from complaint)
 - `traumaType`: REQUIRED (from encounter, or null)
 - `bodyAreaKey`: REQUIRED (normalized format)
@@ -276,8 +277,15 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
 - `notesFreeText`: REQUIRED (string, can be empty "")
 - `reasoning`: REQUIRED (string, can be empty "")
 
+**COMPLAINT ID EXTRACTION RULES:**
+- `complaintId` MUST be extracted from the source complaint data
+- Extract from `chiefComplaints[].id` if present (top-level id field in complaint object)
+- OR extract from `chiefComplaints[].symptom.id` if the complaint has a symptom object with an id field
+- The complaintId should be a UUID string from the source data
+- If the source complaint has both `id` and `symptom.id`, prefer `id` (top-level) over `symptom.id`
+- This field is REQUIRED and must always be present in the output
+
 **OPTIONAL FIELDS IN complaints:**
-- `complaintId`: Optional (from complaint if available)
 - `bodyPartRaw`: Optional (from complaint part field, or null)
 - `subLocationLabel`: Optional (from BODY_AREAS children, or null)
 - `reviewOfSystemsCategory`: Optional (from complaint if available)

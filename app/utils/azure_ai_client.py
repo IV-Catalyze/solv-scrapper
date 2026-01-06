@@ -37,6 +37,7 @@ PROJECT_ENDPOINT = os.getenv(
 )
 AGENT_NAME = os.getenv("AZURE_AI_AGENT_NAME", "experitymapper")
 AGENT_VERSION = os.getenv("AZURE_AI_AGENT_VERSION", "experitymapper:2")
+DEPLOYMENT_NAME = os.getenv("AZURE_AI_DEPLOYMENT_NAME") or os.getenv("AZURE_AI_MODEL_DEPLOYMENT_NAME", "experitymapper")
 API_VERSION = os.getenv("AZURE_AI_API_VERSION", "2025-11-15-preview")
 
 # Timeout configuration
