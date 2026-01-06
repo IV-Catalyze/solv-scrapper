@@ -597,6 +597,8 @@ async def root(
                 "default_statuses": DEFAULT_STATUSES,
                 "status_summary": status_summary,
                 "current_user": current_user,
+                "page_title": "Patient Queue Dashboard",
+                "current_page": "patients",
             },
         )
         
@@ -666,6 +668,9 @@ async def experity_chat_ui(
                 {
                     "request": request,
                     "current_user": current_user,
+                    "page_title": "Experity Mapper",
+                    "page_subtitle": "Convert Intellivisit queue entries to Experity actions",
+                    "current_page": "chat",
                 },
             )
         
@@ -4363,10 +4368,14 @@ async def manual_validation_page(
         
         # Fetch existing validations for this queue
         existing_validations = {}
+        validation_dates = {}  # Store validation dates per complaint
         try:
             cursor.execute(
                 """
-                SELECT complaint_id, validation_result
+                SELECT 
+                    complaint_id, 
+                    validation_result, 
+                    COALESCE(updated_at, created_at) as last_validation_date
                 FROM queue_validations
                 WHERE queue_id = %s AND complaint_id IS NOT NULL
                 """,
@@ -4386,6 +4395,11 @@ async def manual_validation_page(
                     manual_validation = validation_result.get('manual_validation', {})
                     field_validations = manual_validation.get('field_validations', {})
                     existing_validations[complaint_id_from_db] = field_validations
+                    
+                    # Store validation date (already computed by SQL COALESCE)
+                    last_validation_date = v_result.get('last_validation_date')
+                    if last_validation_date:
+                        validation_dates[complaint_id_from_db] = last_validation_date
         except Exception as e:
             logger.warning(f"Could not fetch existing validations: {e}")
         
@@ -4432,13 +4446,17 @@ async def manual_validation_page(
             existing_validation = existing_validations.get(complaint_id_str, {})
             has_existing_validation = bool(existing_validation)
             
+            # Get last validation date for this complaint (if any)
+            last_validation_date = validation_dates.get(complaint_id_str)
+            
             complaints_data.append({
                 "complaint_id": complaint_id_str,
                 "complaint_data": complaint,
                 "curated_fields": curated_fields,
                 "hpi_image_path": hpi_image_path,
                 "existing_validation": existing_validation,
-                "has_existing_validation": has_existing_validation
+                "has_existing_validation": has_existing_validation,
+                "last_validation_date": last_validation_date
             })
         
         if not complaints_data:
@@ -4458,7 +4476,12 @@ async def manual_validation_page(
                 "request": request,
                 "encounter_id": encounter_id,
                 "queue_id": queue_id,
-                "complaints": complaints_data
+                "complaints": complaints_data,
+                "current_user": current_user,
+                "page_title": "Encounter Validation",
+                "page_subtitle": f"Encounter ID: {encounter_id}",
+                "show_navigation": False,
+                "show_user_menu": False,
             }
         )
         
@@ -5157,6 +5180,9 @@ async def images_gallery(
         {
             "request": request,
             "current_user": current_user,
+            "page_title": "Experity Screenshots",
+            "page_subtitle": "Browse images and folders from Experity",
+            "current_page": "images",
         },
     )
     # Use no-cache instead of no-store to allow history navigation while preventing stale cache
@@ -5415,6 +5441,8 @@ async def queue_list_ui(
                 "page_numbers": page_numbers,
                 "start_page": start_page,
                 "end_page": end_page,
+                "page_title": "Encounters",
+                "current_page": "encounters",
             },
         )
         # Use no-cache instead of no-store to allow history navigation while preventing stale cache
@@ -5474,6 +5502,11 @@ async def emr_validation_ui(
             "request": request,
             "project_endpoint": project_endpoint,
             "agent_name": agent_name,
+            "current_user": current_user,
+            "page_title": "EMR Image Validation",
+            "page_subtitle": "Compare JSON response against EMR screenshot",
+            "show_navigation": False,
+            "show_user_menu": False,
         },
     )
     # Use no-cache instead of no-store to allow history navigation while preventing stale cache
