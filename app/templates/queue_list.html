@@ -324,12 +324,14 @@
         th:nth-child(6), td:nth-child(6) { /* Created At */
             width: 12%;
             min-width: 140px;
-            white-space: nowrap;
+            padding-right: 2rem;
         }
 
         th:nth-child(7), td:nth-child(7) { /* Actions */
             width: 28%;
-            min-width: 300px;
+            min-width: 280px;
+            text-align: left;
+            vertical-align: top;
         }
 
         tbody tr:hover {
@@ -375,18 +377,9 @@
             color: #dc2626;
         }
 
-        .actions-container {
-            display: flex;
-            gap: 0.625rem;
-            flex-wrap: wrap;
-            align-items: center;
-            justify-content: flex-start;
-            min-height: 2.5rem;
-        }
-
         .btn-verify {
             font: inherit;
-            padding: 0.625rem 1.25rem;
+            padding: 0.5rem 1rem;
             border-radius: 8px;
             border: none;
             background: var(--accent);
@@ -397,48 +390,43 @@
             font-weight: 500;
             white-space: nowrap;
             flex-shrink: 0;
-            box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
-            line-height: 1.4;
+            min-height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .btn-verify:hover:not(:disabled) {
             background: #1d4ed8;
             transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(37, 99, 235, 0.3);
-        }
-
-        .btn-verify:active:not(:disabled) {
-            transform: translateY(0);
-            box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
         }
 
         .btn-verify:disabled {
-            background: #9ca3af;
+            background: #6c757d;
             cursor: not-allowed;
             opacity: 0.6;
-            box-shadow: none;
         }
 
         .btn-verify:disabled:hover {
             transform: none;
-            background: #9ca3af;
+            background: #6c757d;
         }
 
-        /* Secondary button style for View Verification */
-        .btn-verify.secondary {
-            background: #6b7280;
-        }
-
-        .btn-verify.secondary:hover:not(:disabled) {
-            background: #4b5563;
-        }
-
-        /* Primary button style for View Encounter */
+        /* Primary button style - both buttons use this */
         .btn-verify.primary {
             background: var(--accent);
         }
 
         .btn-verify.primary:hover:not(:disabled) {
+            background: #1d4ed8;
+        }
+
+        /* Secondary button style - now also blue for consistency */
+        .btn-verify.secondary {
+            background: var(--accent);
+        }
+
+        .btn-verify.secondary:hover:not(:disabled) {
             background: #1d4ed8;
         }
 
@@ -979,11 +967,7 @@
             }
 
             th:nth-child(7), td:nth-child(7) { /* Actions */
-                min-width: 260px;
-            }
-
-            .actions-container {
-                justify-content: flex-start;
+                min-width: 240px;
             }
 
             .pagination-container {
@@ -1094,14 +1078,14 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        <div class="actions-container">
+                                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-start; align-items: center;">
                                             <button class="btn-verify primary" onclick='showVerification({{ entry.queue_id|tojson }}, {{ entry.encounter_payload|tojson }})'>
                                                 View Encounter
                                             </button>
                                             {% if entry.encounter_id %}
                                                 <a href="#" 
                                                    class="btn-verify secondary" 
-                                                   style="text-decoration: none; display: inline-flex; align-items: center;"
+                                                   style="text-decoration: none; display: inline-flex; align-items: center; cursor: pointer;"
                                                    data-encounter-id="{{ entry.encounter_id }}"
                                                    onclick="handleValidationNavigationClick(this); return false;">
                                                     {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
