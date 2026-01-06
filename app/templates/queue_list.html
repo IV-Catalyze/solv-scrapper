@@ -1107,6 +1107,7 @@
                                 <th>Encounter ID</th>
                                 <th>EMR ID</th>
                                 <th>Status</th>
+                                <th>Created By</th>
                                 <th>Created At</th>
                                 <th>Actions</th>
                             </tr>
@@ -1139,6 +1140,13 @@
                                         <span class="status-badge {{ entry.status|lower }}">
                                             {{ entry.status }}
                                         </span>
+                                    </td>
+                                    <td>
+                                        {% if entry.created_by %}
+                                            {{ entry.created_by }}
+                                        {% else %}
+                                            <span class="muted">—</span>
+                                        {% endif %}
                                     </td>
                                     <td>
                                         {% if entry.created_at %}

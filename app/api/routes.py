@@ -5240,7 +5240,11 @@ async def queue_list_ui(
                         ' ', 
                         COALESCE(p.legal_last_name, '')
                     )
-                ) as patient_name
+                ) as patient_name,
+                COALESCE(
+                    q.raw_payload->>'createdBy',
+                    q.raw_payload->>'created_by'
+                ) as created_by
             FROM queue q
             LEFT JOIN patients p ON q.emr_id = p.emr_id
         """
@@ -5277,7 +5281,11 @@ async def queue_list_ui(
                         ' ', 
                         COALESCE(p.legal_last_name, '')
                     )
-                ) as patient_name
+                ) as patient_name,
+                COALESCE(
+                    q.raw_payload->>'createdBy',
+                    q.raw_payload->>'created_by'
+                ) as created_by
             FROM queue q
             LEFT JOIN patients p ON q.emr_id = p.emr_id
             {where_clause}
@@ -5349,6 +5357,15 @@ async def queue_list_ui(
             else:
                 patient_name = None
             
+            # Get created_by from record, handling NULL and empty strings
+            created_by = record.get('created_by')
+            if created_by:
+                created_by = str(created_by).strip()
+                if not created_by:
+                    created_by = None
+            else:
+                created_by = None
+            
             # Format created_at
             created_at = record.get('created_at')
             if created_at:
@@ -5367,6 +5384,7 @@ async def queue_list_ui(
                 'status': record.get('status', 'PENDING'),
                 'created_at': created_at,
                 'patient_name': patient_name,
+                'created_by': created_by,
                 'encounter_payload': encounter_payload,
                 'has_validation': has_validation,
                 # has_screenshots and screenshot_error removed - checked on-demand when user clicks Verify
