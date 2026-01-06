@@ -13,6 +13,7 @@
         integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
         crossorigin="anonymous"
     >
+    <link rel="stylesheet" href="/static/css/common.css">
     <style>
         :root {
             --bg: radial-gradient(circle at top, #eef2ff 0%, #f8fafc 45%, #ffffff 100%);
@@ -57,141 +58,7 @@
             padding: 0;
         }
 
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 24px 32px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .header h1 {
-            font-size: 24px;
-            font-weight: 600;
-        }
-
-        .header .subtitle {
-            font-size: 14px;
-            opacity: 0.9;
-            margin-top: 4px;
-        }
-
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-
-        .nav-links {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-        }
-
-        .nav-link {
-            color: white;
-            text-decoration: none;
-            padding: 8px 12px;
-            border-radius: 6px;
-            transition: background 0.2s;
-            font-size: 14px;
-        }
-
-        .nav-link:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        .user-menu {
-            position: relative;
-            display: inline-block;
-        }
-
-        .user-avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 600;
-            cursor: pointer;
-            user-select: none;
-            transition: transform 0.2s ease, background 0.2s ease;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-        }
-
-        .user-avatar:hover {
-            transform: scale(1.05);
-            background: rgba(255, 255, 255, 0.3);
-        }
-
-        .user-dropdown {
-            position: absolute;
-            top: calc(100% + 8px);
-            right: 0;
-            background: white;
-            border: 1px solid #e9ecef;
-            border-radius: 8px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-            min-width: 200px;
-            opacity: 0;
-            visibility: hidden;
-            transform: translateY(-10px);
-            transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
-            z-index: 1001;
-        }
-
-        .user-dropdown.show {
-            opacity: 1;
-            visibility: visible;
-            transform: translateY(0);
-        }
-
-        .user-dropdown-header {
-            padding: 1rem;
-            border-bottom: 1px solid #e9ecef;
-        }
-
-        .user-dropdown-header .username {
-            font-weight: 600;
-            color: #212529;
-            margin-bottom: 0.25rem;
-        }
-
-        .user-dropdown-header .email {
-            font-size: 0.85rem;
-            color: #6c757d;
-        }
-
-        .user-dropdown-item {
-            display: block;
-            width: 100%;
-            padding: 0.75rem 1rem;
-            text-align: left;
-            background: none;
-            border: none;
-            color: #212529;
-            font-size: 0.95rem;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-
-        .user-dropdown-item:hover {
-            background-color: #f8f9fa;
-        }
-
-        .user-dropdown-item.logout {
-            color: #dc3545;
-            font-weight: 600;
-        }
-
-        .user-dropdown-item.logout:hover {
-            background-color: rgba(220, 53, 69, 0.1);
-        }
+        /* Header, Navigation, and User Menu styles are in /static/css/common.css */
 
         .system-status-indicator {
             display: inline-flex;
@@ -766,42 +633,7 @@
 <body>
     <div class="container">
         {% if current_user %}
-        <div class="header">
-            <div>
-                <h1>Patient Queue Dashboard</h1>
-            </div>
-            <div class="header-right">
-                <div class="nav-links">
-                    <a href="/queue/list" class="nav-link">Encounters</a>
-                    <a href="/experity/chat" class="nav-link">Chat UI</a>
-                    <a href="/images/" class="nav-link">Images</a>
-                </div>
-                <div class="system-status-indicator unknown" id="systemStatusIndicator">
-                    <div class="status-dot"></div>
-                    <span id="systemStatusText">Checking...</span>
-                    <div class="system-status-tooltip" id="systemStatusTooltip">
-                        Loading system status...
-                    </div>
-                </div>
-                <div class="user-menu">
-                    <div class="user-avatar" id="userAvatar" onclick="toggleUserMenu()">
-                        {% set initials = current_user.username[0:2] | upper %}
-                        {{ initials }}
-                    </div>
-                    <div class="user-dropdown" id="userDropdown">
-                        <div class="user-dropdown-header">
-                            <div class="username">{{ current_user.username }}</div>
-                            {% if current_user.email %}
-                            <div class="email">{{ current_user.email }}</div>
-                            {% endif %}
-                        </div>
-                        <form method="post" action="/logout" style="margin: 0;">
-                            <button type="submit" class="user-dropdown-item logout">Logout</button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
+        {% include 'includes/nav_header.html' %}
         {% endif %}
 
         <div class="page" style="flex: 1; padding: 24px; overflow-y: auto;">
@@ -1270,33 +1102,7 @@
         });
     })();
 
-    // User menu dropdown toggle
-    function toggleUserMenu() {
-        const dropdown = document.getElementById('userDropdown');
-        if (dropdown) {
-            dropdown.classList.toggle('show');
-        }
-    }
-
-    // Close user menu when clicking outside
-    document.addEventListener('click', function(event) {
-        const userMenu = document.querySelector('.user-menu');
-        const dropdown = document.getElementById('userDropdown');
-        if (userMenu && dropdown && !userMenu.contains(event.target)) {
-            dropdown.classList.remove('show');
-        }
-    });
-
-    // Close user menu on escape key
-    document.addEventListener('keydown', function(event) {
-        if (event.key === 'Escape') {
-            const dropdown = document.getElementById('userDropdown');
-            if (dropdown) {
-                dropdown.classList.remove('show');
-            }
-        }
-    });
-
+    // User menu functionality is handled by /static/js/common.js
     // System status polling is handled by /static/js/system-status.js
 
     // Prevent back button from showing cached page after logout
@@ -1373,7 +1179,8 @@
             // Server-side authentication check is sufficient for normal page loads
             // Client-side check only needed for cached pages from back button (after logout scenario)
         })();
-</script>
+    </script>
+<script src="/static/js/common.js"></script>
 <script src="/static/js/system-status.js"></script>
         </div>
     </div>

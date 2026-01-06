@@ -8,6 +8,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+    <link rel="stylesheet" href="/static/css/common.css">
     <style>
         * {
             margin: 0;
@@ -54,105 +55,7 @@
             margin-top: 4px;
         }
 
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-
-        .nav-links {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-        }
-
-        .nav-link {
-            color: white;
-            text-decoration: none;
-            padding: 8px 12px;
-            border-radius: 6px;
-            transition: background 0.2s;
-            font-size: 14px;
-        }
-
-        .nav-link:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        .user-menu {
-            position: relative;
-            display: inline-block;
-        }
-
-        .user-avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 600;
-            cursor: pointer;
-            user-select: none;
-            transition: transform 0.2s ease, background 0.2s ease;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-        }
-
-        .user-avatar:hover {
-            transform: scale(1.05);
-            background: rgba(255, 255, 255, 0.3);
-        }
-
-        .user-dropdown {
-            position: absolute;
-            top: calc(100% + 8px);
-            right: 0;
-            background: white;
-            border: 1px solid #e9ecef;
-            border-radius: 8px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-            min-width: 200px;
-            opacity: 0;
-            visibility: hidden;
-            transform: translateY(-10px);
-            transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
-            z-index: 1001;
-        }
-
-        .user-dropdown.show {
-            opacity: 1;
-            visibility: visible;
-            transform: translateY(0);
-        }
-
-        .user-dropdown-header {
-            padding: 1rem;
-            border-bottom: 1px solid #e9ecef;
-        }
-
-        .user-dropdown-header .username {
-            font-weight: 600;
-            color: #212529;
-            margin-bottom: 0.25rem;
-        }
-
-        .user-dropdown-header .email {
-            font-size: 0.85rem;
-            color: #6c757d;
-        }
-
-        .user-dropdown-item {
-            display: block;
-            width: 100%;
-            padding: 0.75rem 1rem;
-            text-align: left;
-            background: none;
-            border: none;
-            color: #212529;
-        }
+        /* Header, Navigation, and User Menu styles are in /static/css/common.css */
 
         .system-status-indicator {
             display: inline-flex;
@@ -470,33 +373,26 @@
                 <div class="subtitle">Browse images and folders from Experity</div>
             </div>
             <div class="header-right">
+                {% if show_navigation|default(true) %}
                 <div class="nav-links">
-                    <a href="/" class="nav-link">Dashboard</a>
-                    <a href="/experity/chat" class="nav-link">Chat UI</a>
+                    {% set nav_items = [
+                        {'url': '/', 'label': 'Patients', 'id': 'patients'},
+                        {'url': '/queue/list', 'label': 'Encounters', 'id': 'encounters'},
+                        {'url': '/experity/chat', 'label': 'Chat UI', 'id': 'chat'},
+                        {'url': '/images/', 'label': 'Images', 'id': 'images'}
+                    ] %}
+                    {% for item in nav_items %}
+                    <a href="{{ item.url }}" 
+                       class="nav-link {% if current_page == item.id %}active{% endif %}">
+                        {{ item.label }}
+                    </a>
+                    {% endfor %}
                 </div>
-                <div class="system-status-indicator unknown" id="systemStatusIndicator">
-                    <div class="status-dot"></div>
-                    <span id="systemStatusText">Checking...</span>
-                    <div class="system-status-tooltip" id="systemStatusTooltip">
-                        Loading system status...
-                    </div>
-                </div>
-                <div class="user-menu">
-                    <div class="user-avatar" id="userAvatar" onclick="toggleUserMenu()">
-                        {{ current_user.username[:2].upper() if current_user and current_user.username else '??' }}
-                    </div>
-                    <div class="user-dropdown" id="userDropdown">
-                        <div class="user-dropdown-header">
-                            <div class="username">{{ current_user.username if current_user else 'Guest' }}</div>
-                            {% if current_user and current_user.email %}
-                                <div class="email">{{ current_user.email }}</div>
-                            {% endif %}
-                        </div>
-                        <form action="/logout" method="post">
-                            <button type="submit" class="user-dropdown-item logout">Logout</button>
-                        </form>
-                    </div>
-                </div>
+                {% endif %}
+                {% include 'includes/system_status_badge.html' %}
+                {% if show_user_menu|default(true) %}
+                {% include 'includes/user_menu.html' %}
+                {% endif %}
             </div>
         </div>
 
@@ -815,21 +711,7 @@
             return div.innerHTML;
         }
 
-        function toggleUserMenu() {
-            const dropdown = document.getElementById('userDropdown');
-            if (dropdown) {
-                dropdown.classList.toggle('show');
-            }
-        }
-
-        // Close user menu when clicking outside
-        document.addEventListener('click', function(event) {
-            const userMenu = document.querySelector('.user-menu');
-            const dropdown = document.getElementById('userDropdown');
-            if (userMenu && dropdown && !userMenu.contains(event.target)) {
-                dropdown.classList.remove('show');
-            }
-        });
+        // User menu functionality is handled by /static/js/common.js
 
         // Close modal on Escape key
         document.addEventListener('keydown', (e) => {
@@ -845,6 +727,7 @@
         // Load encounters folder on page load
         loadFolder('encounters');
     </script>
+    <script src="/static/js/common.js"></script>
     <script src="/static/js/system-status.js"></script>
 </body>
 </html>

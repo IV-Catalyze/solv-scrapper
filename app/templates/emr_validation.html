@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EMR Image Validation</title>
+    <link rel="stylesheet" href="/static/css/common.css">
     <style>
         * {
             margin: 0;
@@ -633,17 +634,11 @@
     <div class="container">
         <div class="page-header">
             <div>
-                <h1>EMR Image Validation</h1>
-                <p class="subtitle">Compare JSON response against EMR screenshot</p>
+        <h1>EMR Image Validation</h1>
+        <p class="subtitle">Compare JSON response against EMR screenshot</p>
             </div>
             <div class="page-header-right">
-                <div class="system-status-indicator unknown" id="systemStatusIndicator">
-                    <div class="status-dot"></div>
-                    <span id="systemStatusText">Checking...</span>
-                    <div class="system-status-tooltip" id="systemStatusTooltip">
-                        Loading system status...
-                    </div>
-                </div>
+                {% include 'includes/system_status_badge.html' %}
             </div>
         </div>
 
@@ -1422,6 +1417,7 @@
             return escapeHtml(String(value));
         }
     </script>
+    <script src="/static/js/common.js"></script>
     <script src="/static/js/system-status.js"></script>
 </body>
 </html>

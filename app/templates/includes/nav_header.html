@@ -1,0 +1,35 @@
+{% if current_user %}
+<div class="header">
+    <div>
+        <h1>{{ page_title|default('Dashboard') }}</h1>
+        {% if page_subtitle %}
+        <div class="subtitle">{{ page_subtitle }}</div>
+        {% endif %}
+    </div>
+    <div class="header-right">
+        {% if show_navigation|default(true) %}
+        <div class="nav-links">
+            {% set nav_items = [
+                {'url': '/', 'label': 'Patients', 'id': 'patients'},
+                {'url': '/queue/list', 'label': 'Encounters', 'id': 'encounters'},
+                {'url': '/experity/chat', 'label': 'Chat UI', 'id': 'chat'},
+                {'url': '/images/', 'label': 'Images', 'id': 'images'}
+            ] %}
+            {% for item in nav_items %}
+            <a href="{{ item.url }}" 
+               class="nav-link {% if current_page == item.id %}active{% endif %}">
+                {{ item.label }}
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        {% include 'includes/system_status_badge.html' %}
+        
+        {% if show_user_menu|default(true) %}
+        {% include 'includes/user_menu.html' %}
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+

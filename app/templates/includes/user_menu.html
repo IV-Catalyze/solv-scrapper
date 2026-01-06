@@ -1,0 +1,18 @@
+<div class="user-menu">
+    <div class="user-avatar" id="userAvatar" onclick="toggleUserMenu()">
+        {% set initials = current_user.username[0:2] | upper %}
+        {{ initials }}
+    </div>
+    <div class="user-dropdown" id="userDropdown">
+        <div class="user-dropdown-header">
+            <div class="username">{{ current_user.username }}</div>
+            {% if current_user.email %}
+            <div class="email">{{ current_user.email }}</div>
+            {% endif %}
+        </div>
+        <form method="post" action="/logout" style="margin: 0;">
+            <button type="submit" class="user-dropdown-item logout">Logout</button>
+        </form>
+    </div>
+</div>
+
