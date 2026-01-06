@@ -12,11 +12,32 @@
     >
     <link rel="stylesheet" href="/static/css/common.css">
     <style>
+        :root {
+            --bg: radial-gradient(circle at top, #eef2ff 0%, #f8fafc 45%, #ffffff 100%);
+            --panel: rgba(255, 255, 255, 0.82);
+            --panel-border: rgba(148, 163, 184, 0.25);
+            --text: #0f172a;
+            --muted: #475569;
+            --accent: #2563eb;
+            --accent-soft: rgba(37, 99, 235, 0.12);
+            --soft-shadow: 0 25px 40px -25px rgba(15, 23, 42, 0.45);
+            --radius-lg: 20px;
+            --radius-md: 14px;
+            --field-bg: #ffffff;
+            --field-border: rgba(148, 163, 184, 0.35);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
+            color: var(--text);
+            line-height: 1.55;
         }
         .container {
             max-width: 1400px;
@@ -29,7 +50,7 @@
         .header {
             margin-bottom: 24px;
             padding-bottom: 16px;
-            border-bottom: 2px solid #e5e7eb;
+            border-bottom: 2px solid var(--panel-border);
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
@@ -37,11 +58,11 @@
         .header h1 {
             font-size: 28px;
             font-weight: 600;
-            color: #1f2937;
+            color: var(--text);
             margin: 0 0 8px 0;
         }
         .header .subtitle {
-            color: #6b7280;
+            color: var(--muted);
             font-size: 14px;
         }
         .header-right {
@@ -49,90 +70,23 @@
             align-items: center;
             gap: 16px;
         }
-        .system-status-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            color: white;
-            cursor: help;
-            position: relative;
-        }
-
-        .system-status-indicator.up {
-            background: rgba(40, 167, 69, 0.9);
-        }
-
-        .system-status-indicator.down {
-            background: rgba(220, 53, 69, 0.9);
-        }
-
-        .system-status-indicator.unknown {
-            background: rgba(108, 117, 125, 0.9);
-        }
-
-        .system-status-indicator .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: currentColor;
-        }
-
-        .system-status-tooltip {
-            position: absolute;
-            top: calc(100% + 8px);
-            right: 0;
-            background: rgba(0, 0, 0, 0.9);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            white-space: normal;
-            opacity: 0;
-            visibility: hidden;
-            transform: translateY(5px);
-            transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
-            z-index: 1002;
-            pointer-events: none;
-            line-height: 1.5;
-            min-width: 200px;
-            max-width: 300px;
-            text-align: left;
-        }
-
-        .system-status-tooltip::before {
-            content: '';
-            position: absolute;
-            bottom: 100%;
-            right: 12px;
-            border: 5px solid transparent;
-            border-bottom-color: rgba(0, 0, 0, 0.9);
-        }
-
-        .system-status-indicator:hover .system-status-tooltip {
-            opacity: 1;
-            visibility: visible;
-            transform: translateY(0);
-        }
+        /* System status indicator styles are in /static/css/common.css */
         .complaint-tabs {
             display: flex;
             gap: 8px;
             margin-bottom: 24px;
-            border-bottom: 2px solid #e5e7eb;
+            border-bottom: 2px solid var(--panel-border);
             padding-bottom: 0;
         }
         .complaint-tab {
             padding: 12px 24px;
-            background: #f3f4f6;
-            border: none;
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
             border-radius: 8px 8px 0 0;
             cursor: pointer;
             font-size: 14px;
             font-weight: 500;
-            color: #6b7280;
+            color: var(--muted);
             transition: all 0.2s;
             display: flex;
             flex-direction: column;
@@ -158,11 +112,11 @@
             opacity: 0.9;
         }
         .complaint-tab:hover {
-            background: #e5e7eb;
-            color: #374151;
+            background: var(--accent-soft);
+            color: var(--text);
         }
         .complaint-tab.active {
-            background: #2563eb;
+            background: var(--accent);
             color: white;
         }
         .complaint-content {
@@ -175,40 +129,45 @@
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 32px;
-            background: white;
-            border-radius: 8px;
+            background: var(--panel);
+            border-radius: var(--radius-md);
             overflow: hidden;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            box-shadow: var(--soft-shadow);
+            border: 1px solid var(--panel-border);
         }
         .validation-table thead {
-            background: #f9fafb;
+            background: var(--accent-soft);
         }
         .validation-table th {
             padding: 16px;
             text-align: left;
             font-weight: 600;
-            color: #374151;
+            color: var(--text);
             font-size: 14px;
-            border-bottom: 2px solid #e5e7eb;
+            border-bottom: 2px solid var(--panel-border);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-size: 0.75rem;
+            color: var(--muted);
         }
         .validation-table td {
             padding: 16px;
-            border-bottom: 1px solid #e5e7eb;
+            border-bottom: 1px solid var(--panel-border);
             vertical-align: top;
         }
         .validation-table tbody tr:hover {
-            background: #f9fafb;
+            background: var(--accent-soft);
         }
         .validation-table tbody tr:last-child td {
             border-bottom: none;
         }
         .field-name {
             font-weight: 600;
-            color: #1f2937;
+            color: var(--text);
             width: 20%;
         }
         .field-value {
-            color: #4b5563;
+            color: var(--muted);
             width: 50%;
             word-break: break-word;
         }
@@ -241,24 +200,25 @@
             margin: 0;
             cursor: pointer;
             font-size: 14px;
-            color: #374151;
+            color: var(--text);
         }
         .screenshot-section {
             margin-top: 32px;
             padding-top: 32px;
-            border-top: 2px solid #e5e7eb;
+            border-top: 2px solid var(--panel-border);
         }
         .screenshot-section h3 {
             font-size: 20px;
             font-weight: 600;
-            color: #1f2937;
+            color: var(--text);
             margin-bottom: 16px;
         }
         .screenshot-container {
             text-align: center;
-            background: #f9fafb;
-            border-radius: 8px;
+            background: var(--panel);
+            border-radius: var(--radius-md);
             padding: 16px;
+            border: 1px solid var(--panel-border);
         }
         .screenshot-container img {
             max-width: 100%;
@@ -320,21 +280,21 @@
             background: rgba(255, 255, 255, 0.3);
         }
         .screenshot-container .no-image {
-            color: #9ca3af;
+            color: var(--muted);
             padding: 40px;
             font-style: italic;
         }
         .actions {
             margin-top: 32px;
             padding-top: 24px;
-            border-top: 2px solid #e5e7eb;
+            border-top: 2px solid var(--panel-border);
             display: flex;
             gap: 12px;
             justify-content: flex-end;
         }
         .btn {
             padding: 12px 24px;
-            border-radius: 8px;
+            border-radius: var(--radius-md);
             font-size: 14px;
             font-weight: 500;
             cursor: pointer;
@@ -342,14 +302,16 @@
             transition: all 0.2s;
         }
         .btn-primary {
-            background: #2563eb;
+            background: var(--accent);
             color: white;
+            box-shadow: 0 15px 30px -18px rgba(37, 99, 235, 0.75);
         }
         .btn-primary:hover {
             background: #1d4ed8;
+            transform: translateY(-1px);
         }
         .btn-secondary {
-            background: #6b7280;
+            background: var(--muted);
             color: white;
         }
         .btn-secondary:hover {
@@ -361,23 +323,24 @@
         }
         .alert {
             padding: 12px 16px;
-            border-radius: 8px;
+            border-radius: var(--radius-md);
             margin-bottom: 16px;
+            border: 1px solid var(--panel-border);
         }
         .alert-success {
-            background: #d1fae5;
+            background: rgba(16, 185, 129, 0.1);
             color: #065f46;
-            border: 1px solid #6ee7b7;
+            border-color: rgba(16, 185, 129, 0.3);
         }
         .alert-error {
-            background: #fee2e2;
+            background: rgba(239, 68, 68, 0.1);
             color: #991b1b;
-            border: 1px solid #fca5a5;
+            border-color: rgba(239, 68, 68, 0.3);
         }
         .alert-info {
-            background: #dbeafe;
-            color: #1e40af;
-            border: 1px solid #93c5fd;
+            background: var(--accent-soft);
+            color: var(--accent);
+            border-color: var(--accent);
         }
     </style>
 </head>
@@ -388,7 +351,7 @@
             <h1>Encounter Validation</h1>
             <div class="subtitle">Encounter ID: {{ encounter_id }}</div>
             {% if complaints|length == 1 and complaints[0].last_validation_date %}
-            <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: #6b7280;">
+            <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: var(--muted);">
                 Last validated: {{ complaints[0].last_validation_date }}
             </div>
             {% endif %}
