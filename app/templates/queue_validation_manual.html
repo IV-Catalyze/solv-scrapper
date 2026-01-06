@@ -29,6 +29,9 @@
             margin-bottom: 24px;
             padding-bottom: 16px;
             border-bottom: 2px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
         }
         .header h1 {
             font-size: 28px;
@@ -39,6 +42,79 @@
         .header .subtitle {
             color: #6b7280;
             font-size: 14px;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .system-status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: white;
+            cursor: help;
+            position: relative;
+        }
+
+        .system-status-indicator.up {
+            background: rgba(40, 167, 69, 0.9);
+        }
+
+        .system-status-indicator.down {
+            background: rgba(220, 53, 69, 0.9);
+        }
+
+        .system-status-indicator.unknown {
+            background: rgba(108, 117, 125, 0.9);
+        }
+
+        .system-status-indicator .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .system-status-tooltip {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            white-space: normal;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(5px);
+            transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
+            z-index: 1002;
+            pointer-events: none;
+            line-height: 1.5;
+            min-width: 200px;
+            max-width: 300px;
+            text-align: left;
+        }
+
+        .system-status-tooltip::before {
+            content: '';
+            position: absolute;
+            bottom: 100%;
+            right: 12px;
+            border: 5px solid transparent;
+            border-bottom-color: rgba(0, 0, 0, 0.9);
+        }
+
+        .system-status-indicator:hover .system-status-tooltip {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
         }
         .complaint-tabs {
             display: flex;
@@ -297,8 +373,19 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Encounter Validation</h1>
-            <div class="subtitle">Encounter ID: {{ encounter_id }}</div>
+            <div>
+                <h1>Encounter Validation</h1>
+                <div class="subtitle">Encounter ID: {{ encounter_id }}</div>
+            </div>
+            <div class="header-right">
+                <div class="system-status-indicator unknown" id="systemStatusIndicator">
+                    <div class="status-dot"></div>
+                    <span id="systemStatusText">Checking...</span>
+                    <div class="system-status-tooltip" id="systemStatusTooltip">
+                        Loading system status...
+                    </div>
+                </div>
+            </div>
         </div>
 
         {% if complaints|length > 1 %}
@@ -662,6 +749,7 @@
             }
         }
     </script>
+    <script src="/static/js/system-status.js"></script>
 </body>
 </html>
 

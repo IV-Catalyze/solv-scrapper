@@ -22,6 +22,7 @@ try:
     from fastapi import Path as PathParam
     from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
     from fastapi.templating import Jinja2Templates
+    from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel, Field, field_validator, model_validator
     import psycopg2
     from psycopg2.extras import RealDictCursor
@@ -195,6 +196,11 @@ All API endpoints require **HMAC-SHA256 authentication** via `X-Timestamp` and `
 )
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+
+# Mount static files directory
+static_dir = Path(__file__).parent.parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # Customize OpenAPI schema to document HMAC authentication headers
 def custom_openapi():
