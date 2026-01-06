@@ -598,7 +598,7 @@ async def root(
                 "status_summary": status_summary,
                 "current_user": current_user,
                 "page_title": "Patient Queue Dashboard",
-                "current_page": "patients",
+                "current_page_id": "patients",
             },
         )
         
@@ -670,7 +670,7 @@ async def experity_chat_ui(
                     "current_user": current_user,
                     "page_title": "Experity Mapper",
                     "page_subtitle": "Convert Intellivisit queue entries to Experity actions",
-                    "current_page": "chat",
+                    "current_page_id": "chat",
                 },
             )
         
@@ -4448,6 +4448,14 @@ async def manual_validation_page(
             
             # Get last validation date for this complaint (if any)
             last_validation_date = validation_dates.get(complaint_id_str)
+            # Convert datetime to formatted string for JSON serialization and display
+            last_validation_date_str = None
+            if last_validation_date:
+                if isinstance(last_validation_date, datetime):
+                    # Format as "Jan 21, 2025 at 10:30 AM" for display
+                    last_validation_date_str = last_validation_date.strftime('%b %d, %Y at %I:%M %p')
+                else:
+                    last_validation_date_str = str(last_validation_date)
             
             complaints_data.append({
                 "complaint_id": complaint_id_str,
@@ -4456,7 +4464,7 @@ async def manual_validation_page(
                 "hpi_image_path": hpi_image_path,
                 "existing_validation": existing_validation,
                 "has_existing_validation": has_existing_validation,
-                "last_validation_date": last_validation_date
+                "last_validation_date": last_validation_date_str  # Use formatted string
             })
         
         if not complaints_data:
@@ -5433,7 +5441,7 @@ async def queue_list_ui(
                 "queue_entries": queue_entries,
                 "status_filter": status,
                 "total_count": total_count,
-                "current_page": current_page,
+                "current_page": current_page,  # Integer for pagination
                 "per_page": per_page,
                 "total_pages": total_pages,
                 "has_next": has_next,
@@ -5442,7 +5450,7 @@ async def queue_list_ui(
                 "start_page": start_page,
                 "end_page": end_page,
                 "page_title": "Encounters",
-                "current_page": "encounters",
+                "current_page_id": "encounters",  # String for navigation highlighting
             },
         )
         # Use no-cache instead of no-store to allow history navigation while preventing stale cache
