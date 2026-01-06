@@ -383,7 +383,7 @@
                     ] %}
                     {% for item in nav_items %}
                     <a href="{{ item.url }}" 
-                       class="nav-link {% if current_page == item.id %}active{% endif %}">
+                       class="nav-link {% if current_page_id == item.id %}active{% endif %}">
                         {{ item.label }}
                     </a>
                     {% endfor %}

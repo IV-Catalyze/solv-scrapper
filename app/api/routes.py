@@ -5190,7 +5190,7 @@ async def images_gallery(
             "current_user": current_user,
             "page_title": "Experity Screenshots",
             "page_subtitle": "Browse images and folders from Experity",
-            "current_page": "images",
+            "current_page_id": "images",
         },
     )
     # Use no-cache instead of no-store to allow history navigation while preventing stale cache
