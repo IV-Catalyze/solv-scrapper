@@ -12,32 +12,11 @@
     >
     <link rel="stylesheet" href="/static/css/common.css">
     <style>
-        :root {
-            --bg: radial-gradient(circle at top, #eef2ff 0%, #f8fafc 45%, #ffffff 100%);
-            --panel: rgba(255, 255, 255, 0.82);
-            --panel-border: rgba(148, 163, 184, 0.25);
-            --text: #0f172a;
-            --muted: #475569;
-            --accent: #2563eb;
-            --accent-soft: rgba(37, 99, 235, 0.12);
-            --soft-shadow: 0 25px 40px -25px rgba(15, 23, 42, 0.45);
-            --radius-lg: 20px;
-            --radius-md: 14px;
-            --field-bg: #ffffff;
-            --field-border: rgba(148, 163, 184, 0.35);
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
-            color: var(--text);
-            line-height: 1.55;
         }
         .container {
             max-width: 1400px;
@@ -50,7 +29,7 @@
         .header {
             margin-bottom: 24px;
             padding-bottom: 16px;
-            border-bottom: 2px solid var(--panel-border);
+            border-bottom: 2px solid #e5e7eb;
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
@@ -58,11 +37,11 @@
         .header h1 {
             font-size: 28px;
             font-weight: 600;
-            color: var(--text);
+            color: #1f2937;
             margin: 0 0 8px 0;
         }
         .header .subtitle {
-            color: var(--muted);
+            color: #6b7280;
             font-size: 14px;
         }
         .header-right {
@@ -70,23 +49,90 @@
             align-items: center;
             gap: 16px;
         }
-        /* System status indicator styles are in /static/css/common.css */
+        .system-status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: white;
+            cursor: help;
+            position: relative;
+        }
+
+        .system-status-indicator.up {
+            background: rgba(40, 167, 69, 0.9);
+        }
+
+        .system-status-indicator.down {
+            background: rgba(220, 53, 69, 0.9);
+        }
+
+        .system-status-indicator.unknown {
+            background: rgba(108, 117, 125, 0.9);
+        }
+
+        .system-status-indicator .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .system-status-tooltip {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            white-space: normal;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(5px);
+            transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
+            z-index: 1002;
+            pointer-events: none;
+            line-height: 1.5;
+            min-width: 200px;
+            max-width: 300px;
+            text-align: left;
+        }
+
+        .system-status-tooltip::before {
+            content: '';
+            position: absolute;
+            bottom: 100%;
+            right: 12px;
+            border: 5px solid transparent;
+            border-bottom-color: rgba(0, 0, 0, 0.9);
+        }
+
+        .system-status-indicator:hover .system-status-tooltip {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
         .complaint-tabs {
             display: flex;
             gap: 8px;
             margin-bottom: 24px;
-            border-bottom: 2px solid var(--panel-border);
+            border-bottom: 2px solid #e5e7eb;
             padding-bottom: 0;
         }
         .complaint-tab {
             padding: 12px 24px;
-            background: var(--panel);
-            border: 1px solid var(--panel-border);
+            background: #f3f4f6;
+            border: none;
             border-radius: 8px 8px 0 0;
             cursor: pointer;
             font-size: 14px;
             font-weight: 500;
-            color: var(--muted);
+            color: #6b7280;
             transition: all 0.2s;
             display: flex;
             flex-direction: column;
@@ -112,11 +158,11 @@
             opacity: 0.9;
         }
         .complaint-tab:hover {
-            background: var(--accent-soft);
-            color: var(--text);
+            background: #e5e7eb;
+            color: #374151;
         }
         .complaint-tab.active {
-            background: var(--accent);
+            background: #2563eb;
             color: white;
         }
         .complaint-content {
@@ -129,45 +175,40 @@
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 32px;
-            background: var(--panel);
-            border-radius: var(--radius-md);
+            background: white;
+            border-radius: 8px;
             overflow: hidden;
-            box-shadow: var(--soft-shadow);
-            border: 1px solid var(--panel-border);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
         }
         .validation-table thead {
-            background: var(--accent-soft);
+            background: #f9fafb;
         }
         .validation-table th {
             padding: 16px;
             text-align: left;
             font-weight: 600;
-            color: var(--text);
+            color: #374151;
             font-size: 14px;
-            border-bottom: 2px solid var(--panel-border);
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-size: 0.75rem;
-            color: var(--muted);
+            border-bottom: 2px solid #e5e7eb;
         }
         .validation-table td {
             padding: 16px;
-            border-bottom: 1px solid var(--panel-border);
+            border-bottom: 1px solid #e5e7eb;
             vertical-align: top;
         }
         .validation-table tbody tr:hover {
-            background: var(--accent-soft);
+            background: #f9fafb;
         }
         .validation-table tbody tr:last-child td {
             border-bottom: none;
         }
         .field-name {
             font-weight: 600;
-            color: var(--text);
+            color: #1f2937;
             width: 20%;
         }
         .field-value {
-            color: var(--muted);
+            color: #4b5563;
             width: 50%;
             word-break: break-word;
         }
@@ -200,25 +241,24 @@
             margin: 0;
             cursor: pointer;
             font-size: 14px;
-            color: var(--text);
+            color: #374151;
         }
         .screenshot-section {
             margin-top: 32px;
             padding-top: 32px;
-            border-top: 2px solid var(--panel-border);
+            border-top: 2px solid #e5e7eb;
         }
         .screenshot-section h3 {
             font-size: 20px;
             font-weight: 600;
-            color: var(--text);
+            color: #1f2937;
             margin-bottom: 16px;
         }
         .screenshot-container {
             text-align: center;
-            background: var(--panel);
-            border-radius: var(--radius-md);
+            background: #f9fafb;
+            border-radius: 8px;
             padding: 16px;
-            border: 1px solid var(--panel-border);
         }
         .screenshot-container img {
             max-width: 100%;
@@ -280,21 +320,21 @@
             background: rgba(255, 255, 255, 0.3);
         }
         .screenshot-container .no-image {
-            color: var(--muted);
+            color: #9ca3af;
             padding: 40px;
             font-style: italic;
         }
         .actions {
             margin-top: 32px;
             padding-top: 24px;
-            border-top: 2px solid var(--panel-border);
+            border-top: 2px solid #e5e7eb;
             display: flex;
             gap: 12px;
             justify-content: flex-end;
         }
         .btn {
             padding: 12px 24px;
-            border-radius: var(--radius-md);
+            border-radius: 8px;
             font-size: 14px;
             font-weight: 500;
             cursor: pointer;
@@ -302,16 +342,14 @@
             transition: all 0.2s;
         }
         .btn-primary {
-            background: var(--accent);
+            background: #2563eb;
             color: white;
-            box-shadow: 0 15px 30px -18px rgba(37, 99, 235, 0.75);
         }
         .btn-primary:hover {
             background: #1d4ed8;
-            transform: translateY(-1px);
         }
         .btn-secondary {
-            background: var(--muted);
+            background: #6b7280;
             color: white;
         }
         .btn-secondary:hover {
@@ -323,24 +361,23 @@
         }
         .alert {
             padding: 12px 16px;
-            border-radius: var(--radius-md);
+            border-radius: 8px;
             margin-bottom: 16px;
-            border: 1px solid var(--panel-border);
         }
         .alert-success {
-            background: rgba(16, 185, 129, 0.1);
+            background: #d1fae5;
             color: #065f46;
-            border-color: rgba(16, 185, 129, 0.3);
+            border: 1px solid #6ee7b7;
         }
         .alert-error {
-            background: rgba(239, 68, 68, 0.1);
+            background: #fee2e2;
             color: #991b1b;
-            border-color: rgba(239, 68, 68, 0.3);
+            border: 1px solid #fca5a5;
         }
         .alert-info {
-            background: var(--accent-soft);
-            color: var(--accent);
-            border-color: var(--accent);
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
         }
     </style>
 </head>
@@ -351,7 +388,7 @@
             <h1>Encounter Validation</h1>
             <div class="subtitle">Encounter ID: {{ encounter_id }}</div>
             {% if complaints|length == 1 and complaints[0].last_validation_date %}
-            <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: var(--muted);">
+            <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: #6b7280;">
                 Last validated: {{ complaints[0].last_validation_date }}
             </div>
             {% endif %}
