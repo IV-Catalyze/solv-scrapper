@@ -270,6 +270,7 @@
         table {
             width: 100%;
             border-collapse: collapse;
+            table-layout: fixed;
         }
 
         thead {
@@ -281,7 +282,8 @@
             text-align: left;
             font-size: 0.95rem;
             border-bottom: 1px solid rgba(148, 163, 184, 0.25);
-            vertical-align: middle;
+            vertical-align: top;
+            word-wrap: break-word;
         }
 
         th {
@@ -290,6 +292,44 @@
             font-size: 0.75rem;
             color: var(--muted);
             font-weight: 700;
+        }
+
+        /* Column width constraints */
+        th:nth-child(1), td:nth-child(1) { /* Patient Name */
+            width: 15%;
+            min-width: 120px;
+        }
+
+        th:nth-child(2), td:nth-child(2) { /* Encounter ID */
+            width: 12%;
+            max-width: 180px;
+        }
+
+        th:nth-child(3), td:nth-child(3) { /* EMR ID */
+            width: 10%;
+            max-width: 140px;
+        }
+
+        th:nth-child(4), td:nth-child(4) { /* Status */
+            width: 8%;
+            min-width: 90px;
+            white-space: nowrap;
+        }
+
+        th:nth-child(5), td:nth-child(5) { /* Created By */
+            width: 15%;
+            min-width: 140px;
+        }
+
+        th:nth-child(6), td:nth-child(6) { /* Created At */
+            width: 12%;
+            min-width: 140px;
+            white-space: nowrap;
+        }
+
+        th:nth-child(7), td:nth-child(7) { /* Actions */
+            width: 28%;
+            min-width: 300px;
         }
 
         tbody tr:hover {
@@ -312,6 +352,7 @@
             letter-spacing: 0.02em;
             background: rgba(148, 163, 184, 0.15);
             color: var(--muted);
+            white-space: nowrap;
         }
 
         .status-badge.pending {
@@ -334,9 +375,18 @@
             color: #dc2626;
         }
 
+        .actions-container {
+            display: flex;
+            gap: 0.625rem;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: flex-start;
+            min-height: 2.5rem;
+        }
+
         .btn-verify {
             font: inherit;
-            padding: 0.5rem 1rem;
+            padding: 0.625rem 1.25rem;
             border-radius: 8px;
             border: none;
             background: var(--accent);
@@ -346,22 +396,50 @@
             font-size: 0.875rem;
             font-weight: 500;
             white-space: nowrap;
+            flex-shrink: 0;
+            box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+            line-height: 1.4;
         }
 
         .btn-verify:hover:not(:disabled) {
             background: #1d4ed8;
             transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(37, 99, 235, 0.3);
+        }
+
+        .btn-verify:active:not(:disabled) {
+            transform: translateY(0);
+            box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
         }
 
         .btn-verify:disabled {
-            background: #6c757d;
+            background: #9ca3af;
             cursor: not-allowed;
             opacity: 0.6;
+            box-shadow: none;
         }
 
         .btn-verify:disabled:hover {
             transform: none;
-            background: #6c757d;
+            background: #9ca3af;
+        }
+
+        /* Secondary button style for View Verification */
+        .btn-verify.secondary {
+            background: #6b7280;
+        }
+
+        .btn-verify.secondary:hover:not(:disabled) {
+            background: #4b5563;
+        }
+
+        /* Primary button style for View Encounter */
+        .btn-verify.primary {
+            background: var(--accent);
+        }
+
+        .btn-verify.primary:hover:not(:disabled) {
+            background: #1d4ed8;
         }
 
         .empty-state {
@@ -375,6 +453,13 @@
             font-family: monospace;
             font-size: 0.9em;
             color: var(--text);
+            word-break: break-all;
+        }
+
+        .emr-id {
+            font-family: monospace;
+            font-size: 0.9em;
+            word-break: break-all;
         }
 
         .patient-name {
@@ -881,6 +966,24 @@
                 display: block;
                 overflow-x: auto;
                 white-space: nowrap;
+                table-layout: auto;
+            }
+
+            /* On smaller screens, allow columns to expand naturally but keep constraints */
+            th:nth-child(2), td:nth-child(2) { /* Encounter ID */
+                max-width: 150px;
+            }
+
+            th:nth-child(3), td:nth-child(3) { /* EMR ID */
+                max-width: 120px;
+            }
+
+            th:nth-child(7), td:nth-child(7) { /* Actions */
+                min-width: 260px;
+            }
+
+            .actions-container {
+                justify-content: flex-start;
             }
 
             .pagination-container {
@@ -964,7 +1067,7 @@
                                             <span class="muted">—</span>
                                         {% endif %}
                                     </td>
-                                    <td>
+                                    <td class="emr-id">
                                         {% if entry.emr_id %}
                                             <strong>{{ entry.emr_id }}</strong>
                                         {% else %}
@@ -976,7 +1079,7 @@
                                             {{ entry.status }}
                                         </span>
                                     </td>
-                                    <td>
+                                    <td class="created-by">
                                         {% if entry.created_by %}
                                             {{ entry.created_by }}
                                         {% else %}
@@ -991,22 +1094,22 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        <div style="display: flex; gap: 0.5rem;">
-                                            <button class="btn-verify" onclick='showVerification({{ entry.queue_id|tojson }}, {{ entry.encounter_payload|tojson }})'>
+                                        <div class="actions-container">
+                                            <button class="btn-verify primary" onclick='showVerification({{ entry.queue_id|tojson }}, {{ entry.encounter_payload|tojson }})'>
                                                 View Encounter
                                             </button>
                                             {% if entry.encounter_id %}
                                                 <a href="#" 
-                                                   class="btn-verify" 
-                                                   style="text-decoration: none; display: inline-block; cursor: pointer;"
+                                                   class="btn-verify secondary" 
+                                                   style="text-decoration: none; display: inline-flex; align-items: center;"
                                                    data-encounter-id="{{ entry.encounter_id }}"
                                                    onclick="handleValidationNavigationClick(this); return false;">
                                                     {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
                                                 </a>
                                             {% else %}
-                                                <button class="btn-verify" onclick='showValidation({{ entry.queue_id|tojson }})' title="No encounter_id available - using modal view">
+                                                <button class="btn-verify secondary" onclick='showValidation({{ entry.queue_id|tojson }})' title="No encounter_id available - using modal view">
                                                     {% if entry.has_validation %}View Verification{% else %}Verify{% endif %}
-                                            </button>
+                                                </button>
                                             {% endif %}
                                         </div>
                                     </td>
