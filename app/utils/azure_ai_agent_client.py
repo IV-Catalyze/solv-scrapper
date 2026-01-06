@@ -319,6 +319,26 @@ def _clean_json_text(text: str) -> str:
     return text.strip()
 
 
+def _is_valid_uuid(value: Any) -> bool:
+    """
+    Check if a value is a valid UUID string.
+    
+    Args:
+        value: Value to check (can be any type)
+        
+    Returns:
+        True if value is a valid UUID string, False otherwise
+    """
+    if not isinstance(value, str):
+        return False
+    
+    try:
+        uuid.UUID(value)
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
 def _parse_experity_json(text: str, encounter_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Parse JSON text into Experity mapping object.
@@ -1170,8 +1190,9 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                     else:
                         logger.debug(f"emrId already correct: {original_emr_id}")
                 
-                # Post-process: Ensure each complaint has a complaintId
-                # Use pre-extracted complaintId if available, generate UUID if missing
+                # Post-process: Ensure each complaint has a valid UUID complaintId
+                # Always use pre-extracted complaintId from source data if available, never trust LLM's value
+                # If LLM provides invalid UUID (e.g., description text), replace it
                 if "complaints" in actions and isinstance(actions["complaints"], list):
                     complaints = actions["complaints"]
                     for idx, complaint in enumerate(complaints):
@@ -1188,19 +1209,45 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                         elif idx in complaint_id_map:
                             matched_id = complaint_id_map[idx]
                         
+                        # CRITICAL: Always validate and fix complaintId
+                        # Priority 1: Use pre-extracted ID if available (always overwrite LLM's value)
                         if matched_id:
-                            # Use pre-extracted ID (always overwrite LLM's value to ensure correctness)
                             complaint["complaintId"] = matched_id
                             if current_complaint_id != matched_id:
-                                logger.debug(f"Set complaintId for complaint[{idx}] '{complaint_description}' to pre-extracted: {matched_id}")
-                        elif not current_complaint_id:
-                            # Generate new UUID if missing
+                                if not _is_valid_uuid(current_complaint_id):
+                                    logger.warning(
+                                        f"Replaced invalid complaintId '{current_complaint_id}' "
+                                        f"for complaint[{idx}] '{complaint_description}' with pre-extracted UUID: {matched_id}"
+                                    )
+                                else:
+                                    logger.debug(
+                                        f"Set complaintId for complaint[{idx}] '{complaint_description}' "
+                                        f"to pre-extracted: {matched_id}"
+                                    )
+                        # Priority 2: If no match but LLM provided a valid UUID, keep it
+                        elif current_complaint_id and _is_valid_uuid(current_complaint_id):
+                            # LLM provided a valid UUID and we don't have a pre-extracted match
+                            # Keep it (already set)
+                            logger.debug(
+                                f"Keeping LLM-provided valid UUID complaintId for complaint[{idx}] "
+                                f"'{complaint_description}': {current_complaint_id}"
+                            )
+                        # Priority 3: LLM provided invalid UUID (e.g., description text) or missing
+                        # Generate new UUID
+                        else:
+                            if current_complaint_id and not _is_valid_uuid(current_complaint_id):
+                                logger.warning(
+                                    f"LLM provided invalid complaintId '{current_complaint_id}' "
+                                    f"for complaint[{idx}] '{complaint_description}'. Generating new UUID."
+                                )
                             new_id = str(uuid.uuid4())
                             complaint["complaintId"] = new_id
-                            logger.info(f"Generated new complaintId for complaint[{idx}] '{complaint_description}': {new_id}")
-                        # If LLM provided a complaintId and we don't have a match, keep it (already set)
+                            logger.info(
+                                f"Generated new complaintId for complaint[{idx}] "
+                                f"'{complaint_description}': {new_id}"
+                            )
                     
-                    logger.info(f"Post-processed {len(complaints)} complaints to ensure complaintId is present")
+                    logger.info(f"Post-processed {len(complaints)} complaints to ensure complaintId is valid UUID")
             else:
                 # Could not find experityActions structure - log warning
                 if original_emr_id is None:
