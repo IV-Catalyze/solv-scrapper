@@ -204,6 +204,7 @@ async def get_queue_validation(
             # Find HPI image path for this specific complaint
 
             # complaint_id is always required (guaranteed by azure_ai_agent_client.py)
+            from app.api.routes import find_hpi_image_by_complaint
 
             hpi_image_path = None
 
@@ -514,6 +515,7 @@ async def manual_validation_page(
         
 
         # Check if screenshots exist for all complaints
+        from app.api.routes import find_hpi_image_by_complaint
 
         complaints_with_screenshots = []
 
@@ -1218,6 +1220,7 @@ async def get_queue_validation_image(
         
 
         # Find HPI image path using encounter_id and complaint_id
+        from app.api.routes import find_hpi_image_by_complaint
 
         hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, complaint_id)
 
