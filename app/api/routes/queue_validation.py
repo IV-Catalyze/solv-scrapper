@@ -23,8 +23,25 @@ from app.api.routes.dependencies import (
 
 router = APIRouter()
 
+# Helper function to import from routes.py file (not the package) to avoid circular imports
+def _get_routes_module():
+    """Import from routes.py file directly to access module-level functions."""
+    import sys
+    import importlib.util
+    from pathlib import Path
+    
+    if "app.api.routes_module" not in sys.modules:
+        routes_file = Path(__file__).parent.parent / "routes.py"
+        spec = importlib.util.spec_from_file_location("app.api.routes_module", routes_file)
+        routes_module = importlib.util.module_from_spec(spec)
+        sys.modules["app.api.routes_module"] = routes_module
+        spec.loader.exec_module(routes_module)
+        return routes_module
+    else:
+        return sys.modules["app.api.routes_module"]
+
 # Note: Functions find_hpi_image_by_complaint, find_encounter_image, get_image_bytes_from_blob, 
-# and get_content_type_from_blob_name are imported from app.api.routes module at function level 
+# and get_content_type_from_blob_name are imported from routes.py module at function level 
 # to avoid circular imports. They are used directly in the code.
 
 
@@ -204,7 +221,8 @@ async def get_queue_validation(
             # Find HPI image path for this specific complaint
 
             # complaint_id is always required (guaranteed by azure_ai_agent_client.py)
-            from app.api.routes import find_hpi_image_by_complaint
+            routes_module = _get_routes_module()
+            find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
 
             hpi_image_path = None
 
@@ -515,7 +533,8 @@ async def manual_validation_page(
         
 
         # Check if screenshots exist for all complaints
-        from app.api.routes import find_hpi_image_by_complaint
+        routes_module = _get_routes_module()
+        find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
 
         complaints_with_screenshots = []
 
@@ -801,7 +820,8 @@ async def manual_validation_page(
 
         
         # Check if ICD and Historian images exist
-        from app.api.routes import find_encounter_image
+        routes_module = _get_routes_module()
+        find_encounter_image = routes_module.find_encounter_image
         
         has_icd_image = find_encounter_image(encounter_id, "icd") is not None
         has_historian_image = find_encounter_image(encounter_id, "historian") is not None
@@ -1044,7 +1064,8 @@ async def save_manual_validation(
             
 
             # Save using existing save_validation_result function
-            from app.api.routes import save_validation_result
+            routes_module = _get_routes_module()
+            save_validation_result = routes_module.save_validation_result
             
             save_validation_result(
 
@@ -1220,7 +1241,10 @@ async def get_queue_validation_image(
         
 
         # Find HPI image path using encounter_id and complaint_id
-        from app.api.routes import find_hpi_image_by_complaint, get_image_bytes_from_blob, get_content_type_from_blob_name
+        routes_module = _get_routes_module()
+        find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
+        get_image_bytes_from_blob = routes_module.get_image_bytes_from_blob
+        get_content_type_from_blob_name = routes_module.get_content_type_from_blob_name
 
         hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, complaint_id)
 
@@ -1350,8 +1374,11 @@ async def get_icd_image(
     """
 
     try:
-        # Import helper functions from app.api.routes to avoid circular imports
-        from app.api.routes import find_encounter_image, get_image_bytes_from_blob, get_content_type_from_blob_name
+        # Import helper functions from routes.py module to avoid circular imports
+        routes_module = _get_routes_module()
+        find_encounter_image = routes_module.find_encounter_image
+        get_image_bytes_from_blob = routes_module.get_image_bytes_from_blob
+        get_content_type_from_blob_name = routes_module.get_content_type_from_blob_name
 
         # Find ICD image path using encounter_id
         icd_image_path = find_encounter_image(encounter_id, "icd")
