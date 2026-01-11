@@ -437,7 +437,7 @@ def main():
             print_api(f"Starting API server on {api_host}:{candidate_port}...")
             api_cmd = [
                 sys.executable, '-m', 'uvicorn',
-                'app.api.routes:app',
+                'app.api:app',
                 '--host', api_host,
                 '--port', str(candidate_port),
                 '--log-level', 'info'
