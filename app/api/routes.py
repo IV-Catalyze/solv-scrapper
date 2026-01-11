@@ -396,19 +396,19 @@ if SESSION_AUTH_ENABLED and auth_router:
 # ============================================================================
 # IMPORT MODULARIZED ROUTE MODULES (Phase 1 Refactoring)
 # ============================================================================
-# Import route modules
-from app.api.routes import ui
-from app.api.routes import patients
-from app.api.routes import encounters
-from app.api.routes import summaries
-from app.api.routes import vm_health
-from app.api.routes import queue
-from app.api.routes import queue_validation
-from app.api.routes import images
-from app.api.routes import validation
+# Import route modules - use absolute imports from submodules to avoid circular imports
+from app.api.routes.ui import router as ui_router
+from app.api.routes.patients import router as patients_router
+from app.api.routes.encounters import router as encounters_router
+from app.api.routes.summaries import router as summaries_router
+from app.api.routes.vm_health import router as vm_health_router
+from app.api.routes.queue import router as queue_router
+from app.api.routes.queue_validation import router as queue_validation_router
+from app.api.routes.images import router as images_router
+from app.api.routes.validation import router as validation_router
 
 # Include modularized routers
-app.include_router(ui.router)
+app.include_router(ui_router)
 app.include_router(patients.router, tags=["Patients"])
 app.include_router(encounters.router, tags=["Encounters"])
 app.include_router(summaries.router, tags=["Summaries"])
