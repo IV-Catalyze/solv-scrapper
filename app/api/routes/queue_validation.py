@@ -689,8 +689,8 @@ async def manual_validation_page(
 
             
 
-            # Find HPI image for this complaint (call function again like original working code)
-            hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
+            # Get HPI image path from first loop (reuse stored path to ensure consistency)
+            hpi_image_path = complaints_with_screenshots_paths.get(complaint_id_str)
 
             
 
