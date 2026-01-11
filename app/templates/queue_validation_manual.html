@@ -584,6 +584,18 @@
                         <div class="no-image">Screenshot not available</div>
                     {% endif %}
                 </div>
+                <div style="margin-top: 16px; display: flex; gap: 12px; justify-content: center;">
+                    <button class="btn btn-secondary" 
+                            onclick="viewScreenshotFullscreen('/queue/validation/{{ encounter_id }}/image/icd')"
+                            style="font-size: 14px; padding: 10px 20px;">
+                        View ICD Screenshot
+                    </button>
+                    <button class="btn btn-secondary" 
+                            onclick="viewScreenshotFullscreen('/queue/validation/{{ encounter_id }}/image/historian')"
+                            style="font-size: 14px; padding: 10px 20px;">
+                        View Historian Screenshot
+                    </button>
+                </div>
             </div>
 
             <div class="actions">
