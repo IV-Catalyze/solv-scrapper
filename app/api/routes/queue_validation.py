@@ -102,8 +102,9 @@ async def get_queue_validation(
     Returns 404 if no validation exists for this queue_id.
 
     """
-    # Import helper functions from app.api.routes to avoid circular imports
-    from app.api.routes import find_hpi_image_by_complaint
+    # Import helper functions from routes.py module to avoid circular imports
+    routes_module = _get_routes_module()
+    find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
 
     conn = None
 
@@ -533,6 +534,8 @@ async def manual_validation_page(
         
 
         # Check if screenshots exist for all complaints
+        routes_module = _get_routes_module()
+        find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
 
         complaints_with_screenshots = []
 
