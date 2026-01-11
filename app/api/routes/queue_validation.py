@@ -7,10 +7,10 @@ This module contains all routes related to queue entry validation and manual val
 import logging
 import json
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Request, Depends, Form
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from psycopg2.extras import RealDictCursor
 import psycopg2
 
@@ -23,9 +23,25 @@ from app.api.routes.dependencies import (
 
 router = APIRouter()
 
-# Note: Functions find_hpi_image_by_complaint, find_encounter_image, get_image_bytes_from_blob, 
-# and get_content_type_from_blob_name are imported from app.api.routes module at function level 
-# to avoid circular imports. They are used directly in the code.
+# Note: Functions find_hpi_image_by_complaint, find_encounter_image, get_image_bytes_from_blob
+# are imported from app.api.routes.py (the module file, not the package) using importlib
+# to avoid circular imports. get_content_type_from_blob_name is imported from app.api.routes.images.
+# Helper function to import from routes.py module:
+def _get_routes_module():
+    """Import from routes.py file (not the package) to avoid circular imports."""
+    import sys
+    import importlib.util
+    from pathlib import Path
+    
+    if 'app.api.routes_module' not in sys.modules:
+        routes_file = Path(__file__).parent.parent.parent / 'app' / 'api' / 'routes.py'
+        spec = importlib.util.spec_from_file_location('app.api.routes_module', routes_file)
+        routes_module = importlib.util.module_from_spec(spec)
+        sys.modules['app.api.routes_module'] = routes_module
+        spec.loader.exec_module(routes_module)
+        return routes_module
+    else:
+        return sys.modules['app.api.routes_module']
 
 
 @router.get(
@@ -86,6 +102,8 @@ async def get_queue_validation(
     Returns 404 if no validation exists for this queue_id.
 
     """
+    # Import helper functions from app.api.routes to avoid circular imports
+    from app.api.routes import find_hpi_image_by_complaint
 
     conn = None
 
@@ -204,6 +222,7 @@ async def get_queue_validation(
             # Find HPI image path for this specific complaint
 
             # complaint_id is always required (guaranteed by azure_ai_agent_client.py)
+            from app.api.routes import find_hpi_image_by_complaint
 
             hpi_image_path = None
 
@@ -342,7 +361,9 @@ async def manual_validation_page(
 
                 encounter_id,
 
-                parsed_payload
+                parsed_payload,
+
+                raw_payload
 
             FROM queue
 
@@ -403,6 +424,17 @@ async def manual_validation_page(
         queue_id = str(queue_entry.get('queue_id'))
 
         parsed_payload = queue_entry.get('parsed_payload')
+
+        raw_payload = queue_entry.get('raw_payload')
+        
+        # Parse raw_payload if it's a string
+        if isinstance(raw_payload, str):
+            try:
+                raw_payload = json.loads(raw_payload)
+            except json.JSONDecodeError:
+                raw_payload = {}
+        elif raw_payload is None:
+            raw_payload = {}
 
         
 
@@ -655,6 +687,7 @@ async def manual_validation_page(
             
 
             # Find HPI image for this complaint - verify it actually exists
+            from app.api.routes import find_hpi_image_by_complaint
 
             hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
 
@@ -799,6 +832,10 @@ async def manual_validation_page(
                 "queue_id": queue_id,
 
                 "complaints": complaints_data,
+
+                "raw_payload": raw_payload,
+
+                "experity_actions": experity_actions,
 
                 "current_user": current_user,
 
@@ -1016,7 +1053,8 @@ async def save_manual_validation(
             
 
             # Save using existing save_validation_result function
-
+            from app.api.routes import save_validation_result
+            
             save_validation_result(
 
                 conn,
@@ -1191,6 +1229,8 @@ async def get_queue_validation_image(
         
 
         # Find HPI image path using encounter_id and complaint_id
+        from app.api.routes import find_hpi_image_by_complaint, get_image_bytes_from_blob
+        from app.api.routes.images import get_content_type_from_blob_name
 
         hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, complaint_id)
 
