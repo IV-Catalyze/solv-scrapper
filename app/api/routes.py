@@ -409,14 +409,14 @@ from app.api.routes.validation import router as validation_router
 
 # Include modularized routers
 app.include_router(ui_router)
-app.include_router(patients.router, tags=["Patients"])
-app.include_router(encounters.router, tags=["Encounters"])
-app.include_router(summaries.router, tags=["Summaries"])
-app.include_router(vm_health.router, tags=["VM"])
-app.include_router(queue.router, tags=["Queue"])
-app.include_router(queue_validation.router, tags=["Queue"])
-app.include_router(images.router, tags=["Images"])
-app.include_router(validation.router, tags=["Validation"])
+app.include_router(patients_router, tags=["Patients"])
+app.include_router(encounters_router, tags=["Encounters"])
+app.include_router(summaries_router, tags=["Summaries"])
+app.include_router(vm_health_router, tags=["VM"])
+app.include_router(queue_router, tags=["Queue"])
+app.include_router(queue_validation_router, tags=["Queue"])
+app.include_router(images_router, tags=["Images"])
+app.include_router(validation_router, tags=["Validation"])
 
 # Import from new modules
 from app.api.models import (
