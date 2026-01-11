@@ -538,7 +538,6 @@ async def manual_validation_page(
         find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
 
         complaints_with_screenshots = []
-        complaints_with_screenshots_paths = {}  # Store hpi_image_path for each complaint
 
         complaints_without_screenshots = []
 
@@ -563,7 +562,7 @@ async def manual_validation_page(
             if hpi_image_path:
 
                 complaints_with_screenshots.append(complaint)
-                complaints_with_screenshots_paths[complaint_id_str] = hpi_image_path
+
             else:
 
                 complaints_without_screenshots.append(complaint)
@@ -690,8 +689,8 @@ async def manual_validation_page(
 
             
 
-            # Get HPI image path from first loop (already verified to exist)
-            hpi_image_path = complaints_with_screenshots_paths.get(complaint_id_str)
+            # Find HPI image for this complaint (call function again like original working code)
+            hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
 
             
 
