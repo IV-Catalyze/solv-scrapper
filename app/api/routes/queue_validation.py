@@ -1220,7 +1220,7 @@ async def get_queue_validation_image(
         
 
         # Find HPI image path using encounter_id and complaint_id
-        from app.api.routes import find_hpi_image_by_complaint
+        from app.api.routes import find_hpi_image_by_complaint, get_image_bytes_from_blob, get_content_type_from_blob_name
 
         hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, complaint_id)
 
