@@ -690,15 +690,12 @@ async def manual_validation_page(
 
             
 
-            # Find HPI image for this complaint
-            routes_module = _get_routes_module()
-            find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
-            hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
+            # Get HPI image path from first loop (already verified to exist)
+            hpi_image_path = complaints_with_screenshots_paths.get(complaint_id_str)
 
             
 
-            # Only add complaint if it has a valid screenshot
-
+            # Skip if no image path (should not happen since we filtered in first loop, but safety check)
             if not hpi_image_path:
 
                 continue
