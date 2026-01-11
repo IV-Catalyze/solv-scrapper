@@ -321,6 +321,57 @@
             padding: 40px;
             font-style: italic;
         }
+        /* No Image Dialog */
+        .no-image-dialog {
+            display: none;
+            position: fixed;
+            z-index: 2100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(2px);
+            align-items: center;
+            justify-content: center;
+        }
+        .no-image-dialog.show {
+            display: flex;
+        }
+        .no-image-dialog-content {
+            background: white;
+            padding: 32px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            max-width: 400px;
+            text-align: center;
+            position: relative;
+        }
+        .no-image-dialog-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 16px;
+        }
+        .no-image-dialog-message {
+            font-size: 14px;
+            color: #6b7280;
+            margin-bottom: 24px;
+        }
+        .no-image-dialog-close {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .no-image-dialog-close:hover {
+            background: #1d4ed8;
+        }
         .actions {
             margin-top: 32px;
             padding-top: 24px;
@@ -376,6 +427,90 @@
             color: #1e40af;
             border: 1px solid #93c5fd;
         }
+        .comparison-section {
+            margin-bottom: 32px;
+            padding: 24px;
+            background: #f9fafb;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+        }
+        .comparison-section h3 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+        .comparison-column {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+        }
+        .comparison-column h4 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .comparison-field {
+            margin-bottom: 16px;
+        }
+        .comparison-field-label {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #6b7280;
+            margin-bottom: 6px;
+        }
+        .comparison-field-value {
+            font-size: 14px;
+            color: #1f2937;
+            word-break: break-word;
+            padding: 8px;
+            background: #f9fafb;
+            border-radius: 6px;
+            min-height: 20px;
+        }
+        .comparison-field-value pre {
+            margin: 0;
+            font-family: inherit;
+            font-size: 14px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .json-viewer {
+            background: #1f2937;
+            color: #f9fafb;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .json-viewer pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        @media (max-width: 960px) {
+            .comparison-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -420,6 +555,123 @@
         <div class="complaint-content {% if loop.first %}active{% endif %}" 
              data-complaint-id="{{ complaint.complaint_id }}"
              data-complaint-index="{{ loop.index0 }}">
+            
+            <!-- Comparison Section: Encounter Data vs Experity Output -->
+            <div class="comparison-section">
+                <h3>Data Comparison</h3>
+                <div class="comparison-grid">
+                    <!-- Encounter Data Column -->
+                    <div class="comparison-column">
+                        <h4>Encounter Data (Raw)</h4>
+                        {% if raw_payload %}
+                            {% set encounter_complaint = raw_payload.get('complaints', [{}])[0] if raw_payload.get('complaints') else {} %}
+                            <div class="comparison-field">
+                                <div class="comparison-field-label">Main Problem</div>
+                                <div class="comparison-field-value">
+                                    {{ encounter_complaint.get('mainProblem') or encounter_complaint.get('description') or raw_payload.get('mainProblem') or '—' }}
+                                </div>
+                            </div>
+                            <div class="comparison-field">
+                                <div class="comparison-field-label">Body Area</div>
+                                <div class="comparison-field-value">
+                                    {{ encounter_complaint.get('bodyAreaKey') or encounter_complaint.get('bodyArea') or raw_payload.get('bodyAreaKey') or '—' }}
+                                </div>
+                            </div>
+                            <div class="comparison-field">
+                                <div class="comparison-field-label">Notes</div>
+                                <div class="comparison-field-value">
+                                    <pre>{{ encounter_complaint.get('notesFreeText') or encounter_complaint.get('notes') or raw_payload.get('notesFreeText') or raw_payload.get('notes') or '—' }}</pre>
+                                </div>
+                            </div>
+                            <div class="comparison-field">
+                                <div class="comparison-field-label">Quality</div>
+                                <div class="comparison-field-value">
+                                    {% set quality = encounter_complaint.get('quality') or encounter_complaint.get('notesPayload', {}).get('quality') or raw_payload.get('quality') %}
+                                    {% if quality %}
+                                        {% if quality is iterable and quality is not string %}
+                                            {{ quality|join(', ') }}
+                                        {% else %}
+                                            {{ quality }}
+                                        {% endif %}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="comparison-field">
+                                <div class="comparison-field-label">Severity</div>
+                                <div class="comparison-field-value">
+                                    {{ encounter_complaint.get('severity') or encounter_complaint.get('notesPayload', {}).get('severity') or raw_payload.get('severity') or '—' }}
+                                </div>
+                            </div>
+                            <details style="margin-top: 16px;">
+                                <summary style="cursor: pointer; font-size: 12px; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">View Full JSON</summary>
+                                <div class="json-viewer" style="margin-top: 12px;">
+                                    <pre>{{ raw_payload|tojson(indent=2) }}</pre>
+                                </div>
+                            </details>
+                        {% else %}
+                            <div class="comparison-field-value">No encounter data available</div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Experity Output Column -->
+                    <div class="comparison-column">
+                        <h4>Experity Output (Parsed)</h4>
+                        {% if experity_actions %}
+                            {% set experity_complaint = complaint.complaint_data %}
+                            <div class="comparison-field">
+                                <div class="comparison-field-label">Main Problem</div>
+                                <div class="comparison-field-value">
+                                    {{ experity_complaint.get('mainProblem') or experity_complaint.get('description') or '—' }}
+                                </div>
+                            </div>
+                            <div class="comparison-field">
+                                <div class="comparison-field-label">Body Area</div>
+                                <div class="comparison-field-value">
+                                    {{ experity_complaint.get('bodyAreaKey') or experity_complaint.get('bodyArea') or '—' }}
+                                </div>
+                            </div>
+                            <div class="comparison-field">
+                                <div class="comparison-field-label">Notes</div>
+                                <div class="comparison-field-value">
+                                    <pre>{{ experity_complaint.get('notesFreeText') or experity_complaint.get('notes') or '—' }}</pre>
+                                </div>
+                            </div>
+                            <div class="comparison-field">
+                                <div class="comparison-field-label">Quality</div>
+                                <div class="comparison-field-value">
+                                    {% set quality = experity_complaint.get('notesPayload', {}).get('quality') or experity_complaint.get('quality') %}
+                                    {% if quality %}
+                                        {% if quality is iterable and quality is not string %}
+                                            {{ quality|join(', ') }}
+                                        {% else %}
+                                            {{ quality }}
+                                        {% endif %}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="comparison-field">
+                                <div class="comparison-field-label">Severity</div>
+                                <div class="comparison-field-value">
+                                    {{ experity_complaint.get('notesPayload', {}).get('severity') or experity_complaint.get('severity') or '—' }}
+                                </div>
+                            </div>
+                            <details style="margin-top: 16px;">
+                                <summary style="cursor: pointer; font-size: 12px; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">View Full JSON</summary>
+                                <div class="json-viewer" style="margin-top: 12px;">
+                                    <pre>{{ experity_actions|tojson(indent=2) }}</pre>
+                                </div>
+                            </details>
+                        {% else %}
+                            <div class="comparison-field-value">No experity output available</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            
             <table class="validation-table">
                 <thead>
                     <tr>
@@ -585,16 +837,20 @@
                     {% endif %}
                 </div>
                 <div style="margin-top: 16px; display: flex; gap: 12px; justify-content: center;">
+                    {% if has_icd_image %}
                     <button class="btn btn-secondary" 
                             onclick="viewScreenshotFullscreen('/queue/validation/{{ encounter_id }}/image/icd')"
                             style="font-size: 14px; padding: 10px 20px;">
                         View ICD Screenshot
                     </button>
+                    {% endif %}
+                    {% if has_historian_image %}
                     <button class="btn btn-secondary" 
                             onclick="viewScreenshotFullscreen('/queue/validation/{{ encounter_id }}/image/historian')"
                             style="font-size: 14px; padding: 10px 20px;">
                         View Historian Screenshot
                     </button>
+                    {% endif %}
                 </div>
             </div>
 
@@ -616,6 +872,17 @@
         <div class="image-modal-content" onclick="event.stopPropagation()">
             <span class="image-modal-close" onclick="closeImageModal()">&times;</span>
             <img id="modalImage" class="image-modal-image" src="" alt="Full size screenshot">
+        </div>
+    </div>
+
+    <!-- No Image Dialog -->
+    <div id="noImageDialog" class="no-image-dialog" onclick="closeNoImageDialog(event)">
+        <div class="no-image-dialog-content" onclick="event.stopPropagation()">
+            <div class="no-image-dialog-title">Image Not Available</div>
+            <div class="no-image-dialog-message" id="noImageDialogMessage">
+                The requested image is not available.
+            </div>
+            <button class="no-image-dialog-close" onclick="closeNoImageDialog()">Close</button>
         </div>
     </div>
 
@@ -662,12 +929,45 @@
             const modal = document.getElementById('imageModal');
             const modalImage = document.getElementById('modalImage');
             
+            // Show modal immediately
             modal.classList.add('show');
-            modalImage.src = imageUrl;
-            modalImage.alt = 'HPI Screenshot - Full Size';
-            
-            // Prevent body scroll when modal is open
             document.body.style.overflow = 'hidden';
+            
+            // Try to load the image
+            const img = new Image();
+            
+            img.onload = function() {
+                // Image loaded successfully, show it in the modal
+                modalImage.src = imageUrl;
+                modalImage.alt = 'Screenshot - Full Size';
+            };
+            
+            img.onerror = function() {
+                // Image failed to load (404 or other error)
+                closeImageModal();
+                showNoImageDialog();
+            };
+            
+            img.src = imageUrl;
+        }
+        
+        function showNoImageDialog() {
+            const dialog = document.getElementById('noImageDialog');
+            dialog.classList.add('show');
+            document.body.style.overflow = 'hidden';
+        }
+        
+        function closeNoImageDialog(event) {
+            // Close on click outside or on close button
+            if (event) {
+                if (event.target.id !== 'noImageDialog' && !event.target.classList.contains('no-image-dialog-close')) {
+                    return;
+                }
+            }
+            
+            const dialog = document.getElementById('noImageDialog');
+            dialog.classList.remove('show');
+            document.body.style.overflow = '';
         }
 
         function handleImageError(imgElement, complaintId) {
@@ -699,6 +999,7 @@
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
                 closeImageModal();
+                closeNoImageDialog();
             }
         });
 

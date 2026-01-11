@@ -23,32 +23,9 @@ from app.api.routes.dependencies import (
 
 router = APIRouter()
 
-# Note: Functions find_hpi_image_by_complaint, find_encounter_image, get_image_bytes_from_blob
-# are imported from app.api.routes.py (the module file, not the package) using importlib
-# to avoid circular imports. get_content_type_from_blob_name is imported from app.api.routes.images.
-# Helper function to import from routes.py module:
-def _get_routes_module():
-    """Import from routes.py file (not the package) to avoid circular imports.
-    
-    Always loads routes.py as a separate module instance to access the module-level
-    functions like find_hpi_image_by_complaint. The 'app.api.routes' in sys.modules
-    refers to the package (routes/__init__.py), not the routes.py module file.
-    """
-    import sys
-    import importlib.util
-    from pathlib import Path
-    
-    # Always load routes.py as a separate module instance
-    # This is necessary because 'app.api.routes' refers to the package, not the module file
-    if 'app.api.routes_module' not in sys.modules:
-        routes_file = Path(__file__).parent.parent / 'routes.py'
-        spec = importlib.util.spec_from_file_location('app.api.routes_module', routes_file)
-        routes_module = importlib.util.module_from_spec(spec)
-        sys.modules['app.api.routes_module'] = routes_module
-        spec.loader.exec_module(routes_module)
-        return routes_module
-    else:
-        return sys.modules['app.api.routes_module']
+# Note: Functions find_hpi_image_by_complaint, find_encounter_image, get_image_bytes_from_blob, 
+# and get_content_type_from_blob_name are imported from app.api.routes module at function level 
+# to avoid circular imports. They are used directly in the code.
 
 
 @router.get(
@@ -109,9 +86,6 @@ async def get_queue_validation(
     Returns 404 if no validation exists for this queue_id.
 
     """
-    # Import helper functions from routes.py module to avoid circular imports
-    routes_module = _get_routes_module()
-    find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
 
     conn = None
 
@@ -230,8 +204,6 @@ async def get_queue_validation(
             # Find HPI image path for this specific complaint
 
             # complaint_id is always required (guaranteed by azure_ai_agent_client.py)
-            routes_module = _get_routes_module()
-            find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
 
             hpi_image_path = None
 
@@ -542,8 +514,6 @@ async def manual_validation_page(
         
 
         # Check if screenshots exist for all complaints
-        routes_module = _get_routes_module()
-        find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
 
         complaints_with_screenshots = []
 
@@ -697,13 +667,43 @@ async def manual_validation_page(
 
             
 
-            # Find HPI image for this complaint (call function again like original working code)
+            # Find HPI image for this complaint - verify it actually exists
+
             hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
 
             
 
-            # Skip if no image path (should not happen since we filtered in first loop, but safety check)
+            # Double-check: if hpi_image_path was set but image doesn't actually exist, clear it
+
+            if hpi_image_path:
+
+                # Verify the image actually exists in blob storage
+
+                try:
+
+                    from app.utils.azure_blob_client import get_blob_client
+
+                    blob_client = get_blob_client()
+
+                    if not blob_client.blob_exists(hpi_image_path):
+
+                        logger.warning(f"HPI image path found but blob doesn't exist: {hpi_image_path}")
+
+                        hpi_image_path = None
+
+                except Exception as e:
+
+                    logger.warning(f"Could not verify blob existence for {hpi_image_path}: {e}")
+
+                    # If we can't verify, assume it exists (don't block validation)
+
+            
+
+            # Only add complaint if it has a valid screenshot
+
             if not hpi_image_path:
+
+                logger.warning(f"Skipping complaint {complaint_id_str} - no valid screenshot found")
 
                 continue
 
@@ -798,6 +798,11 @@ async def manual_validation_page(
             )
 
         
+        # Check if ICD and Historian images exist
+        from app.api.routes import find_encounter_image
+        
+        has_icd_image = find_encounter_image(encounter_id, "icd") is not None
+        has_historian_image = find_encounter_image(encounter_id, "historian") is not None
 
         return templates.TemplateResponse(
 
@@ -826,6 +831,10 @@ async def manual_validation_page(
                 "show_navigation": False,
 
                 "show_user_menu": False,
+
+                "has_icd_image": has_icd_image,
+
+                "has_historian_image": has_historian_image,
 
             }
 
@@ -1033,8 +1042,7 @@ async def save_manual_validation(
             
 
             # Save using existing save_validation_result function
-            routes_module = _get_routes_module()
-            save_validation_result = routes_module.save_validation_result
+            from app.api.routes import save_validation_result
             
             save_validation_result(
 
@@ -1210,10 +1218,6 @@ async def get_queue_validation_image(
         
 
         # Find HPI image path using encounter_id and complaint_id
-        routes_module = _get_routes_module()
-        find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
-        get_image_bytes_from_blob = routes_module.get_image_bytes_from_blob
-        from app.api.routes.images import get_content_type_from_blob_name
 
         hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, complaint_id)
 
@@ -1343,11 +1347,8 @@ async def get_icd_image(
     """
 
     try:
-        # Import helper functions from routes.py module to avoid circular imports
-        routes_module = _get_routes_module()
-        find_encounter_image = routes_module.find_encounter_image
-        get_image_bytes_from_blob = routes_module.get_image_bytes_from_blob
-        from app.api.routes.images import get_content_type_from_blob_name
+        # Import helper functions from app.api.routes to avoid circular imports
+        from app.api.routes import find_encounter_image, get_image_bytes_from_blob, get_content_type_from_blob_name
 
         # Find ICD image path using encounter_id
         icd_image_path = find_encounter_image(encounter_id, "icd")
@@ -1465,11 +1466,8 @@ async def get_historian_image(
     """
 
     try:
-        # Import helper functions from routes.py module to avoid circular imports
-        routes_module = _get_routes_module()
-        find_encounter_image = routes_module.find_encounter_image
-        get_image_bytes_from_blob = routes_module.get_image_bytes_from_blob
-        from app.api.routes.images import get_content_type_from_blob_name
+        # Import helper functions from app.api.routes to avoid circular imports
+        from app.api.routes import find_encounter_image, get_image_bytes_from_blob, get_content_type_from_blob_name
 
         # Find Historian image path using encounter_id
         historian_image_path = find_encounter_image(encounter_id, "historian")
