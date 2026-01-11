@@ -1342,8 +1342,11 @@ async def get_icd_image(
     """
 
     try:
-        # Import helper functions from app.api.routes to avoid circular imports
-        from app.api.routes import find_encounter_image, get_image_bytes_from_blob, get_content_type_from_blob_name
+        # Import helper functions from routes.py module to avoid circular imports
+        routes_module = _get_routes_module()
+        find_encounter_image = routes_module.find_encounter_image
+        get_image_bytes_from_blob = routes_module.get_image_bytes_from_blob
+        from app.api.routes.images import get_content_type_from_blob_name
 
         # Find ICD image path using encounter_id
         icd_image_path = find_encounter_image(encounter_id, "icd")
@@ -1461,8 +1464,11 @@ async def get_historian_image(
     """
 
     try:
-        # Import helper functions from app.api.routes to avoid circular imports
-        from app.api.routes import find_encounter_image, get_image_bytes_from_blob, get_content_type_from_blob_name
+        # Import helper functions from routes.py module to avoid circular imports
+        routes_module = _get_routes_module()
+        find_encounter_image = routes_module.find_encounter_image
+        get_image_bytes_from_blob = routes_module.get_image_bytes_from_blob
+        from app.api.routes.images import get_content_type_from_blob_name
 
         # Find Historian image path using encounter_id
         historian_image_path = find_encounter_image(encounter_id, "historian")
