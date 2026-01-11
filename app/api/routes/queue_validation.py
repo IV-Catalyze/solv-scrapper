@@ -689,44 +689,16 @@ async def manual_validation_page(
 
             
 
-            # Find HPI image for this complaint - verify it actually exists
+            # Find HPI image for this complaint
             routes_module = _get_routes_module()
             find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
             hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
 
             
 
-            # Double-check: if hpi_image_path was set but image doesn't actually exist, clear it
-
-            if hpi_image_path:
-
-                # Verify the image actually exists in blob storage
-
-                try:
-
-                    from app.utils.azure_blob_client import get_blob_client
-
-                    blob_client = get_blob_client()
-
-                    if not blob_client.blob_exists(hpi_image_path):
-
-                        logger.warning(f"HPI image path found but blob doesn't exist: {hpi_image_path}")
-
-                        hpi_image_path = None
-
-                except Exception as e:
-
-                    logger.warning(f"Could not verify blob existence for {hpi_image_path}: {e}")
-
-                    # If we can't verify, assume it exists (don't block validation)
-
-            
-
             # Only add complaint if it has a valid screenshot
 
             if not hpi_image_path:
-
-                logger.warning(f"Skipping complaint {complaint_id_str} - no valid screenshot found")
 
                 continue
 
