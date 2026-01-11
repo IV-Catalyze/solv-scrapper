@@ -690,8 +690,8 @@ async def manual_validation_page(
             
 
             # Find HPI image for this complaint - verify it actually exists
-            from app.api.routes import find_hpi_image_by_complaint
-
+            routes_module = _get_routes_module()
+            find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
             hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
 
             
