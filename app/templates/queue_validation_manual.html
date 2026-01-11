@@ -556,10 +556,10 @@
              data-complaint-id="{{ complaint.complaint_id }}"
              data-complaint-index="{{ loop.index0 }}">
             
+            {% if False %}
             <!-- Comparison Section: Encounter Data vs Experity Output -->
-            <!-- Hidden for now - uncomment to show -->
-            <!--
-            <div class="comparison-section" style="display: none;">
+            <!-- Hidden for now - uncomment the if False above to show -->
+            <div class="comparison-section">
                 <h3>Data Comparison</h3>
                 <div class="comparison-grid">
                     <!-- Encounter Data Column -->
@@ -673,7 +673,7 @@
                     </div>
                 </div>
             </div>
-            -->
+            {% endif %}
             
             <table class="validation-table">
                 <thead>
@@ -941,7 +941,7 @@
             
             img.onload = function() {
                 // Image loaded successfully, show it in the modal
-                modalImage.src = imageUrl;
+            modalImage.src = imageUrl;
                 modalImage.alt = 'Screenshot - Full Size';
             };
             
