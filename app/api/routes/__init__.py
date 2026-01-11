@@ -31,5 +31,9 @@ main_router.include_router(queue_validation.router, tags=["Queue"])
 main_router.include_router(images.router, tags=["Images"])
 main_router.include_router(validation.router, tags=["Validation"])
 
-__all__ = ["main_router"]
+# Export 'app' for backward compatibility with app.api.routes:app
+# This allows deployment to use the original path without changes
+from app.api import app
+
+__all__ = ["main_router", "app"]
 
