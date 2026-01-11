@@ -20,7 +20,7 @@ USE_DATABASE=true
 
 ### 3. Run the API
 ```bash
-uvicorn app.api:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.api.routes:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### 4. Access the API
