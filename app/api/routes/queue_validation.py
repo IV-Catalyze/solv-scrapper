@@ -1033,7 +1033,8 @@ async def save_manual_validation(
             
 
             # Save using existing save_validation_result function
-            from app.api.routes import save_validation_result
+            routes_module = _get_routes_module()
+            save_validation_result = routes_module.save_validation_result
             
             save_validation_result(
 
