@@ -670,7 +670,23 @@
                     </thead>
                     <tbody>
                         {% if raw_payload and experity_actions %}
-                            {% set encounter_complaint = raw_payload.get('complaints', [{}])[0] if raw_payload.get('complaints') else {} %}
+                            {# Get raw complaints from multiple possible field names #}
+                            {% set raw_complaints = raw_payload.get('complaints') or raw_payload.get('chiefComplaints') or raw_payload.get('chief_complaints') or [] %}
+                            {# Match encounter complaint by complaintId #}
+                            {% set current_complaint_id = complaint.complaint_id %}
+                            {% set encounter_complaint = {} %}
+                            {% if raw_complaints %}
+                                {% for raw_complaint in raw_complaints %}
+                                    {% set raw_complaint_id = raw_complaint.get('complaintId') or raw_complaint.get('complaint_id') %}
+                                    {% if raw_complaint_id and raw_complaint_id|string == current_complaint_id|string %}
+                                        {% set encounter_complaint = raw_complaint %}
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+                            {# If no match found, try to use first complaint as fallback #}
+                            {% if not encounter_complaint and raw_complaints and raw_complaints|length > 0 %}
+                                {% set encounter_complaint = raw_complaints[0] %}
+                            {% endif %}
                             {% set experity_complaint = complaint.complaint_data %}
                             
                             <!-- Main Problem Row -->
@@ -678,7 +694,7 @@
                                 <td class="comparison-field-name">Main Problem</td>
                                 <td>
                                     <div class="comparison-value-cell encounter-data">
-                                        {{ encounter_complaint.get('mainProblem') or encounter_complaint.get('description') or raw_payload.get('mainProblem') or '—' }}
+                                        {{ encounter_complaint.get('mainProblem') or encounter_complaint.get('description') or encounter_complaint.get('problem') or encounter_complaint.get('chiefComplaint') or raw_payload.get('mainProblem') or raw_payload.get('description') or '—' }}
                                     </div>
                                 </td>
                                 <td>
@@ -713,7 +729,7 @@
                                 <td class="comparison-field-name">Body Area</td>
                                 <td>
                                     <div class="comparison-value-cell encounter-data">
-                                        {{ encounter_complaint.get('bodyAreaKey') or encounter_complaint.get('bodyArea') or raw_payload.get('bodyAreaKey') or '—' }}
+                                        {{ encounter_complaint.get('bodyAreaKey') or encounter_complaint.get('bodyArea') or encounter_complaint.get('bodyPart') or encounter_complaint.get('bodyPartKey') or raw_payload.get('bodyAreaKey') or raw_payload.get('bodyArea') or '—' }}
                                     </div>
                                 </td>
                                 <td>
@@ -748,7 +764,7 @@
                                 <td class="comparison-field-name">Notes</td>
                                 <td>
                                     <div class="comparison-value-cell encounter-data">
-                                        <pre>{{ encounter_complaint.get('notesFreeText') or encounter_complaint.get('notes') or raw_payload.get('notesFreeText') or raw_payload.get('notes') or '—' }}</pre>
+                                        <pre>{{ encounter_complaint.get('notesFreeText') or encounter_complaint.get('notes') or encounter_complaint.get('freeText') or encounter_complaint.get('note') or encounter_complaint.get('description') or raw_payload.get('notesFreeText') or raw_payload.get('notes') or '—' }}</pre>
                                     </div>
                                 </td>
                                 <td>
@@ -783,7 +799,7 @@
                                 <td class="comparison-field-name">Quality</td>
                                 <td>
                                     <div class="comparison-value-cell encounter-data">
-                                        {% set encounter_quality = encounter_complaint.get('quality') or encounter_complaint.get('notesPayload', {}).get('quality') or raw_payload.get('quality') %}
+                                        {% set encounter_quality = encounter_complaint.get('quality') or encounter_complaint.get('notesPayload', {}).get('quality') or encounter_complaint.get('qualities') or encounter_complaint.get('painQuality') or raw_payload.get('quality') %}
                                         {% if encounter_quality %}
                                             {% if encounter_quality is iterable and encounter_quality is not string %}
                                                 {{ encounter_quality|join(', ') }}
@@ -836,7 +852,7 @@
                                 <td class="comparison-field-name">Severity</td>
                                 <td>
                                     <div class="comparison-value-cell encounter-data">
-                                        {{ encounter_complaint.get('severity') or encounter_complaint.get('notesPayload', {}).get('severity') or raw_payload.get('severity') or '—' }}
+                                        {{ encounter_complaint.get('severity') or encounter_complaint.get('notesPayload', {}).get('severity') or encounter_complaint.get('painSeverity') or encounter_complaint.get('painScale') or encounter_complaint.get('severityScale') or raw_payload.get('severity') or '—' }}
                                     </div>
                                 </td>
                                 <td>
