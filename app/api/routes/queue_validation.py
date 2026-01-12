@@ -891,6 +891,308 @@ async def manual_validation_page(
             conn.close()
 
 
+@router.get(
+    "/queue/validation/{encounter_id}/comparison",
+    summary="Validation Page with Comparison View (Test)",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    responses={
+        200: {"description": "Validation page with comparison view"},
+        400: {"description": "Error with validation (e.g., no screenshots, no complaints)"},
+        404: {"description": "Queue entry not found for encounter_id"},
+        303: {"description": "Redirect to login page if not authenticated."},
+    },
+)
+async def manual_validation_page_with_comparison(
+    encounter_id: str,
+    request: Request,
+    current_user: dict = Depends(require_auth)
+):
+    """
+    Render the manual validation page with comparison view enabled.
+    
+    This is a test/preview version that shows the comparison between
+    encounter data and experity output side-by-side.
+    
+    Uses the same logic as manual_validation_page but renders the comparison template.
+    """
+    # Reuse the same logic as manual_validation_page but render different template
+    conn = None
+    cursor = None
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Fetch queue entry by encounter_id (same as manual_validation_page)
+        cursor.execute(
+            """
+            SELECT 
+                queue_id,
+                encounter_id,
+                parsed_payload,
+                raw_payload
+            FROM queue
+            WHERE encounter_id = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (encounter_id,)
+        )
+        
+        queue_entry = cursor.fetchone()
+        
+        if not queue_entry:
+            error_message = f"Queue entry not found for encounter_id: {encounter_id}"
+            error_message_escaped = error_message.replace("'", "\\'")
+            return HTMLResponse(
+                content=f"""<!DOCTYPE html>
+<html>
+<head><title>Error</title></head>
+<body>
+    <script>
+        alert('Queue Entry Not Found\\n\\n{error_message_escaped}');
+        window.location.href = '/queue/list';
+    </script>
+</body>
+</html>""",
+                status_code=404
+            )
+        
+        queue_id = str(queue_entry.get('queue_id'))
+        parsed_payload = queue_entry.get('parsed_payload')
+        raw_payload = queue_entry.get('raw_payload')
+        
+        # Parse raw_payload if it's a string (same as manual_validation_page)
+        if isinstance(raw_payload, str):
+            try:
+                raw_payload = json.loads(raw_payload)
+            except json.JSONDecodeError:
+                raw_payload = {}
+        elif raw_payload is None:
+            raw_payload = {}
+        
+        # Extract experityActions from parsed_payload (same as manual_validation_page)
+        experity_actions = None
+        if isinstance(parsed_payload, dict):
+            experity_actions = parsed_payload.get('experityActions') or parsed_payload.get('experityAction')
+        
+        # Handle legacy array format
+        if isinstance(experity_actions, list) and len(experity_actions) > 0:
+            experity_actions = experity_actions[0]
+        
+        if not experity_actions or not isinstance(experity_actions, dict):
+            error_message = f"No experityActions found for encounter_id: {encounter_id}"
+            error_message_escaped = error_message.replace("'", "\\'")
+            return HTMLResponse(
+                content=f"""<!DOCTYPE html>
+<html>
+<head><title>Error</title></head>
+<body>
+    <script>
+        alert('No Experity Actions Found\\n\\n{error_message_escaped}');
+        window.location.href = '/queue/list';
+    </script>
+</body>
+</html>""",
+                status_code=400
+            )
+        
+        # Get complaints array
+        complaints = experity_actions.get('complaints', [])
+        if not complaints or not isinstance(complaints, list) or len(complaints) == 0:
+            error_message = f"No complaints found for encounter_id: {encounter_id}"
+            error_message_escaped = error_message.replace("'", "\\'")
+            return HTMLResponse(
+                content=f"""<!DOCTYPE html>
+<html>
+<head><title>Error</title></head>
+<body>
+    <script>
+        alert('No Complaints Found\\n\\n{error_message_escaped}');
+        window.location.href = '/queue/list';
+    </script>
+</body>
+</html>""",
+                status_code=400
+            )
+        
+        # Check if screenshots exist for all complaints (same validation as manual_validation_page)
+        routes_module = _get_routes_module()
+        find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
+        
+        complaints_with_screenshots = []
+        complaints_without_screenshots = []
+        
+        for complaint in complaints:
+            complaint_id = complaint.get('complaintId')
+            if not complaint_id:
+                continue
+            
+            complaint_id_str = str(complaint_id)
+            hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
+            
+            if hpi_image_path:
+                complaints_with_screenshots.append(complaint)
+            else:
+                complaints_without_screenshots.append(complaint)
+        
+        # If no screenshots found for any complaint, return JSON error (same as manual_validation_page)
+        if len(complaints_with_screenshots) == 0:
+            error_message = f"No HPI screenshots found for encounter_id: {encounter_id}. Validation requires screenshots to compare with data."
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "No Screenshots Available",
+                    "message": error_message
+                }
+            )
+        
+        # Use only complaints with screenshots
+        complaints = complaints_with_screenshots
+        
+        # Fetch existing validations for this queue (same as manual_validation_page)
+        existing_validations = {}
+        validation_dates = {}
+        try:
+            cursor.execute(
+                """
+                SELECT 
+                    complaint_id, 
+                    validation_result, 
+                    COALESCE(updated_at, created_at) as last_validation_date
+                FROM queue_validations
+                WHERE queue_id = %s AND complaint_id IS NOT NULL
+                """,
+                (queue_id,)
+            )
+            validation_results = cursor.fetchall()
+            for v_result in validation_results:
+                complaint_id_from_db = str(v_result.get('complaint_id')) if v_result.get('complaint_id') else None
+                if complaint_id_from_db:
+                    validation_result = v_result.get('validation_result')
+                    if isinstance(validation_result, str):
+                        try:
+                            validation_result = json.loads(validation_result)
+                        except json.JSONDecodeError:
+                            validation_result = {}
+                    manual_validation = validation_result.get('manual_validation', {})
+                    field_validations = manual_validation.get('field_validations', {})
+                    existing_validations[complaint_id_from_db] = field_validations
+                    
+                    last_validation_date = v_result.get('last_validation_date')
+                    if last_validation_date:
+                        validation_dates[complaint_id_from_db] = last_validation_date
+        except Exception as e:
+            logger.warning(f"Could not fetch existing validations: {e}")
+        
+        # Build complaints data with HPI image paths and existing validations (same as manual_validation_page)
+        complaints_data = []
+        for complaint in complaints:
+            complaint_id = complaint.get('complaintId')
+            if not complaint_id:
+                continue
+            
+            complaint_id_str = str(complaint_id)
+            hpi_image_path = find_hpi_image_by_complaint(encounter_id, complaint_id_str)
+            
+            # Verify the image actually exists in blob storage
+            if hpi_image_path:
+                try:
+                    from app.utils.azure_blob_client import get_blob_client
+                    blob_client = get_blob_client()
+                    if not blob_client.blob_exists(hpi_image_path):
+                        logger.warning(f"HPI image path found but blob doesn't exist: {hpi_image_path}")
+                        hpi_image_path = None
+                except Exception as e:
+                    logger.warning(f"Could not verify blob existence for {hpi_image_path}: {e}")
+            
+            # Only add complaint if it has a valid screenshot
+            if not hpi_image_path:
+                logger.warning(f"Skipping complaint {complaint_id_str} - no valid screenshot found")
+                continue
+            
+            # Extract curated fields for validation
+            curated_fields = {
+                "mainProblem": complaint.get('mainProblem', ''),
+                "bodyAreaKey": complaint.get('bodyAreaKey', ''),
+                "notesFreeText": complaint.get('notesFreeText', ''),
+                "quality": complaint.get('notesPayload', {}).get('quality', []),
+                "severity": complaint.get('notesPayload', {}).get('severity', None)
+            }
+            
+            # Get existing validation for this complaint (if any)
+            existing_validation = existing_validations.get(complaint_id_str, {})
+            has_existing_validation = bool(existing_validation)
+            
+            # Get last validation date for this complaint (if any)
+            last_validation_date = validation_dates.get(complaint_id_str)
+            last_validation_date_str = None
+            if last_validation_date:
+                if isinstance(last_validation_date, datetime):
+                    last_validation_date_str = last_validation_date.strftime('%b %d, %Y at %I:%M %p')
+                else:
+                    last_validation_date_str = str(last_validation_date)
+            
+            complaints_data.append({
+                "complaint_id": complaint_id_str,
+                "complaint_data": complaint,
+                "curated_fields": curated_fields,
+                "hpi_image_path": hpi_image_path,
+                "existing_validation": existing_validation,
+                "has_existing_validation": has_existing_validation,
+                "last_validation_date": last_validation_date_str
+            })
+        
+        if not complaints_data:
+            error_message = f"No valid complaints with screenshots found for encounter_id: {encounter_id}. Validation requires screenshots to compare with data."
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "No Screenshots Available",
+                    "message": error_message
+                }
+            )
+        
+        # Check if ICD and Historian images exist (same as manual_validation_page)
+        routes_module = _get_routes_module()
+        find_encounter_image = routes_module.find_encounter_image
+        
+        has_icd_image = find_encounter_image(encounter_id, "icd") is not None
+        has_historian_image = find_encounter_image(encounter_id, "historian") is not None
+        
+        return templates.TemplateResponse(
+            "queue_validation_comparison.html",
+            {
+                "request": request,
+                "encounter_id": encounter_id,
+                "queue_id": queue_id,
+                "complaints": complaints_data,
+                "raw_payload": raw_payload,
+                "experity_actions": experity_actions,
+                "current_user": current_user,
+                "page_title": "Encounter Validation (Comparison View)",
+                "page_subtitle": f"Encounter ID: {encounter_id}",
+                "show_navigation": False,
+                "show_user_menu": False,
+                "has_icd_image": has_icd_image,
+                "has_historian_image": has_historian_image,
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error loading comparison validation page for encounter_id {encounter_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 @router.post(

@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Encounter Validation (Comparison View) - {{ encounter_id }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
+        crossorigin="anonymous"
+    >
+    <link rel="stylesheet" href="/static/css/common.css">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: calc(100vh - 40px);
+            padding: 0;
+        }
+        /* Header styles are in /static/css/common.css - using gradient purple header */
+        .header {
+            margin-bottom: 0;
+        }
+        .header .subtitle {
+            color: rgba(255, 255, 255, 0.9);
+        }
+        .page-content {
+            padding: 32px;
+            flex: 1;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .system-status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: white;
+            cursor: help;
+            position: relative;
+        }
+
+        .system-status-indicator.up {
+            background: rgba(40, 167, 69, 0.9);
+        }
+
+        .system-status-indicator.down {
+            background: rgba(220, 53, 69, 0.9);
+        }
+
+        .system-status-indicator.unknown {
+            background: rgba(108, 117, 125, 0.9);
+        }
+
+        .system-status-indicator .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .system-status-tooltip {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            white-space: normal;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(5px);
+            transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
+            z-index: 1002;
+            pointer-events: none;
+            line-height: 1.5;
+            min-width: 200px;
+            max-width: 300px;
+            text-align: left;
+        }
+
+        .system-status-tooltip::before {
+            content: '';
+            position: absolute;
+            bottom: 100%;
+            right: 12px;
+            border: 5px solid transparent;
+            border-bottom-color: rgba(0, 0, 0, 0.9);
+        }
+
+        .system-status-indicator:hover .system-status-tooltip {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        .complaint-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 0;
+        }
+        .complaint-tab {
+            padding: 12px 24px;
+            background: #f3f4f6;
+            border: none;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: #6b7280;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+        .complaint-tab-name {
+            font-weight: 500;
+        }
+        .complaint-tab-id {
+            font-size: 11px;
+            opacity: 0.7;
+            font-weight: 400;
+        }
+        .complaint-tab-date {
+            font-size: 10px;
+            opacity: 0.8;
+            font-weight: 400;
+            margin-top: 2px;
+            color: inherit;
+        }
+        .complaint-tab.active .complaint-tab-date {
+            opacity: 0.9;
+        }
+        .complaint-tab:hover {
+            background: #e5e7eb;
+            color: #374151;
+        }
+        .complaint-tab.active {
+            background: #2563eb;
+            color: white;
+        }
+        .complaint-content {
+            display: none;
+        }
+        .complaint-content.active {
+            display: block;
+        }
+        .validation-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 32px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        .validation-table thead {
+            background: #f9fafb;
+        }
+        .validation-table th {
+            padding: 16px;
+            text-align: left;
+            font-weight: 600;
+            color: #374151;
+            font-size: 14px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        .validation-table td {
+            padding: 16px;
+            border-bottom: 1px solid #e5e7eb;
+            vertical-align: top;
+        }
+        .validation-table tbody tr:hover {
+            background: #f9fafb;
+        }
+        .validation-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .field-name {
+            font-weight: 600;
+            color: #1f2937;
+            width: 20%;
+        }
+        .field-value {
+            color: #4b5563;
+            width: 50%;
+            word-break: break-word;
+        }
+        .field-value pre {
+            margin: 0;
+            font-family: inherit;
+            font-size: 14px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .field-validation {
+            width: 30%;
+        }
+        .radio-group {
+            display: flex;
+            gap: 24px;
+            align-items: center;
+        }
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .radio-option input[type="radio"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        .radio-option label {
+            margin: 0;
+            cursor: pointer;
+            font-size: 14px;
+            color: #374151;
+        }
+        .screenshot-section {
+            margin-top: 32px;
+            padding-top: 32px;
+            border-top: 2px solid #e5e7eb;
+        }
+        .screenshot-section h3 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 16px;
+        }
+        .screenshot-container {
+            text-align: center;
+            background: #f9fafb;
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .screenshot-container img {
+            max-width: 100%;
+            max-height: 600px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .screenshot-container img:hover {
+            transform: scale(1.02);
+        }
+        /* Image Modal */
+        .image-modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(2px);
+            align-items: center;
+            justify-content: center;
+        }
+        .image-modal.show {
+            display: flex;
+        }
+        .image-modal-content {
+            max-width: 90%;
+            max-height: 90%;
+            position: relative;
+        }
+        .image-modal-image {
+            max-width: 100%;
+            max-height: 90vh;
+            border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+        .image-modal-close {
+            position: absolute;
+            top: -40px;
+            right: 0;
+            color: white;
+            font-size: 36px;
+            font-weight: 300;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            transition: background 0.2s;
+        }
+        .image-modal-close:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        .screenshot-container .no-image {
+            color: #9ca3af;
+            padding: 40px;
+            font-style: italic;
+        }
+        /* No Image Dialog */
+        .no-image-dialog {
+            display: none;
+            position: fixed;
+            z-index: 2100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(2px);
+            align-items: center;
+            justify-content: center;
+        }
+        .no-image-dialog.show {
+            display: flex;
+        }
+        .no-image-dialog-content {
+            background: white;
+            padding: 32px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            max-width: 400px;
+            text-align: center;
+            position: relative;
+        }
+        .no-image-dialog-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 16px;
+        }
+        .no-image-dialog-message {
+            font-size: 14px;
+            color: #6b7280;
+            margin-bottom: 24px;
+        }
+        .no-image-dialog-close {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .no-image-dialog-close:hover {
+            background: #1d4ed8;
+        }
+        .actions {
+            margin-top: 32px;
+            padding-top: 24px;
+            border-top: 2px solid #e5e7eb;
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: #2563eb;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+        .alert-success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #6ee7b7;
+        }
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+        .alert-info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+        .comparison-section {
+            margin-bottom: 32px;
+            padding: 24px;
+            background: #f9fafb;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+        }
+        .comparison-section h3 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        .comparison-table thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .comparison-table th {
+            padding: 16px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .comparison-table th:nth-child(1) {
+            width: 15%;
+        }
+        .comparison-table th:nth-child(2) {
+            width: 30%;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .comparison-table th:nth-child(3) {
+            width: 30%;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .comparison-table th:nth-child(4) {
+            width: 25%;
+            text-align: center;
+        }
+        .comparison-table td {
+            padding: 16px;
+            border-bottom: 1px solid #e5e7eb;
+            vertical-align: top;
+        }
+        .comparison-table tbody tr:hover {
+            background: #f9fafb;
+        }
+        .comparison-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .comparison-field-name {
+            font-weight: 600;
+            color: #374151;
+            font-size: 14px;
+        }
+        .comparison-value-cell {
+            font-size: 14px;
+            color: #1f2937;
+            word-break: break-word;
+            padding: 10px;
+            background: #f9fafb;
+            border-radius: 6px;
+            min-height: 40px;
+            line-height: 1.5;
+        }
+        .comparison-value-cell pre {
+            margin: 0;
+            font-family: inherit;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            color: #1f2937;
+        }
+        .comparison-value-cell.encounter-data {
+            background: #eff6ff;
+            border-left: 3px solid #3b82f6;
+        }
+        .comparison-value-cell.experity-output {
+            background: #f0fdf4;
+            border-left: 3px solid #10b981;
+        }
+        .comparison-validation-cell {
+            text-align: center;
+        }
+        .comparison-validation-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            align-items: center;
+        }
+        .comparison-validation-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .comparison-validation-option input[type="radio"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #2563eb;
+        }
+        .comparison-validation-option label {
+            margin: 0;
+            cursor: pointer;
+            font-size: 14px;
+            color: #374151;
+            font-weight: 500;
+        }
+        .comparison-validation-option input[type="radio"]:checked + label {
+            color: #2563eb;
+            font-weight: 600;
+        }
+        .json-viewer {
+            background: #1f2937;
+            color: #f9fafb;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .json-viewer pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        @media (max-width: 960px) {
+            .comparison-table {
+                display: block;
+                overflow-x: auto;
+            }
+            .comparison-table thead,
+            .comparison-table tbody,
+            .comparison-table tr,
+            .comparison-table td,
+            .comparison-table th {
+                display: block;
+            }
+            .comparison-table thead {
+                display: none;
+            }
+            .comparison-table tr {
+                margin-bottom: 16px;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+                padding: 12px;
+                background: white;
+            }
+            .comparison-table td {
+                border: none;
+                padding: 8px 0;
+            }
+            .comparison-table td:before {
+                content: attr(data-label);
+                font-weight: 600;
+                display: block;
+                margin-bottom: 4px;
+                color: #6b7280;
+                font-size: 12px;
+                text-transform: uppercase;
+            }
+            .comparison-validation-buttons {
+                flex-direction: column;
+                gap: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+            <h1>Encounter Validation (Comparison View)</h1>
+            <div class="subtitle">Encounter ID: {{ encounter_id }}</div>
+            {% if complaints|length == 1 and complaints[0].last_validation_date %}
+            <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
+                Last validated: {{ complaints[0].last_validation_date }}
+            </div>
+            {% endif %}
+            </div>
+            <div class="header-right">
+                {% include 'includes/system_status_badge.html' %}
+            </div>
+        </div>
+
+        <div class="page-content">
+        {% if complaints|length > 1 %}
+        <div class="complaint-tabs">
+            {% for complaint in complaints %}
+            <button class="complaint-tab {% if loop.first %}active{% endif %}" 
+                    onclick="switchComplaint({{ loop.index0 }})"
+                    data-complaint-index="{{ loop.index0 }}">
+                <span class="complaint-tab-name">Complaint {{ loop.index }}</span>
+                <span class="complaint-tab-id">{{ complaint.complaint_id }}</span>
+                {% if complaint.last_validation_date %}
+                <span class="complaint-tab-date" title="Last validated: {{ complaint.last_validation_date }}">
+                    Last validated: {{ complaint.last_validation_date }}
+                </span>
+                {% endif %}
+            </button>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div id="alertContainer"></div>
+
+        {% for complaint in complaints %}
+        <div class="complaint-content {% if loop.first %}active{% endif %}" 
+             data-complaint-id="{{ complaint.complaint_id }}"
+             data-complaint-index="{{ loop.index0 }}">
+            
+            <!-- Comparison Section: Side-by-Side Table View -->
+            <div class="comparison-section">
+                <h3>Validate Experity Output Against Encounter Data</h3>
+                <p style="color: #6b7280; font-size: 14px; margin-bottom: 20px;">
+                    Compare the Experity Output with the original Encounter Data. Mark each field as Correct or Incorrect.
+                </p>
+                
+                <table class="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>Field</th>
+                            <th>Encounter Data (Raw)</th>
+                            <th>Experity Output (Parsed)</th>
+                            <th>Validation</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if raw_payload and experity_actions %}
+                            {% set encounter_complaint = raw_payload.get('complaints', [{}])[0] if raw_payload.get('complaints') else {} %}
+                            {% set experity_complaint = complaint.complaint_data %}
+                            
+                            <!-- Main Problem Row -->
+                            <tr>
+                                <td class="comparison-field-name">Main Problem</td>
+                                <td>
+                                    <div class="comparison-value-cell encounter-data">
+                                        {{ encounter_complaint.get('mainProblem') or encounter_complaint.get('description') or raw_payload.get('mainProblem') or '—' }}
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="comparison-value-cell experity-output">
+                                        {{ experity_complaint.get('mainProblem') or experity_complaint.get('description') or '—' }}
+                                    </div>
+                                </td>
+                                <td class="comparison-validation-cell">
+                                    <div class="comparison-validation-buttons">
+                                        <div class="comparison-validation-option">
+                                            <input type="radio" 
+                                                   name="mainProblem_{{ complaint.complaint_id }}" 
+                                                   id="mainProblem_correct_{{ complaint.complaint_id }}"
+                                                   value="correct"
+                                                   {% if complaint.existing_validation.get('mainProblem') == 'correct' %}checked{% endif %}>
+                                            <label for="mainProblem_correct_{{ complaint.complaint_id }}">Correct</label>
+                                        </div>
+                                        <div class="comparison-validation-option">
+                                            <input type="radio" 
+                                                   name="mainProblem_{{ complaint.complaint_id }}" 
+                                                   id="mainProblem_incorrect_{{ complaint.complaint_id }}"
+                                                   value="incorrect"
+                                                   {% if complaint.existing_validation.get('mainProblem') == 'incorrect' %}checked{% endif %}>
+                                            <label for="mainProblem_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                            <!-- Body Area Row -->
+                            <tr>
+                                <td class="comparison-field-name">Body Area</td>
+                                <td>
+                                    <div class="comparison-value-cell encounter-data">
+                                        {{ encounter_complaint.get('bodyAreaKey') or encounter_complaint.get('bodyArea') or raw_payload.get('bodyAreaKey') or '—' }}
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="comparison-value-cell experity-output">
+                                        {{ experity_complaint.get('bodyAreaKey') or experity_complaint.get('bodyArea') or '—' }}
+                                    </div>
+                                </td>
+                                <td class="comparison-validation-cell">
+                                    <div class="comparison-validation-buttons">
+                                        <div class="comparison-validation-option">
+                                            <input type="radio" 
+                                                   name="bodyAreaKey_{{ complaint.complaint_id }}" 
+                                                   id="bodyAreaKey_correct_{{ complaint.complaint_id }}"
+                                                   value="correct"
+                                                   {% if complaint.existing_validation.get('bodyAreaKey') == 'correct' %}checked{% endif %}>
+                                            <label for="bodyAreaKey_correct_{{ complaint.complaint_id }}">Correct</label>
+                                        </div>
+                                        <div class="comparison-validation-option">
+                                            <input type="radio" 
+                                                   name="bodyAreaKey_{{ complaint.complaint_id }}" 
+                                                   id="bodyAreaKey_incorrect_{{ complaint.complaint_id }}"
+                                                   value="incorrect"
+                                                   {% if complaint.existing_validation.get('bodyAreaKey') == 'incorrect' %}checked{% endif %}>
+                                            <label for="bodyAreaKey_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                            <!-- Notes Row -->
+                            <tr>
+                                <td class="comparison-field-name">Notes</td>
+                                <td>
+                                    <div class="comparison-value-cell encounter-data">
+                                        <pre>{{ encounter_complaint.get('notesFreeText') or encounter_complaint.get('notes') or raw_payload.get('notesFreeText') or raw_payload.get('notes') or '—' }}</pre>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="comparison-value-cell experity-output">
+                                        <pre>{{ experity_complaint.get('notesFreeText') or experity_complaint.get('notes') or '—' }}</pre>
+                                    </div>
+                                </td>
+                                <td class="comparison-validation-cell">
+                                    <div class="comparison-validation-buttons">
+                                        <div class="comparison-validation-option">
+                                            <input type="radio" 
+                                                   name="notesFreeText_{{ complaint.complaint_id }}" 
+                                                   id="notesFreeText_correct_{{ complaint.complaint_id }}"
+                                                   value="correct"
+                                                   {% if complaint.existing_validation.get('notesFreeText') == 'correct' %}checked{% endif %}>
+                                            <label for="notesFreeText_correct_{{ complaint.complaint_id }}">Correct</label>
+                                        </div>
+                                        <div class="comparison-validation-option">
+                                            <input type="radio" 
+                                                   name="notesFreeText_{{ complaint.complaint_id }}" 
+                                                   id="notesFreeText_incorrect_{{ complaint.complaint_id }}"
+                                                   value="incorrect"
+                                                   {% if complaint.existing_validation.get('notesFreeText') == 'incorrect' %}checked{% endif %}>
+                                            <label for="notesFreeText_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                            <!-- Quality Row -->
+                            <tr>
+                                <td class="comparison-field-name">Quality</td>
+                                <td>
+                                    <div class="comparison-value-cell encounter-data">
+                                        {% set encounter_quality = encounter_complaint.get('quality') or encounter_complaint.get('notesPayload', {}).get('quality') or raw_payload.get('quality') %}
+                                        {% if encounter_quality %}
+                                            {% if encounter_quality is iterable and encounter_quality is not string %}
+                                                {{ encounter_quality|join(', ') }}
+                                            {% else %}
+                                                {{ encounter_quality }}
+                                            {% endif %}
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="comparison-value-cell experity-output">
+                                        {% set experity_quality = experity_complaint.get('notesPayload', {}).get('quality') or experity_complaint.get('quality') %}
+                                        {% if experity_quality %}
+                                            {% if experity_quality is iterable and experity_quality is not string %}
+                                                {{ experity_quality|join(', ') }}
+                                            {% else %}
+                                                {{ experity_quality }}
+                                            {% endif %}
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="comparison-validation-cell">
+                                    <div class="comparison-validation-buttons">
+                                        <div class="comparison-validation-option">
+                                            <input type="radio" 
+                                                   name="quality_{{ complaint.complaint_id }}" 
+                                                   id="quality_correct_{{ complaint.complaint_id }}"
+                                                   value="correct"
+                                                   {% if complaint.existing_validation.get('quality') == 'correct' %}checked{% endif %}>
+                                            <label for="quality_correct_{{ complaint.complaint_id }}">Correct</label>
+                                        </div>
+                                        <div class="comparison-validation-option">
+                                            <input type="radio" 
+                                                   name="quality_{{ complaint.complaint_id }}" 
+                                                   id="quality_incorrect_{{ complaint.complaint_id }}"
+                                                   value="incorrect"
+                                                   {% if complaint.existing_validation.get('quality') == 'incorrect' %}checked{% endif %}>
+                                            <label for="quality_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                            <!-- Severity Row -->
+                            <tr>
+                                <td class="comparison-field-name">Severity</td>
+                                <td>
+                                    <div class="comparison-value-cell encounter-data">
+                                        {{ encounter_complaint.get('severity') or encounter_complaint.get('notesPayload', {}).get('severity') or raw_payload.get('severity') or '—' }}
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="comparison-value-cell experity-output">
+                                        {{ experity_complaint.get('notesPayload', {}).get('severity') or experity_complaint.get('severity') or '—' }}
+                                    </div>
+                                </td>
+                                <td class="comparison-validation-cell">
+                                    <div class="comparison-validation-buttons">
+                                        <div class="comparison-validation-option">
+                                            <input type="radio" 
+                                                   name="severity_{{ complaint.complaint_id }}" 
+                                                   id="severity_correct_{{ complaint.complaint_id }}"
+                                                   value="correct"
+                                                   {% if complaint.existing_validation.get('severity') == 'correct' %}checked{% endif %}>
+                                            <label for="severity_correct_{{ complaint.complaint_id }}">Correct</label>
+                                        </div>
+                                        <div class="comparison-validation-option">
+                                            <input type="radio" 
+                                                   name="severity_{{ complaint.complaint_id }}" 
+                                                   id="severity_incorrect_{{ complaint.complaint_id }}"
+                                                   value="incorrect"
+                                                   {% if complaint.existing_validation.get('severity') == 'incorrect' %}checked{% endif %}>
+                                            <label for="severity_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="4" style="text-align: center; padding: 40px; color: #6b7280;">
+                                    {% if not raw_payload and not experity_actions %}
+                                        No data available for comparison
+                                    {% elif not raw_payload %}
+                                        Encounter data not available
+                                    {% else %}
+                                        Experity output not available
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+                
+                <!-- JSON Viewers -->
+                <div style="margin-top: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                    {% if raw_payload %}
+                    <details>
+                        <summary style="cursor: pointer; font-size: 12px; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px; background: #f3f4f6; border-radius: 6px;">View Full Encounter JSON</summary>
+                        <div class="json-viewer" style="margin-top: 12px;">
+                            <pre>{{ raw_payload|tojson(indent=2) }}</pre>
+                        </div>
+                    </details>
+                    {% endif %}
+                    {% if experity_actions %}
+                    <details>
+                        <summary style="cursor: pointer; font-size: 12px; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px; background: #f3f4f6; border-radius: 6px;">View Full Experity JSON</summary>
+                        <div class="json-viewer" style="margin-top: 12px;">
+                            <pre>{{ experity_actions|tojson(indent=2) }}</pre>
+                        </div>
+                    </details>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="screenshot-section">
+                <h3>Screenshot</h3>
+                <div class="screenshot-container">
+                    {% if complaint.hpi_image_path %}
+                        <img id="screenshot_{{ complaint.complaint_id }}" 
+                             src="/queue/{{ queue_id }}/validation/image?complaint_id={{ complaint.complaint_id }}"
+                             alt="HPI Screenshot"
+                             onclick="viewScreenshotFullscreen('/queue/{{ queue_id }}/validation/image?complaint_id={{ complaint.complaint_id }}')"
+                             onerror="handleImageError(this, '{{ complaint.complaint_id }}')"
+                             loading="lazy">
+                    {% else %}
+                        <div class="no-image">Screenshot not available</div>
+                    {% endif %}
+                </div>
+                <div style="margin-top: 16px; display: flex; gap: 12px; justify-content: center;">
+                    {% if has_icd_image %}
+                    <button class="btn btn-secondary" 
+                            onclick="viewScreenshotFullscreen('/queue/validation/{{ encounter_id }}/image/icd')"
+                            style="font-size: 14px; padding: 10px 20px;">
+                        View ICD Screenshot
+                    </button>
+                    {% endif %}
+                    {% if has_historian_image %}
+                    <button class="btn btn-secondary" 
+                            onclick="viewScreenshotFullscreen('/queue/validation/{{ encounter_id }}/image/historian')"
+                            style="font-size: 14px; padding: 10px 20px;">
+                        View Historian Screenshot
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="actions">
+                <button class="btn btn-secondary" onclick="if (window.history.length > 1) { window.history.back(); } else { window.location.href='/queue/list'; }">Cancel</button>
+                <button class="btn btn-primary" 
+                        onclick="saveValidation('{{ complaint.complaint_id }}')"
+                        id="saveBtn_{{ complaint.complaint_id }}">
+                    {% if complaint.has_existing_validation %}Update Validation{% else %}Save Validation{% endif %}
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+        </div>
+    </div>
+
+    <!-- Image Modal for Full Screen View -->
+    <div id="imageModal" class="image-modal" onclick="closeImageModal(event)">
+        <div class="image-modal-content" onclick="event.stopPropagation()">
+            <span class="image-modal-close" onclick="closeImageModal()">&times;</span>
+            <img id="modalImage" class="image-modal-image" src="" alt="Full size screenshot">
+        </div>
+    </div>
+
+    <!-- No Image Dialog -->
+    <div id="noImageDialog" class="no-image-dialog" onclick="closeNoImageDialog(event)">
+        <div class="no-image-dialog-content" onclick="event.stopPropagation()">
+            <div class="no-image-dialog-title">Image Not Available</div>
+            <div class="no-image-dialog-message" id="noImageDialogMessage">
+                The requested image is not available.
+            </div>
+            <button class="no-image-dialog-close" onclick="closeNoImageDialog()">Close</button>
+        </div>
+    </div>
+
+    <script>
+        const encounterId = '{{ encounter_id }}';
+        const complaints = {{ complaints|tojson }};
+
+        function switchComplaint(index) {
+            // Update tabs
+            document.querySelectorAll('.complaint-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.complaint-content').forEach(content => {
+                content.classList.remove('active');
+            });
+
+            // Activate selected tab and content
+            const selectedTab = document.querySelector(`[data-complaint-index="${index}"]`);
+            const selectedContent = document.querySelector(`.complaint-content[data-complaint-index="${index}"]`);
+            
+            if (selectedTab && selectedTab.classList.contains('complaint-tab')) {
+                selectedTab.classList.add('active');
+            }
+            if (selectedContent) {
+                selectedContent.classList.add('active');
+            }
+        }
+
+        function showAlert(message, type = 'info') {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.textContent = message;
+            alertContainer.innerHTML = '';
+            alertContainer.appendChild(alertDiv);
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+
+        function viewScreenshotFullscreen(imageUrl) {
+            const modal = document.getElementById('imageModal');
+            const modalImage = document.getElementById('modalImage');
+            
+            // Show modal immediately
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden';
+            
+            // Try to load the image
+            const img = new Image();
+            
+            img.onload = function() {
+                // Image loaded successfully, show it in the modal
+            modalImage.src = imageUrl;
+                modalImage.alt = 'Screenshot - Full Size';
+            };
+            
+            img.onerror = function() {
+                // Image failed to load (404 or other error)
+                closeImageModal();
+                showNoImageDialog();
+            };
+            
+            img.src = imageUrl;
+        }
+        
+        function showNoImageDialog() {
+            const dialog = document.getElementById('noImageDialog');
+            dialog.classList.add('show');
+            document.body.style.overflow = 'hidden';
+        }
+        
+        function closeNoImageDialog(event) {
+            // Close on click outside or on close button
+            if (event) {
+                if (event.target.id !== 'noImageDialog' && !event.target.classList.contains('no-image-dialog-close')) {
+                    return;
+                }
+            }
+            
+            const dialog = document.getElementById('noImageDialog');
+            dialog.classList.remove('show');
+            document.body.style.overflow = '';
+        }
+
+        function handleImageError(imgElement, complaintId) {
+            // Handle 404 or other image loading errors gracefully
+            const container = imgElement.parentElement;
+            if (container) {
+                container.innerHTML = '<div class="no-image">Screenshot not available</div>';
+                console.warn(`Image failed to load for complaint ${complaintId}`);
+            }
+        }
+
+        function closeImageModal(event) {
+            // Close on click outside or on close button
+            if (event && event.target.id !== 'imageModal' && event.target.id !== 'modalImage' && !event.target.classList.contains('image-modal-close')) {
+                return;
+            }
+            
+            const modal = document.getElementById('imageModal');
+            const modalImage = document.getElementById('modalImage');
+            
+            modal.classList.remove('show');
+            modalImage.src = '';
+            
+            // Restore body scroll
+            document.body.style.overflow = '';
+        }
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeImageModal();
+                closeNoImageDialog();
+            }
+        });
+
+        async function saveValidation(complaintId) {
+            // Collect field validations for this complaint
+            const fieldValidations = {};
+            const fieldNames = ['mainProblem', 'bodyAreaKey', 'notesFreeText', 'quality', 'severity'];
+            
+            let allFieldsValidated = true;
+            for (const fieldName of fieldNames) {
+                const radioName = `${fieldName}_${complaintId}`;
+                const selectedRadio = document.querySelector(`input[name="${radioName}"]:checked`);
+                
+                if (selectedRadio) {
+                    fieldValidations[fieldName] = selectedRadio.value;
+                } else {
+                    allFieldsValidated = false;
+                }
+            }
+
+            if (!allFieldsValidated) {
+                showAlert('Please validate all fields before saving.', 'error');
+                return;
+            }
+
+            // Get the save button
+            const saveBtn = document.getElementById(`saveBtn_${complaintId}`);
+            if (!saveBtn) {
+                showAlert('Error: Could not find save button', 'error');
+                return;
+            }
+            
+            // Check if this is an update or new save
+            const isUpdate = saveBtn.textContent.trim().includes('Update');
+            const originalText = saveBtn.textContent;
+            
+            // Disable save button
+            saveBtn.disabled = true;
+            saveBtn.textContent = isUpdate ? 'Updating...' : 'Saving...';
+
+            try {
+                const response = await fetch(`/queue/validation/${encounterId}/save`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        complaint_id: complaintId,
+                        field_validations: fieldValidations
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    const actionText = isUpdate ? 'updated' : 'saved';
+                    showAlert(`Validation ${actionText} successfully! Overall status: ${data.overall_status}`, 'success');
+                    // Update button text to "Update" since validation now exists
+                    saveBtn.textContent = 'Update Validation';
+                    // Optionally redirect after a delay
+                    setTimeout(() => {
+                        window.location.href = '/queue/list';
+                    }, 2000);
+                } else {
+                    showAlert(data.detail || 'Failed to save validation', 'error');
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = originalText;
+                }
+            } catch (error) {
+                showAlert('Error saving validation: ' + error.message, 'error');
+                saveBtn.disabled = false;
+                saveBtn.textContent = originalText;
+            }
+        }
+    </script>
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/system-status.js"></script>
+</body>
+</html>
+
