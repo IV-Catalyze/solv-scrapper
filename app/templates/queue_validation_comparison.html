@@ -670,66 +670,15 @@
                     </thead>
                     <tbody>
                         {% if raw_payload and experity_actions %}
-                            {# Get raw complaints from multiple possible field names #}
-                            {% set raw_complaints = raw_payload.get('complaints') or raw_payload.get('chiefComplaints') or raw_payload.get('chief_complaints') or [] %}
-                            {# Match encounter complaint by complaintId #}
-                            {% set current_complaint_id = complaint.complaint_id %}
-                            {% set encounter_complaint = {} %}
-                            {% if raw_complaints %}
-                                {% for raw_complaint in raw_complaints %}
-                                    {% set raw_complaint_id = raw_complaint.get('complaintId') or raw_complaint.get('complaint_id') %}
-                                    {% if raw_complaint_id and raw_complaint_id|string == current_complaint_id|string %}
-                                        {% set encounter_complaint = raw_complaint %}
-                                    {% endif %}
-                                {% endfor %}
-                            {% endif %}
-                            {# If no match found, try to use first complaint as fallback #}
-                            {% if not encounter_complaint and raw_complaints and raw_complaints|length > 0 %}
-                                {% set encounter_complaint = raw_complaints[0] %}
-                            {% endif %}
+                            {% set encounter_complaint = raw_payload.get('complaints', [{}])[0] if raw_payload.get('complaints') else {} %}
                             {% set experity_complaint = complaint.complaint_data %}
-                            
-                            <!-- EMR ID Row -->
-                            <tr>
-                                <td class="comparison-field-name">EMR ID</td>
-                                <td>
-                                    <div class="comparison-value-cell encounter-data">
-                                        {{ raw_payload.get('emrId') or raw_payload.get('emr_id') or '—' }}
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="comparison-value-cell experity-output">
-                                        {{ experity_actions.get('emrId') or '—' }}
-                                    </div>
-                                </td>
-                                <td class="comparison-validation-cell">
-                                    <div class="comparison-validation-buttons">
-                                        <div class="comparison-validation-option">
-                                            <input type="radio" 
-                                                   name="emrId_{{ complaint.complaint_id }}" 
-                                                   id="emrId_correct_{{ complaint.complaint_id }}"
-                                                   value="correct"
-                                                   {% if complaint.existing_validation.get('emrId') == 'correct' %}checked{% endif %}>
-                                            <label for="emrId_correct_{{ complaint.complaint_id }}">Correct</label>
-                                        </div>
-                                        <div class="comparison-validation-option">
-                                            <input type="radio" 
-                                                   name="emrId_{{ complaint.complaint_id }}" 
-                                                   id="emrId_incorrect_{{ complaint.complaint_id }}"
-                                                   value="incorrect"
-                                                   {% if complaint.existing_validation.get('emrId') == 'incorrect' %}checked{% endif %}>
-                                            <label for="emrId_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
-                                        </div>
-                                    </div>
-                                </td>
-                            </tr>
                             
                             <!-- Main Problem Row -->
                             <tr>
                                 <td class="comparison-field-name">Main Problem</td>
                                 <td>
                                     <div class="comparison-value-cell encounter-data">
-                                        {{ encounter_complaint.get('mainProblem') or encounter_complaint.get('description') or encounter_complaint.get('problem') or encounter_complaint.get('chiefComplaint') or raw_payload.get('mainProblem') or raw_payload.get('description') or '—' }}
+                                        {{ encounter_complaint.get('mainProblem') or encounter_complaint.get('description') or raw_payload.get('mainProblem') or '—' }}
                                     </div>
                                 </td>
                                 <td>
@@ -759,71 +708,71 @@
                                 </td>
                             </tr>
                             
-                            <!-- Part (Body Part) Row -->
+                            <!-- Body Area Row -->
                             <tr>
-                                <td class="comparison-field-name">Part</td>
+                                <td class="comparison-field-name">Body Area</td>
                                 <td>
                                     <div class="comparison-value-cell encounter-data">
-                                        {{ encounter_complaint.get('part') or encounter_complaint.get('bodyPart') or encounter_complaint.get('bodyPartRaw') or '—' }}
+                                        {{ encounter_complaint.get('bodyAreaKey') or encounter_complaint.get('bodyArea') or raw_payload.get('bodyAreaKey') or '—' }}
                                     </div>
                                 </td>
                                 <td>
                                     <div class="comparison-value-cell experity-output">
-                                        {{ experity_complaint.get('bodyAreaKey') or experity_complaint.get('bodyArea') or experity_complaint.get('bodyPartRaw') or '—' }}
+                                        {{ experity_complaint.get('bodyAreaKey') or experity_complaint.get('bodyArea') or '—' }}
                                     </div>
                                 </td>
                                 <td class="comparison-validation-cell">
                                     <div class="comparison-validation-buttons">
                                         <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="part_{{ complaint.complaint_id }}" 
-                                                   id="part_correct_{{ complaint.complaint_id }}"
+                                                   name="bodyAreaKey_{{ complaint.complaint_id }}" 
+                                                   id="bodyAreaKey_correct_{{ complaint.complaint_id }}"
                                                    value="correct"
-                                                   {% if complaint.existing_validation.get('part') == 'correct' %}checked{% endif %}>
-                                            <label for="part_correct_{{ complaint.complaint_id }}">Correct</label>
+                                                   {% if complaint.existing_validation.get('bodyAreaKey') == 'correct' %}checked{% endif %}>
+                                            <label for="bodyAreaKey_correct_{{ complaint.complaint_id }}">Correct</label>
                                         </div>
                                         <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="part_{{ complaint.complaint_id }}" 
-                                                   id="part_incorrect_{{ complaint.complaint_id }}"
+                                                   name="bodyAreaKey_{{ complaint.complaint_id }}" 
+                                                   id="bodyAreaKey_incorrect_{{ complaint.complaint_id }}"
                                                    value="incorrect"
-                                                   {% if complaint.existing_validation.get('part') == 'incorrect' %}checked{% endif %}>
-                                            <label for="part_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                                   {% if complaint.existing_validation.get('bodyAreaKey') == 'incorrect' %}checked{% endif %}>
+                                            <label for="bodyAreaKey_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
                                         </div>
                                     </div>
                                 </td>
                             </tr>
                             
-                            <!-- Trauma Type Row -->
+                            <!-- Notes Row -->
                             <tr>
-                                <td class="comparison-field-name">Trauma Type</td>
+                                <td class="comparison-field-name">Notes</td>
                                 <td>
                                     <div class="comparison-value-cell encounter-data">
-                                        {{ encounter_complaint.get('traumaType') or encounter_complaint.get('trauma_type') or raw_payload.get('traumaType') or raw_payload.get('trauma_type') or '—' }}
+                                        <pre>{{ encounter_complaint.get('notesFreeText') or encounter_complaint.get('notes') or raw_payload.get('notesFreeText') or raw_payload.get('notes') or '—' }}</pre>
                                     </div>
                                 </td>
                                 <td>
                                     <div class="comparison-value-cell experity-output">
-                                        {{ experity_complaint.get('traumaType') or '—' }}
+                                        <pre>{{ experity_complaint.get('notesFreeText') or experity_complaint.get('notes') or '—' }}</pre>
                                     </div>
                                 </td>
                                 <td class="comparison-validation-cell">
                                     <div class="comparison-validation-buttons">
                                         <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="traumaType_{{ complaint.complaint_id }}" 
-                                                   id="traumaType_correct_{{ complaint.complaint_id }}"
+                                                   name="notesFreeText_{{ complaint.complaint_id }}" 
+                                                   id="notesFreeText_correct_{{ complaint.complaint_id }}"
                                                    value="correct"
-                                                   {% if complaint.existing_validation.get('traumaType') == 'correct' %}checked{% endif %}>
-                                            <label for="traumaType_correct_{{ complaint.complaint_id }}">Correct</label>
+                                                   {% if complaint.existing_validation.get('notesFreeText') == 'correct' %}checked{% endif %}>
+                                            <label for="notesFreeText_correct_{{ complaint.complaint_id }}">Correct</label>
                                         </div>
                                         <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="traumaType_{{ complaint.complaint_id }}" 
-                                                   id="traumaType_incorrect_{{ complaint.complaint_id }}"
+                                                   name="notesFreeText_{{ complaint.complaint_id }}" 
+                                                   id="notesFreeText_incorrect_{{ complaint.complaint_id }}"
                                                    value="incorrect"
-                                                   {% if complaint.existing_validation.get('traumaType') == 'incorrect' %}checked{% endif %}>
-                                            <label for="traumaType_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                                   {% if complaint.existing_validation.get('notesFreeText') == 'incorrect' %}checked{% endif %}>
+                                            <label for="notesFreeText_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
                                         </div>
                                     </div>
                                 </td>
@@ -834,7 +783,7 @@
                                 <td class="comparison-field-name">Quality</td>
                                 <td>
                                     <div class="comparison-value-cell encounter-data">
-                                        {% set encounter_quality = encounter_complaint.get('quality') or encounter_complaint.get('notesPayload', {}).get('quality') or encounter_complaint.get('qualities') or encounter_complaint.get('painQuality') or raw_payload.get('quality') %}
+                                        {% set encounter_quality = encounter_complaint.get('quality') or encounter_complaint.get('notesPayload', {}).get('quality') or raw_payload.get('quality') %}
                                         {% if encounter_quality %}
                                             {% if encounter_quality is iterable and encounter_quality is not string %}
                                                 {{ encounter_quality|join(', ') }}
@@ -887,7 +836,7 @@
                                 <td class="comparison-field-name">Severity</td>
                                 <td>
                                     <div class="comparison-value-cell encounter-data">
-                                        {{ encounter_complaint.get('severity') or encounter_complaint.get('notesPayload', {}).get('severity') or encounter_complaint.get('painSeverity') or encounter_complaint.get('painScale') or encounter_complaint.get('severityScale') or raw_payload.get('severity') or '—' }}
+                                        {{ encounter_complaint.get('severity') or encounter_complaint.get('notesPayload', {}).get('severity') or raw_payload.get('severity') or '—' }}
                                     </div>
                                 </td>
                                 <td>
@@ -931,147 +880,6 @@
                         {% endif %}
                     </tbody>
                 </table>
-                
-                <!-- Encounter-Level Data Section -->
-                <div style="margin-top: 32px; padding: 20px; background: white; border-radius: 8px; border: 1px solid #e5e7eb;">
-                    <h4 style="font-size: 16px; font-weight: 600; color: #374151; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid #e5e7eb;">
-                        Encounter-Level Data
-                    </h4>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
-                        <!-- Guardian Information -->
-                        <div>
-                            <h5 style="font-size: 14px; font-weight: 600; color: #6b7280; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">
-                                Guardian Assisted Interview
-                            </h5>
-                            {% set additional_questions = raw_payload.get('additionalQuestions') or raw_payload.get('additional_questions') or {} %}
-                            {% if additional_questions is string %}
-                                {% set additional_questions = {} %}
-                            {% endif %}
-                            {% set guardian = additional_questions.get('guardianAssistedInterview') or additional_questions.get('guardian_assisted_interview') or {} %}
-                            {% if guardian is string %}
-                                {% set guardian = {} %}
-                            {% endif %}
-                            {% set experity_guardian = experity_actions.get('guardianAssistedInterview') or {} %}
-                            {% if experity_guardian is string %}
-                                {% set experity_guardian = {} %}
-                            {% endif %}
-                            <div style="display: grid; gap: 8px; font-size: 14px;">
-                                <div>
-                                    <span style="color: #6b7280; font-weight: 500;">Present:</span>
-                                    <span style="color: #1f2937; margin-left: 8px;">
-                                        {{ 'Yes' if guardian.get('present') else 'No' if guardian.get('present') == False else '—' }}
-                                    </span>
-                                    <span style="color: #10b981; margin-left: 12px;">
-                                        (Experity: {{ 'Yes' if experity_guardian.get('present') else 'No' if experity_guardian.get('present') == False else '—' }})
-                                    </span>
-                                </div>
-                                {% if guardian.get('guardianName') or experity_guardian.get('guardianName') %}
-                                <div>
-                                    <span style="color: #6b7280; font-weight: 500;">Guardian Name:</span>
-                                    <span style="color: #1f2937; margin-left: 8px;">{{ guardian.get('guardianName') or guardian.get('guardian_name') or '—' }}</span>
-                                    <span style="color: #10b981; margin-left: 12px;">(Experity: {{ experity_guardian.get('guardianName') or '—' }})</span>
-                                </div>
-                                {% endif %}
-                                {% if guardian.get('relationship') or experity_guardian.get('relationship') %}
-                                <div>
-                                    <span style="color: #6b7280; font-weight: 500;">Relationship:</span>
-                                    <span style="color: #1f2937; margin-left: 8px;">{{ guardian.get('relationship') or '—' }}</span>
-                                    <span style="color: #10b981; margin-left: 12px;">(Experity: {{ experity_guardian.get('relationship') or '—' }})</span>
-                                </div>
-                                {% endif %}
-                            </div>
-                        </div>
-                        
-                        <!-- Lab Orders -->
-                        <div>
-                            <h5 style="font-size: 14px; font-weight: 600; color: #6b7280; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">
-                                Lab Orders
-                            </h5>
-                            {% set raw_orders = raw_payload.get('orders') or [] %}
-                            {% if raw_orders is not iterable or raw_orders is string %}
-                                {% set raw_orders = [] %}
-                            {% endif %}
-                            {% set experity_orders = experity_actions.get('labOrders', []) %}
-                            <div style="font-size: 14px;">
-                                <div style="margin-bottom: 8px;">
-                                    <span style="color: #6b7280; font-weight: 500;">Count:</span>
-                                    <span style="color: #1f2937; margin-left: 8px;">{{ raw_orders|length }}</span>
-                                    <span style="color: #10b981; margin-left: 12px;">(Experity: {{ experity_orders|length }})</span>
-                                </div>
-                                {% if raw_orders|length > 0 %}
-                                <div style="margin-top: 8px;">
-                                    <div style="color: #6b7280; font-weight: 500; margin-bottom: 4px;">Orders:</div>
-                                    <ul style="margin: 0; padding-left: 20px; color: #1f2937;">
-                                        {% for order in raw_orders[:5] %}
-                                        <li>
-                                            {% if order is mapping %}
-                                                {{ order.get('name') or order.get('orderName') or order.get('id') or 'Unknown Order' }}
-                                            {% else %}
-                                                {{ order|string }}
-                                            {% endif %}
-                                        </li>
-                                        {% endfor %}
-                                        {% if raw_orders|length > 5 %}
-                                        <li style="color: #6b7280; font-style: italic;">... and {{ raw_orders|length - 5 }} more</li>
-                                        {% endif %}
-                                    </ul>
-                                </div>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Vitals Summary (if available) -->
-                    {% set vitals = raw_payload.get('attributes') or {} %}
-                    {% if vitals is string %}
-                        {% set vitals = {} %}
-                    {% endif %}
-                    {% set experity_vitals = experity_actions.get('vitals') or {} %}
-                    {% if experity_vitals is string %}
-                        {% set experity_vitals = {} %}
-                    {% endif %}
-                    {% if vitals or experity_vitals %}
-                    <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
-                        <h5 style="font-size: 14px; font-weight: 600; color: #6b7280; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">
-                            Key Vitals
-                        </h5>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; font-size: 14px;">
-                            {% if vitals.get('ageYears') or experity_vitals.get('ageYears') %}
-                            <div>
-                                <span style="color: #6b7280; font-weight: 500;">Age:</span>
-                                <span style="color: #1f2937; margin-left: 8px;">{{ vitals.get('ageYears') or '—' }}</span>
-                                <span style="color: #10b981; margin-left: 8px;">(Experity: {{ experity_vitals.get('ageYears') or '—' }})</span>
-                            </div>
-                            {% endif %}
-                            {% if vitals.get('gender') or experity_vitals.get('gender') %}
-                            <div>
-                                <span style="color: #6b7280; font-weight: 500;">Gender:</span>
-                                <span style="color: #1f2937; margin-left: 8px;">{{ vitals.get('gender') or '—' }}</span>
-                                <span style="color: #10b981; margin-left: 8px;">(Experity: {{ experity_vitals.get('gender') or '—' }})</span>
-                            </div>
-                            {% endif %}
-                            {% if vitals.get('bodyTemperatureCelsius') or experity_vitals.get('bodyTemperatureCelsius') %}
-                            <div>
-                                <span style="color: #6b7280; font-weight: 500;">Temperature:</span>
-                                <span style="color: #1f2937; margin-left: 8px;">{{ vitals.get('bodyTemperatureCelsius') or '—' }}°C</span>
-                                <span style="color: #10b981; margin-left: 8px;">(Experity: {{ experity_vitals.get('bodyTemperatureCelsius') or '—' }}°C)</span>
-                            </div>
-                            {% endif %}
-                            {% if vitals.get('bloodPressureSystolicMm') or experity_vitals.get('bloodPressureSystolicMm') %}
-                            <div>
-                                <span style="color: #6b7280; font-weight: 500;">Blood Pressure:</span>
-                                <span style="color: #1f2937; margin-left: 8px;">
-                                    {{ vitals.get('bloodPressureSystolicMm') or '—' }}/{{ vitals.get('bloodPressureDiastolicMm') or '—' }}
-                                </span>
-                                <span style="color: #10b981; margin-left: 8px;">
-                                    (Experity: {{ experity_vitals.get('bloodPressureSystolicMm') or '—' }}/{{ experity_vitals.get('bloodPressureDiastolicMm') or '—' }})
-                                </span>
-                            </div>
-                            {% endif %}
-                        </div>
-                    </div>
-                    {% endif %}
-                </div>
                 
                 <!-- JSON Viewers -->
                 <div style="margin-top: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
