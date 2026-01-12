@@ -5,9 +5,10 @@ This module contains all routes related to patient summaries.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Query
 import psycopg2
+from psycopg2.extras import RealDictCursor
 
 from app.api.routes.dependencies import (
     logger,
@@ -136,7 +137,7 @@ async def create_summary(
 @router.get(
     "/summary",
     tags=["Summaries"],
-    summary="Get summary by EMR ID",
+    summary="Get summary by EMR ID or Queue ID",
     response_model=SummaryResponse,
     responses={
         200: {
@@ -153,44 +154,84 @@ async def create_summary(
                 }
             }
         },
+        400: {"description": "Invalid request - either emrId or queueId must be provided"},
         401: {"description": "Authentication required"},
-        404: {"description": "Summary not found"},
+        404: {"description": "Queue entry or summary not found"},
         500: {"description": "Server error"},
     },
 )
 async def get_summary(
-    emrId: str = Query(..., alias="emrId", description="EMR identifier for the patient"),
+    emrId: Optional[str] = Query(None, alias="emrId", description="EMR identifier for the patient"),
+    queueId: Optional[str] = Query(None, alias="queueId", description="Queue identifier (UUID). If provided, will lookup emrId from queue entry."),
     current_client: TokenData = get_auth_dependency()
 ) -> SummaryResponse:
     """
     Get the most recent summary record for a patient.
     
-    **Example:**
+    Can be retrieved by either `emrId` or `queueId`. If `queueId` is provided, the system will
+    first lookup the associated `emrId` from the queue entry, then retrieve the summary.
+    
+    **Examples:**
     ```
     GET /summary?emrId=EMR12345
+    GET /summary?queueId=550e8400-e29b-41d4-a716-446655440000
     ```
     
     Returns the summary with the latest `updatedAt` timestamp. If multiple summaries exist, only the most recent one is returned.
     """
     conn = None
+    cursor = None
     
     try:
-        if not emrId:
+        # Validate that at least one parameter is provided
+        if not emrId and not queueId:
             raise HTTPException(
                 status_code=400,
-                detail="emrId query parameter is required."
+                detail="Either emrId or queueId must be provided."
             )
         
         # Get database connection
         conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Retrieve the summary
-        summary = get_summary_by_emr_id(conn, emrId)
+        # Resolve emr_id: either use provided emrId or lookup from queue
+        emr_id_to_use = None
+        
+        if queueId:
+            # Lookup emr_id from queue table
+            cursor.execute(
+                "SELECT emr_id FROM queue WHERE queue_id = %s",
+                (queueId,)
+            )
+            queue_entry = cursor.fetchone()
+            
+            if not queue_entry:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Queue entry not found: {queueId}"
+                )
+            
+            emr_id_to_use = queue_entry.get('emr_id')
+            if not emr_id_to_use:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Queue entry exists but has no emr_id associated: {queueId}"
+                )
+        else:
+            # Use provided emrId directly
+            emr_id_to_use = emrId
+        
+        # Close cursor before calling get_summary_by_emr_id (which creates its own cursor)
+        cursor.close()
+        cursor = None
+        
+        # Retrieve the summary using the resolved emr_id
+        summary = get_summary_by_emr_id(conn, emr_id_to_use)
         
         if not summary:
             raise HTTPException(
                 status_code=404,
-                detail=f"Summary not found for EMR ID: {emrId}"
+                detail=f"Summary not found for EMR ID: {emr_id_to_use}"
             )
         
         # Format the response
@@ -202,16 +243,22 @@ async def get_summary(
     except HTTPException:
         raise
     except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
         raise HTTPException(
             status_code=500,
             detail=f"Database error: {str(e)}"
         )
     except Exception as e:
+        if conn:
+            conn.rollback()
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error: {str(e)}"
         )
     finally:
+        if cursor:
+            cursor.close()
         if conn:
             conn.close()
 
