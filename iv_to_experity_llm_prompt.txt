@@ -145,10 +145,10 @@ Then extract data according to the rules above before processing.
 - This is a CRITICAL rule: Fabricating quality values violates the "NO CLINICAL FABRICATION" principle
 
 **Examples:**
-- Source has `"painQuality": "Sharp"` → Use `["Sharp"]` ✅
-- Source has `"description": "sharp chest pain"` → Use `["Sharp"]` ✅ (quality is in text)
-- Source has `"description": "chest pain"` only (no quality) → Use `[]` or `null` ✅
-- Source has `"description": "chest pain"` only → DO NOT use `["Pressure"]` or `["Sharp"]` ❌ (FABRICATION)
+- Source has `"painQuality": "Sharp"` → Use `["Sharp"]`
+- Source has `"description": "sharp chest pain"` → Use `["Sharp"]` (quality is in text)
+- Source has `"description": "chest pain"` only (no quality) → Use `[]` or `null`
+- Source has `"description": "chest pain"` only → DO NOT use `["Pressure"]` or `["Sharp"]` (FABRICATION)
 - For HEAD_TEMPLATE_D: Use `["Bleeding", "Cut skin"]` or `["Bleeding", "Cut skin", "Puncture"]` (NOT `"Cut skin"` as string)
 - For LE_TEMPLATE_A: Use `["Sharp"]` or `["Sharp", "Dull"]` (NOT `"Sharp"` as string) - BUT ONLY if source data specifies these qualities
 - If no quality matches or source doesn't specify: Use `[]` (empty array, NOT null)
@@ -190,7 +190,7 @@ Then extract data according to the rules above before processing.
 
 ## Body Part ID Mapping
 
-HEAD_PARENT=1, NECK_PARENT=2, CHEST_PARENT=3, ABD_PARENT=4, GU_PARENT=5, R_SHOULDER_PARENT=6, L_SHOULDER_PARENT=7, R_UPPER_ARM_PARENT=8, L_UPPER_ARM_PARENT=9, R_ELBOW_PARENT=10, L_ELBOW_PARENT=11, R_FOREARM_PARENT=12, L_FOREARM_PARENT=13, R_HAND_PARENT=14, L_HAND_PARENT=15, R_HIP_THIGH_PARENT=16, L_HIP_THIGH_PARENT=17, R_KNEE_PARENT=18, L_KNEE_PARENT=19, R_LOWER_LEG_PARENT=20, L_LOWER_LEG_PARENT=21, R_FOOT_PARENT=22, L_FOOT_PARENT=23, BACK_UPPER_PARENT=24, BACK_L_SCAP_PARENT=25, BACK_R_SCAP_PARENT=26, BACK_MID_PARENT=27, BACK_LOWER_PARENT=28, BACK_BUTTOCKS_PARENT=29, TOGGLE_FRONT_BACK=null
+HEAD_PARENT=1, NECK_PARENT=2, CHEST_PARENT=3, ABD_PARENT=4, GU_PARENT=5, R_SHOULDER_PARENT=9, L_SHOULDER_PARENT=8, R_UPPER_ARM_PARENT=15, L_UPPER_ARM_PARENT=14, R_ELBOW_PARENT=6, L_ELBOW_PARENT=7, R_FOREARM_PARENT=17, L_FOREARM_PARENT=16, R_HAND_PARENT=11, L_HAND_PARENT=10, R_HIP_THIGH_PARENT=19, L_HIP_THIGH_PARENT=20, R_KNEE_PARENT=18, L_KNEE_PARENT=21, R_LOWER_LEG_PARENT=22, L_LOWER_LEG_PARENT=23, R_FOOT_PARENT=12, L_FOOT_PARENT=13, BACK_UPPER_PARENT=24, BACK_L_SCAP_PARENT=26, BACK_R_SCAP_PARENT=25, BACK_MID_PARENT=27, BACK_LOWER_PARENT=28, BACK_BUTTOCKS_PARENT=29, TOGGLE_FRONT_BACK=null
 
 ---
 
