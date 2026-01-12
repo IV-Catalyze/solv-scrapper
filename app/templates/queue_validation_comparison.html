@@ -943,8 +943,18 @@
                             <h5 style="font-size: 14px; font-weight: 600; color: #6b7280; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">
                                 Guardian Assisted Interview
                             </h5>
-                            {% set guardian = raw_payload.get('additionalQuestions', {}).get('guardianAssistedInterview') or raw_payload.get('additionalQuestions', {}).get('guardian_assisted_interview') or {} %}
-                            {% set experity_guardian = experity_actions.get('guardianAssistedInterview', {}) %}
+                            {% set additional_questions = raw_payload.get('additionalQuestions') or raw_payload.get('additional_questions') or {} %}
+                            {% if additional_questions is string %}
+                                {% set additional_questions = {} %}
+                            {% endif %}
+                            {% set guardian = additional_questions.get('guardianAssistedInterview') or additional_questions.get('guardian_assisted_interview') or {} %}
+                            {% if guardian is string %}
+                                {% set guardian = {} %}
+                            {% endif %}
+                            {% set experity_guardian = experity_actions.get('guardianAssistedInterview') or {} %}
+                            {% if experity_guardian is string %}
+                                {% set experity_guardian = {} %}
+                            {% endif %}
                             <div style="display: grid; gap: 8px; font-size: 14px;">
                                 <div>
                                     <span style="color: #6b7280; font-weight: 500;">Present:</span>
@@ -977,7 +987,10 @@
                             <h5 style="font-size: 14px; font-weight: 600; color: #6b7280; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">
                                 Lab Orders
                             </h5>
-                            {% set raw_orders = raw_payload.get('orders', []) %}
+                            {% set raw_orders = raw_payload.get('orders') or [] %}
+                            {% if raw_orders is not iterable or raw_orders is string %}
+                                {% set raw_orders = [] %}
+                            {% endif %}
                             {% set experity_orders = experity_actions.get('labOrders', []) %}
                             <div style="font-size: 14px;">
                                 <div style="margin-bottom: 8px;">
@@ -990,7 +1003,13 @@
                                     <div style="color: #6b7280; font-weight: 500; margin-bottom: 4px;">Orders:</div>
                                     <ul style="margin: 0; padding-left: 20px; color: #1f2937;">
                                         {% for order in raw_orders[:5] %}
-                                        <li>{{ order.get('name') or order.get('orderName') or order.get('id') or 'Unknown Order' }}</li>
+                                        <li>
+                                            {% if order is mapping %}
+                                                {{ order.get('name') or order.get('orderName') or order.get('id') or 'Unknown Order' }}
+                                            {% else %}
+                                                {{ order|string }}
+                                            {% endif %}
+                                        </li>
                                         {% endfor %}
                                         {% if raw_orders|length > 5 %}
                                         <li style="color: #6b7280; font-style: italic;">... and {{ raw_orders|length - 5 }} more</li>
@@ -1003,8 +1022,14 @@
                     </div>
                     
                     <!-- Vitals Summary (if available) -->
-                    {% set vitals = raw_payload.get('attributes', {}) %}
-                    {% set experity_vitals = experity_actions.get('vitals', {}) %}
+                    {% set vitals = raw_payload.get('attributes') or {} %}
+                    {% if vitals is string %}
+                        {% set vitals = {} %}
+                    {% endif %}
+                    {% set experity_vitals = experity_actions.get('vitals') or {} %}
+                    {% if experity_vitals is string %}
+                        {% set experity_vitals = {} %}
+                    {% endif %}
                     {% if vitals or experity_vitals %}
                     <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
                         <h5 style="font-size: 14px; font-weight: 600; color: #6b7280; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">
