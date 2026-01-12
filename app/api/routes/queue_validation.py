@@ -1244,7 +1244,7 @@ async def get_queue_validation_image(
         routes_module = _get_routes_module()
         find_hpi_image_by_complaint = routes_module.find_hpi_image_by_complaint
         get_image_bytes_from_blob = routes_module.get_image_bytes_from_blob
-        get_content_type_from_blob_name = routes_module.get_content_type_from_blob_name
+        from app.api.routes.images import get_content_type_from_blob_name
 
         hpi_image_path = find_hpi_image_by_complaint(encounter_id_str, complaint_id)
 
@@ -1378,7 +1378,7 @@ async def get_icd_image(
         routes_module = _get_routes_module()
         find_encounter_image = routes_module.find_encounter_image
         get_image_bytes_from_blob = routes_module.get_image_bytes_from_blob
-        get_content_type_from_blob_name = routes_module.get_content_type_from_blob_name
+        from app.api.routes.images import get_content_type_from_blob_name
 
         # Find ICD image path using encounter_id
         icd_image_path = find_encounter_image(encounter_id, "icd")
@@ -1500,7 +1500,7 @@ async def get_historian_image(
         routes_module = _get_routes_module()
         find_encounter_image = routes_module.find_encounter_image
         get_image_bytes_from_blob = routes_module.get_image_bytes_from_blob
-        get_content_type_from_blob_name = routes_module.get_content_type_from_blob_name
+        from app.api.routes.images import get_content_type_from_blob_name
 
         # Find Historian image path using encounter_id
         historian_image_path = find_encounter_image(encounter_id, "historian")
