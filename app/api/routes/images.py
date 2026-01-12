@@ -39,22 +39,27 @@ except ImportError:
 
 # Container client initialization (needs to be imported from routes.py or redefined)
 container_client = None
+AZURE_STORAGE_CONNECTION_STRING = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
+AZURE_STORAGE_CONTAINER_NAME = os.getenv('AZURE_STORAGE_CONTAINER_NAME', 'testcontainer')
 if AZURE_BLOB_AVAILABLE:
     try:
-        connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
-        container_name = os.getenv('AZURE_STORAGE_CONTAINER_NAME', 'testcontainer')
-        if connection_string:
-            blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-            container_client = blob_service_client.get_container_client(container_name)
-            logger.info(f"Azure Blob Storage initialized. Container: {container_name}")
+        if AZURE_STORAGE_CONNECTION_STRING:
+            blob_service_client = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
+            container_client = blob_service_client.get_container_client(AZURE_STORAGE_CONTAINER_NAME)
+            logger.info(f"Azure Blob Storage initialized. Container: {AZURE_STORAGE_CONTAINER_NAME}")
         else:
             logger.warning("AZURE_STORAGE_CONNECTION_STRING not set. Image upload/retrieval will be disabled.")
     except Exception as e:
         logger.error(f"Failed to initialize Azure Blob Storage: {e}")
         container_client = None
 
-ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
 
 # Helper functions (from routes.py - need to import or redefine)
 def sanitize_blob_name(blob_name: str) -> str:
@@ -215,7 +220,7 @@ async def upload_image(
 
             status_code=400,
 
-            detail=f"Invalid file type: {content_type}. Allowed types: {', '.join(ALLOWED_IMAGE_TYPES)}"
+            detail=f"Invalid file type: {content_type}. Allowed types: {', '.join(ALLOWED_IMAGE_TYPES.keys())}"
 
         )
 
@@ -693,7 +698,7 @@ async def check_blob_storage_status(
 
         "container_client_initialized": container_client is not None,
 
-        "allowed_types": ALLOWED_IMAGE_TYPES,
+        "allowed_types": list(ALLOWED_IMAGE_TYPES.keys()),
 
         "max_size_bytes": MAX_IMAGE_SIZE,
 
