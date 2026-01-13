@@ -251,6 +251,7 @@ def remove_excluded_fields(encounter_payload: Dict[str, Any]) -> Dict[str, Any]:
         'createdByUser',
         'accessLogs',
         'creationLog',
+        'predictedDiagnoses',
     ]
     
     # Remove top-level excluded fields
