@@ -1184,6 +1184,25 @@ async def map_queue_to_experity(
             logger.warning(f"Failed to pre-extract quality (continuing anyway): {str(quality_error)}")
             # Continue without pre-extraction if it fails
         
+        # Extract onset from complaints (always enabled - code-based mapping)
+        pre_extracted_onsets = {}
+        try:
+            from app.utils.experity_mapper.complaint.onset_mapper import extract_onsets_from_complaints
+            
+            # Extract chiefComplaints from encounter (reuse from previous extractions)
+            chief_complaints = raw_payload.get("chiefComplaints") or raw_payload.get("chief_complaints", [])
+            if isinstance(chief_complaints, list) and len(chief_complaints) > 0:
+                pre_extracted_onsets = extract_onsets_from_complaints(
+                    chief_complaints,
+                    encounter_id=encounter_id
+                )
+                logger.info(f"Pre-extracted {len(pre_extracted_onsets)} onset values before LLM processing")
+            else:
+                logger.debug("No chiefComplaints found, skipping onset extraction")
+        except Exception as onset_error:
+            logger.warning(f"Failed to pre-extract onset (continuing anyway): {str(onset_error)}")
+            # Continue without pre-extraction if it fails
+        
         # Call Azure AI agent with retry logic at endpoint level
         # This provides additional retries for transient errors beyond the client-level retries
         endpoint_max_retries = 3
@@ -1271,6 +1290,25 @@ async def map_queue_to_experity(
                         logger.info("Merged pre-extracted quality values into LLM response")
                     except Exception as merge_error:
                         logger.warning(f"Failed to merge quality (continuing anyway): {str(merge_error)}")
+                        # Continue even if merge fails
+                
+                # Merge pre-extracted onset into LLM response (always enabled - code-based mapping)
+                if pre_extracted_onsets:
+                    try:
+                        from app.utils.experity_mapper import merge_onset_into_complaints
+                        
+                        # Get source complaints for better matching
+                        chief_complaints = raw_payload.get("chiefComplaints") or raw_payload.get("chief_complaints", [])
+                        
+                        experity_mapping = merge_onset_into_complaints(
+                            experity_mapping,
+                            pre_extracted_onsets,
+                            source_complaints=chief_complaints if isinstance(chief_complaints, list) else None,
+                            overwrite=True  # Always use deterministic extraction
+                        )
+                        logger.info("Merged pre-extracted onset values into LLM response")
+                    except Exception as merge_error:
+                        logger.warning(f"Failed to merge onset (continuing anyway): {str(merge_error)}")
                         # Continue even if merge fails
                 
                 # Validate and fix format issues in the response

@@ -455,3 +455,119 @@ def merge_quality_into_complaints(
     )
     return llm_response
 
+
+def merge_onset_into_complaints(
+    llm_response: Dict[str, Any],
+    onset_map: Dict[str, Optional[str]],
+    source_complaints: Optional[list] = None,
+    overwrite: bool = True
+) -> Dict[str, Any]:
+    """
+    Merge code-based onset values into LLM response complaints.
+    
+    This function follows the same pattern as merge_severity_into_complaints and
+    merge_quality_into_complaints. It finds complaints in the LLM response and
+    updates their notesPayload.onset with the code-based extracted values.
+    
+    Args:
+        llm_response: The LLM response dictionary (may have nested experityActions)
+        onset_map: Dictionary mapping complaint ID/index to onset string
+        source_complaints: Optional source complaints list for matching
+        overwrite: If True, always use code-based onset (recommended).
+                   If False, only use code-based if LLM didn't provide any.
+        
+    Returns:
+        Modified response dictionary with merged onset values
+        
+    Examples:
+        >>> response = {
+        ...     "experityActions": {
+        ...         "complaints": [
+        ...             {"complaintId": "c1", "notesPayload": {"onset": "2 days ago"}},
+        ...             {"complaintId": "c2", "notesPayload": {}}
+        ...         ]
+        ...     }
+        ... }
+        >>> onset_map = {"c1": "1 day ago", "c2": "Today"}
+        >>> merge_onset_into_complaints(response, onset_map, overwrite=True)
+        # Response updated: c1 onset changed from "2 days ago" to "1 day ago", c2 onset set to "Today"
+    """
+    # Handle nested structure: response may have experityActions nested
+    target = llm_response
+    if "experityActions" in llm_response:
+        target = llm_response["experityActions"]
+    elif "data" in llm_response and "experityActions" in llm_response["data"]:
+        target = llm_response["data"]["experityActions"]
+    
+    # Get complaints list
+    complaints = target.get("complaints", [])
+    if not isinstance(complaints, list):
+        logger.warning("complaints is not a list, cannot merge onset")
+        return llm_response
+    
+    if not onset_map:
+        logger.debug("No onset map provided, skipping merge")
+        return llm_response
+    
+    # Merge onset into each complaint
+    merged_count = 0
+    for idx, complaint in enumerate(complaints):
+        if not isinstance(complaint, dict):
+            continue
+        
+        # Get complaint identifier for matching
+        complaint_id = complaint.get("complaintId") or complaint.get("id")
+        
+        # Try to find matching onset
+        onset = None
+        
+        # Priority 1: Match by complaint ID
+        if complaint_id and complaint_id in onset_map:
+            onset = onset_map[complaint_id]
+        # Priority 2: Match by index (if source_complaints provided for alignment)
+        elif str(idx) in onset_map:
+            onset = onset_map[str(idx)]
+        # Priority 3: Try to match by description (if source_complaints provided)
+        elif source_complaints and idx < len(source_complaints):
+            source_complaint = source_complaints[idx]
+            source_id = source_complaint.get("id") or source_complaint.get("complaintId")
+            if source_id and source_id in onset_map:
+                onset = onset_map[source_id]
+        
+        # Merge onset if found
+        if onset is not None:
+            # Ensure notesPayload exists
+            if "notesPayload" not in complaint:
+                complaint["notesPayload"] = {}
+            
+            # Merge onset
+            if overwrite or "onset" not in complaint["notesPayload"] or not complaint["notesPayload"].get("onset"):
+                old_onset = complaint["notesPayload"].get("onset")
+                complaint["notesPayload"]["onset"] = onset
+                merged_count += 1
+                
+                if old_onset != onset:
+                    logger.debug(
+                        f"Merged onset '{onset}' into complaint {complaint_id or idx} "
+                        f"(was: {old_onset})"
+                    )
+        elif onset is None and overwrite:
+            # If onset is None (durationDays missing), set to null to ensure consistency
+            if "notesPayload" not in complaint:
+                complaint["notesPayload"] = {}
+            
+            # Only set to null if it wasn't already null/None
+            if "onset" not in complaint["notesPayload"] or complaint["notesPayload"].get("onset") is not None:
+                complaint["notesPayload"]["onset"] = None
+                merged_count += 1
+                logger.debug(
+                    f"Set onset to null for complaint {complaint_id or idx} "
+                    f"(durationDays missing)"
+                )
+    
+    logger.info(
+        f"Merged {merged_count} onset values into {len(complaints)} complaints "
+        f"(overwrite={overwrite})"
+    )
+    return llm_response
+
