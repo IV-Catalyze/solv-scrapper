@@ -348,3 +348,110 @@ def merge_severity_into_complaints(
     )
     return llm_response
 
+
+def merge_quality_into_complaints(
+    llm_response: Dict[str, Any],
+    quality_map: Dict[str, List[str]],
+    source_complaints: Optional[list] = None,
+    overwrite: bool = True
+) -> Dict[str, Any]:
+    """
+    Merge code-based quality values into LLM response complaints.
+    
+    This function follows the same pattern as merge_severity_into_complaints.
+    It finds complaints in the LLM response and updates their notesPayload.quality
+    with the code-based extracted values.
+    
+    Args:
+        llm_response: The LLM response dictionary (may have nested experityActions)
+        quality_map: Dictionary mapping complaint ID/index to quality array
+        source_complaints: Optional source complaints list for matching
+        overwrite: If True, always use code-based quality (recommended).
+                   If False, only use code-based if LLM didn't provide any.
+        
+    Returns:
+        Modified response dictionary with merged quality values
+        
+    Examples:
+        >>> response = {
+        ...     "experityActions": {
+        ...         "complaints": [
+        ...             {"complaintId": "c1", "notesPayload": {"quality": ["Pressure"]}},
+        ...             {"complaintId": "c2", "notesPayload": {}}
+        ...         ]
+        ...     }
+        ... }
+        >>> quality_map = {"c1": ["Sharp"], "c2": ["Dull"]}
+        >>> merge_quality_into_complaints(response, quality_map, overwrite=True)
+        # Response updated: c1 quality changed from ["Pressure"] to ["Sharp"], c2 quality set to ["Dull"]
+    """
+    # Handle nested structure: response may have experityActions nested
+    target = llm_response
+    if "experityActions" in llm_response:
+        target = llm_response["experityActions"]
+    elif "data" in llm_response and "experityActions" in llm_response["data"]:
+        target = llm_response["data"]["experityActions"]
+    
+    # Get complaints list
+    complaints = target.get("complaints", [])
+    if not isinstance(complaints, list):
+        logger.warning("complaints is not a list, cannot merge quality")
+        return llm_response
+    
+    if not quality_map:
+        logger.debug("No quality map provided, skipping merge")
+        return llm_response
+    
+    # Merge quality into each complaint
+    merged_count = 0
+    for idx, complaint in enumerate(complaints):
+        if not isinstance(complaint, dict):
+            continue
+        
+        # Get complaint identifier for matching
+        complaint_id = complaint.get("complaintId") or complaint.get("id")
+        
+        # Try to find matching quality
+        quality = None
+        
+        # Priority 1: Match by complaint ID
+        if complaint_id and complaint_id in quality_map:
+            quality = quality_map[complaint_id]
+        # Priority 2: Match by index (if source_complaints provided for alignment)
+        elif str(idx) in quality_map:
+            quality = quality_map[str(idx)]
+        # Priority 3: Try to match by description (if source_complaints provided)
+        elif source_complaints and idx < len(source_complaints):
+            source_complaint = source_complaints[idx]
+            source_id = source_complaint.get("id") or source_complaint.get("complaintId")
+            if source_id and source_id in quality_map:
+                quality = quality_map[source_id]
+        
+        # Merge quality if found
+        if quality is not None:
+            # Ensure notesPayload exists
+            if "notesPayload" not in complaint:
+                complaint["notesPayload"] = {}
+            
+            # Ensure quality is a list
+            if not isinstance(quality, list):
+                quality = [quality] if quality else []
+            
+            # Merge quality
+            if overwrite or "quality" not in complaint["notesPayload"] or not complaint["notesPayload"].get("quality"):
+                old_quality = complaint["notesPayload"].get("quality", [])
+                complaint["notesPayload"]["quality"] = quality
+                merged_count += 1
+                
+                if old_quality != quality:
+                    logger.debug(
+                        f"Merged quality {quality} into complaint {complaint_id or idx} "
+                        f"(was: {old_quality})"
+                    )
+    
+    logger.info(
+        f"Merged {merged_count} quality values into {len(complaints)} complaints "
+        f"(overwrite={overwrite})"
+    )
+    return llm_response
+

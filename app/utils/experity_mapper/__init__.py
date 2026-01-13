@@ -24,6 +24,7 @@ if _parent_module_path.exists():
         extract_icd_updates = _parent_module.extract_icd_updates
         merge_icd_updates_into_response = _parent_module.merge_icd_updates_into_response
         merge_severity_into_complaints = _parent_module.merge_severity_into_complaints
+        merge_quality_into_complaints = _parent_module.merge_quality_into_complaints
 
 # Export new complaint mappers from this package
 from .complaint.severity_mapper import (
@@ -31,12 +32,21 @@ from .complaint.severity_mapper import (
     extract_severities_from_complaints,
 )
 
+from .complaint.quality_mapper import (
+    extract_quality,
+    extract_qualities_from_complaints,
+)
+
 __all__ = [
     # ICD functions (re-exported from parent module)
     "extract_icd_updates",
     "merge_icd_updates_into_response",
     "merge_severity_into_complaints",
+    "merge_quality_into_complaints",
     # Severity mapper (new)
     "extract_severity",
     "extract_severities_from_complaints",
+    # Quality mapper (new)
+    "extract_quality",
+    "extract_qualities_from_complaints",
 ]
