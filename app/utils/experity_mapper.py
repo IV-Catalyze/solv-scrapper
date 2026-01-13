@@ -245,3 +245,106 @@ def merge_icd_updates_into_response(
     
     return llm_response
 
+
+def merge_severity_into_complaints(
+    llm_response: Dict[str, Any],
+    severity_map: Dict[str, int],
+    source_complaints: Optional[list] = None,
+    overwrite: bool = True
+) -> Dict[str, Any]:
+    """
+    Merge code-based severity values into LLM response complaints.
+    
+    This function follows the same pattern as merge_icd_updates_into_response.
+    It finds complaints in the LLM response and updates their notesPayload.severity
+    with the code-based extracted values.
+    
+    Args:
+        llm_response: The LLM response dictionary (may have nested experityActions)
+        severity_map: Dictionary mapping complaint ID/index to severity value
+        source_complaints: Optional source complaints list for matching
+        overwrite: If True, always use code-based severity (recommended).
+                   If False, only use code-based if LLM didn't provide any.
+        
+    Returns:
+        Modified response dictionary with merged severity values
+        
+    Examples:
+        >>> response = {
+        ...     "experityActions": {
+        ...         "complaints": [
+        ...             {"complaintId": "c1", "notesPayload": {"severity": 3}},
+        ...             {"complaintId": "c2", "notesPayload": {}}
+        ...         ]
+        ...     }
+        ... }
+        >>> severity_map = {"c1": 7, "c2": 5}
+        >>> merge_severity_into_complaints(response, severity_map, overwrite=True)
+        # Response updated: c1 severity changed from 3 to 7, c2 severity set to 5
+    """
+    # Handle nested structure: response may have experityActions nested
+    target = llm_response
+    if "experityActions" in llm_response:
+        target = llm_response["experityActions"]
+    elif "data" in llm_response and "experityActions" in llm_response["data"]:
+        target = llm_response["data"]["experityActions"]
+    
+    # Get complaints list
+    complaints = target.get("complaints", [])
+    if not isinstance(complaints, list):
+        logger.warning("complaints is not a list, cannot merge severity")
+        return llm_response
+    
+    if not severity_map:
+        logger.debug("No severity map provided, skipping merge")
+        return llm_response
+    
+    # Merge severity into each complaint
+    merged_count = 0
+    for idx, complaint in enumerate(complaints):
+        if not isinstance(complaint, dict):
+            continue
+        
+        # Get complaint identifier for matching
+        complaint_id = complaint.get("complaintId") or complaint.get("id")
+        
+        # Try to find matching severity
+        severity = None
+        
+        # Priority 1: Match by complaint ID
+        if complaint_id and complaint_id in severity_map:
+            severity = severity_map[complaint_id]
+        # Priority 2: Match by index (if source_complaints provided for alignment)
+        elif str(idx) in severity_map:
+            severity = severity_map[str(idx)]
+        # Priority 3: Try to match by description (if source_complaints provided)
+        elif source_complaints and idx < len(source_complaints):
+            source_complaint = source_complaints[idx]
+            source_id = source_complaint.get("id") or source_complaint.get("complaintId")
+            if source_id and source_id in severity_map:
+                severity = severity_map[source_id]
+        
+        # Merge severity if found
+        if severity is not None:
+            # Ensure notesPayload exists
+            if "notesPayload" not in complaint:
+                complaint["notesPayload"] = {}
+            
+            # Merge severity
+            if overwrite or "severity" not in complaint["notesPayload"]:
+                old_severity = complaint["notesPayload"].get("severity")
+                complaint["notesPayload"]["severity"] = severity
+                merged_count += 1
+                
+                if old_severity != severity:
+                    logger.debug(
+                        f"Merged severity {severity} into complaint {complaint_id or idx} "
+                        f"(was: {old_severity})"
+                    )
+    
+    logger.info(
+        f"Merged {merged_count} severity values into {len(complaints)} complaints "
+        f"(overwrite={overwrite})"
+    )
+    return llm_response
+

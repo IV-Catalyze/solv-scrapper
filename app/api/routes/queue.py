@@ -6,6 +6,7 @@ This module contains all routes related to queue management and Experity action 
 
 import logging
 import json
+import os
 import asyncio
 import random
 from datetime import datetime, timezone
@@ -1132,15 +1133,35 @@ async def map_queue_to_experity(
                 logger.warning(f"Failed to update queue status to PROCESSING: {str(e)}")
                 # Continue even if database update fails
         
-        # Pre-extract deterministic data (ICD updates, etc.) before LLM processing
+        # Pre-extract deterministic data (ICD updates, severity, etc.) before LLM processing
         # This reduces AI work and ensures accuracy for deterministic mappings
         pre_extracted_icd_updates = []
+        pre_extracted_severities = {}
+        
         try:
             from app.utils.experity_mapper import extract_icd_updates
             pre_extracted_icd_updates = extract_icd_updates(raw_payload)
             logger.info(f"Pre-extracted {len(pre_extracted_icd_updates)} ICD updates before LLM processing")
         except Exception as pre_extract_error:
             logger.warning(f"Failed to pre-extract ICD updates (continuing anyway): {str(pre_extract_error)}")
+            # Continue without pre-extraction if it fails
+        
+        # Extract severity from complaints (always enabled - code-based mapping)
+        try:
+            from app.utils.experity_mapper.complaint.severity_mapper import extract_severities_from_complaints
+            
+            # Extract chiefComplaints from encounter
+            chief_complaints = raw_payload.get("chiefComplaints") or raw_payload.get("chief_complaints", [])
+            if isinstance(chief_complaints, list) and len(chief_complaints) > 0:
+                pre_extracted_severities = extract_severities_from_complaints(
+                    chief_complaints,
+                    encounter_id=encounter_id
+                )
+                logger.info(f"Pre-extracted {len(pre_extracted_severities)} severity values before LLM processing")
+            else:
+                logger.debug("No chiefComplaints found, skipping severity extraction")
+        except Exception as severity_error:
+            logger.warning(f"Failed to pre-extract severity (continuing anyway): {str(severity_error)}")
             # Continue without pre-extraction if it fails
         
         # Call Azure AI agent with retry logic at endpoint level
@@ -1192,6 +1213,25 @@ async def map_queue_to_experity(
                         logger.info("Merged pre-extracted ICD updates into LLM response")
                     except Exception as merge_error:
                         logger.warning(f"Failed to merge ICD updates (continuing anyway): {str(merge_error)}")
+                        # Continue even if merge fails
+                
+                # Merge pre-extracted severity into LLM response (always enabled - code-based mapping)
+                if pre_extracted_severities:
+                    try:
+                        from app.utils.experity_mapper import merge_severity_into_complaints
+                        
+                        # Get source complaints for better matching
+                        chief_complaints = raw_payload.get("chiefComplaints") or raw_payload.get("chief_complaints", [])
+                        
+                        experity_mapping = merge_severity_into_complaints(
+                            experity_mapping,
+                            pre_extracted_severities,
+                            source_complaints=chief_complaints if isinstance(chief_complaints, list) else None,
+                            overwrite=True  # Always use deterministic extraction
+                        )
+                        logger.info("Merged pre-extracted severity values into LLM response")
+                    except Exception as merge_error:
+                        logger.warning(f"Failed to merge severity (continuing anyway): {str(merge_error)}")
                         # Continue even if merge fails
                 
                 # Validate and fix format issues in the response
