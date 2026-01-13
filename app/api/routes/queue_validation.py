@@ -6,6 +6,7 @@ This module contains all routes related to queue entry validation and manual val
 
 import logging
 import json
+import copy
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 
@@ -436,6 +437,11 @@ async def manual_validation_page(
         elif raw_payload is None:
             raw_payload = {}
 
+        # Create a filtered copy of raw_payload for display (remove predictedDiagnoses)
+        raw_payload_for_display = copy.deepcopy(raw_payload)
+        if isinstance(raw_payload_for_display, dict):
+            raw_payload_for_display.pop('predictedDiagnoses', None)
+
         
 
         # Extract experityActions from parsed_payload
@@ -844,7 +850,7 @@ async def manual_validation_page(
 
                 "complaints": complaints_data,
 
-                "raw_payload": raw_payload,
+                "raw_payload": raw_payload_for_display,
 
                 "experity_actions": experity_actions,
 
