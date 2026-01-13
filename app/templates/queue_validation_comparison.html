@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Encounter Validation (Comparison View) - {{ encounter_id }}</title>
+    <title>Encounter Validation - {{ encounter_id }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link
         href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
@@ -456,7 +456,7 @@
         }
         .comparison-table th {
             padding: 16px;
-            text-align: left;
+            text-align: center;
             font-weight: 600;
             font-size: 13px;
             text-transform: uppercase;
@@ -475,7 +475,6 @@
         }
         .comparison-table th:nth-child(4) {
             width: 25%;
-            text-align: center;
         }
         .comparison-table td {
             padding: 16px;
@@ -510,10 +509,6 @@
             white-space: pre-wrap;
             word-wrap: break-word;
             color: #1f2937;
-        }
-        .comparison-value-cell.encounter-data {
-            background: #eff6ff;
-            border-left: 3px solid #3b82f6;
         }
         .comparison-value-cell.experity-output {
             background: #f0fdf4;
@@ -613,7 +608,7 @@
     <div class="container">
         <div class="header">
             <div>
-            <h1>Encounter Validation (Comparison View)</h1>
+            <h1>Encounter Validation</h1>
             <div class="subtitle">Encounter ID: {{ encounter_id }}</div>
             {% if complaints|length == 1 and complaints[0].last_validation_date %}
             <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
@@ -654,50 +649,27 @@
             
             <!-- Comparison Section: Side-by-Side Table View -->
             <div class="comparison-section">
-                <h3>Validate Experity Output Against Encounter Data</h3>
+                <h3>Validate AI Output</h3>
                 <p style="color: #6b7280; font-size: 14px; margin-bottom: 20px;">
-                    Compare the Experity Output with the original Encounter Data. Mark each field as Correct or Incorrect.
+                    Compare the AI Output and Screenshot. Mark each field as Correct or Incorrect.
                 </p>
                 
                 <table class="comparison-table">
-                    <thead>
-                        <tr>
-                            <th>Field</th>
-                            <th>Encounter Data (Raw)</th>
-                            <th>Experity Output (Parsed)</th>
-                            <th>Validation</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% if raw_payload and experity_actions %}
-                            {# Get raw complaints from multiple possible field names (chiefComplaints is the standard) #}
-                            {% set raw_complaints = raw_payload.get('chiefComplaints') or raw_payload.get('chief_complaints') or raw_payload.get('complaints') or [] %}
-                            {# Match encounter complaint by complaintId #}
-                            {% set current_complaint_id = complaint.complaint_id %}
-                            {% set encounter_complaint = {} %}
-                            {% if raw_complaints %}
-                                {% for raw_complaint in raw_complaints %}
-                                    {# Check both id and complaintId fields (per mapping file: chiefComplaints[].id) #}
-                                    {% set raw_complaint_id = raw_complaint.get('id') or raw_complaint.get('complaintId') or raw_complaint.get('complaint_id') %}
-                                    {% if raw_complaint_id and raw_complaint_id|string == current_complaint_id|string %}
-                                        {% set encounter_complaint = raw_complaint %}
-                                    {% endif %}
-                                {% endfor %}
-                            {% endif %}
-                            {# If no match found, try to use first complaint as fallback #}
-                            {% if not encounter_complaint and raw_complaints and raw_complaints|length > 0 %}
-                                {% set encounter_complaint = raw_complaints[0] %}
-                            {% endif %}
+                <thead>
+                    <tr>
+                        <th>Field</th>
+                            <th>AI Output</th>
+                            <th>Validation: AI vs Data</th>
+                            <th>Validation: AI vs Screenshot</th>
+                    </tr>
+                </thead>
+                <tbody>
+                        {% if experity_actions %}
                             {% set experity_complaint = complaint.complaint_data %}
                             
                             <!-- Main Problem Row -->
                             <tr>
                                 <td class="comparison-field-name">Main Problem</td>
-                                <td>
-                                    <div class="comparison-value-cell encounter-data">
-                                        {{ encounter_complaint.get('description') or encounter_complaint.get('mainProblem') or encounter_complaint.get('problem') or raw_payload.get('mainProblem') or '—' }}
-                                    </div>
-                                </td>
                                 <td>
                                     <div class="comparison-value-cell experity-output">
                                         {{ experity_complaint.get('mainProblem') or experity_complaint.get('description') or '—' }}
@@ -706,33 +678,48 @@
                                 <td class="comparison-validation-cell">
                                     <div class="comparison-validation-buttons">
                                         <div class="comparison-validation-option">
+                                    <input type="radio" 
+                                           name="mainProblem_{{ complaint.complaint_id }}" 
+                                           id="mainProblem_correct_{{ complaint.complaint_id }}"
+                                           value="correct"
+                                           {% if complaint.existing_validation.get('mainProblem') == 'correct' %}checked{% endif %}>
+                                    <label for="mainProblem_correct_{{ complaint.complaint_id }}">Correct</label>
+                                </div>
+                                        <div class="comparison-validation-option">
+                                    <input type="radio" 
+                                           name="mainProblem_{{ complaint.complaint_id }}" 
+                                           id="mainProblem_incorrect_{{ complaint.complaint_id }}"
+                                           value="incorrect"
+                                           {% if complaint.existing_validation.get('mainProblem') == 'incorrect' %}checked{% endif %}>
+                                    <label for="mainProblem_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                </div>
+                            </div>
+                        </td>
+                                <td class="comparison-validation-cell">
+                                    <div class="comparison-validation-buttons">
+                                        <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="mainProblem_{{ complaint.complaint_id }}" 
-                                                   id="mainProblem_correct_{{ complaint.complaint_id }}"
+                                                   name="mainProblem_screenshot_{{ complaint.complaint_id }}" 
+                                                   id="mainProblem_screenshot_correct_{{ complaint.complaint_id }}"
                                                    value="correct"
-                                                   {% if complaint.existing_validation.get('mainProblem') == 'correct' %}checked{% endif %}>
-                                            <label for="mainProblem_correct_{{ complaint.complaint_id }}">Correct</label>
+                                                   {% if complaint.screenshot_existing_validation.get('mainProblem') == 'correct' %}checked{% endif %}>
+                                            <label for="mainProblem_screenshot_correct_{{ complaint.complaint_id }}">Correct</label>
                                         </div>
                                         <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="mainProblem_{{ complaint.complaint_id }}" 
-                                                   id="mainProblem_incorrect_{{ complaint.complaint_id }}"
+                                                   name="mainProblem_screenshot_{{ complaint.complaint_id }}" 
+                                                   id="mainProblem_screenshot_incorrect_{{ complaint.complaint_id }}"
                                                    value="incorrect"
-                                                   {% if complaint.existing_validation.get('mainProblem') == 'incorrect' %}checked{% endif %}>
-                                            <label for="mainProblem_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                                   {% if complaint.screenshot_existing_validation.get('mainProblem') == 'incorrect' %}checked{% endif %}>
+                                            <label for="mainProblem_screenshot_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
                                         </div>
                                     </div>
                                 </td>
-                            </tr>
+                    </tr>
                             
                             <!-- Body Area Row -->
                             <tr>
                                 <td class="comparison-field-name">Body Area</td>
-                                <td>
-                                    <div class="comparison-value-cell encounter-data">
-                                        {{ encounter_complaint.get('part') or encounter_complaint.get('bodyAreaKey') or encounter_complaint.get('bodyArea') or encounter_complaint.get('bodyPart') or raw_payload.get('bodyAreaKey') or '—' }}
-                                    </div>
-                                </td>
                                 <td>
                                     <div class="comparison-value-cell experity-output">
                                         {{ experity_complaint.get('bodyAreaKey') or experity_complaint.get('bodyArea') or '—' }}
@@ -741,162 +728,212 @@
                                 <td class="comparison-validation-cell">
                                     <div class="comparison-validation-buttons">
                                         <div class="comparison-validation-option">
+                                    <input type="radio" 
+                                           name="bodyAreaKey_{{ complaint.complaint_id }}" 
+                                           id="bodyAreaKey_correct_{{ complaint.complaint_id }}"
+                                           value="correct"
+                                           {% if complaint.existing_validation.get('bodyAreaKey') == 'correct' %}checked{% endif %}>
+                                    <label for="bodyAreaKey_correct_{{ complaint.complaint_id }}">Correct</label>
+                                </div>
+                                        <div class="comparison-validation-option">
+                                    <input type="radio" 
+                                           name="bodyAreaKey_{{ complaint.complaint_id }}" 
+                                           id="bodyAreaKey_incorrect_{{ complaint.complaint_id }}"
+                                           value="incorrect"
+                                           {% if complaint.existing_validation.get('bodyAreaKey') == 'incorrect' %}checked{% endif %}>
+                                    <label for="bodyAreaKey_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                </div>
+                            </div>
+                        </td>
+                                <td class="comparison-validation-cell">
+                                    <div class="comparison-validation-buttons">
+                                        <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="bodyAreaKey_{{ complaint.complaint_id }}" 
-                                                   id="bodyAreaKey_correct_{{ complaint.complaint_id }}"
+                                                   name="bodyAreaKey_screenshot_{{ complaint.complaint_id }}" 
+                                                   id="bodyAreaKey_screenshot_correct_{{ complaint.complaint_id }}"
                                                    value="correct"
-                                                   {% if complaint.existing_validation.get('bodyAreaKey') == 'correct' %}checked{% endif %}>
-                                            <label for="bodyAreaKey_correct_{{ complaint.complaint_id }}">Correct</label>
+                                                   {% if complaint.screenshot_existing_validation.get('bodyAreaKey') == 'correct' %}checked{% endif %}>
+                                            <label for="bodyAreaKey_screenshot_correct_{{ complaint.complaint_id }}">Correct</label>
                                         </div>
                                         <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="bodyAreaKey_{{ complaint.complaint_id }}" 
-                                                   id="bodyAreaKey_incorrect_{{ complaint.complaint_id }}"
+                                                   name="bodyAreaKey_screenshot_{{ complaint.complaint_id }}" 
+                                                   id="bodyAreaKey_screenshot_incorrect_{{ complaint.complaint_id }}"
                                                    value="incorrect"
-                                                   {% if complaint.existing_validation.get('bodyAreaKey') == 'incorrect' %}checked{% endif %}>
-                                            <label for="bodyAreaKey_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                                   {% if complaint.screenshot_existing_validation.get('bodyAreaKey') == 'incorrect' %}checked{% endif %}>
+                                            <label for="bodyAreaKey_screenshot_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
                                         </div>
                                     </div>
                                 </td>
-                            </tr>
+                    </tr>
                             
                             <!-- Notes Row -->
                             <tr>
                                 <td class="comparison-field-name">Notes</td>
                                 <td>
-                                    <div class="comparison-value-cell encounter-data">
-                                        <pre>{{ encounter_complaint.get('notes') or encounter_complaint.get('notesFreeText') or encounter_complaint.get('description') or raw_payload.get('notesFreeText') or raw_payload.get('notes') or '—' }}</pre>
-                                    </div>
-                                </td>
-                                <td>
                                     <div class="comparison-value-cell experity-output">
                                         <pre>{{ experity_complaint.get('notesFreeText') or experity_complaint.get('notes') or '—' }}</pre>
                                     </div>
-                                </td>
+                        </td>
+                                <td class="comparison-validation-cell">
+                                    <div class="comparison-validation-buttons">
+                                        <div class="comparison-validation-option">
+                                    <input type="radio" 
+                                           name="notesFreeText_{{ complaint.complaint_id }}" 
+                                           id="notesFreeText_correct_{{ complaint.complaint_id }}"
+                                           value="correct"
+                                           {% if complaint.existing_validation.get('notesFreeText') == 'correct' %}checked{% endif %}>
+                                    <label for="notesFreeText_correct_{{ complaint.complaint_id }}">Correct</label>
+                                </div>
+                                        <div class="comparison-validation-option">
+                                    <input type="radio" 
+                                           name="notesFreeText_{{ complaint.complaint_id }}" 
+                                           id="notesFreeText_incorrect_{{ complaint.complaint_id }}"
+                                           value="incorrect"
+                                           {% if complaint.existing_validation.get('notesFreeText') == 'incorrect' %}checked{% endif %}>
+                                    <label for="notesFreeText_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                </div>
+                            </div>
+                        </td>
                                 <td class="comparison-validation-cell">
                                     <div class="comparison-validation-buttons">
                                         <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="notesFreeText_{{ complaint.complaint_id }}" 
-                                                   id="notesFreeText_correct_{{ complaint.complaint_id }}"
+                                                   name="notesFreeText_screenshot_{{ complaint.complaint_id }}" 
+                                                   id="notesFreeText_screenshot_correct_{{ complaint.complaint_id }}"
                                                    value="correct"
-                                                   {% if complaint.existing_validation.get('notesFreeText') == 'correct' %}checked{% endif %}>
-                                            <label for="notesFreeText_correct_{{ complaint.complaint_id }}">Correct</label>
+                                                   {% if complaint.screenshot_existing_validation.get('notesFreeText') == 'correct' %}checked{% endif %}>
+                                            <label for="notesFreeText_screenshot_correct_{{ complaint.complaint_id }}">Correct</label>
                                         </div>
                                         <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="notesFreeText_{{ complaint.complaint_id }}" 
-                                                   id="notesFreeText_incorrect_{{ complaint.complaint_id }}"
+                                                   name="notesFreeText_screenshot_{{ complaint.complaint_id }}" 
+                                                   id="notesFreeText_screenshot_incorrect_{{ complaint.complaint_id }}"
                                                    value="incorrect"
-                                                   {% if complaint.existing_validation.get('notesFreeText') == 'incorrect' %}checked{% endif %}>
-                                            <label for="notesFreeText_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                                   {% if complaint.screenshot_existing_validation.get('notesFreeText') == 'incorrect' %}checked{% endif %}>
+                                            <label for="notesFreeText_screenshot_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
                                         </div>
                                     </div>
                                 </td>
-                            </tr>
+                    </tr>
                             
                             <!-- Quality Row -->
                             <tr>
                                 <td class="comparison-field-name">Quality</td>
-                                <td>
-                                    <div class="comparison-value-cell encounter-data">
-                                        {% set encounter_quality = encounter_complaint.get('painQuality') or encounter_complaint.get('quality') or encounter_complaint.get('notesPayload', {}).get('quality') or raw_payload.get('quality') %}
-                                        {% if encounter_quality %}
-                                            {% if encounter_quality is iterable and encounter_quality is not string %}
-                                                {{ encounter_quality|join(', ') }}
-                                            {% else %}
-                                                {{ encounter_quality }}
-                                            {% endif %}
-                                        {% else %}
-                                            —
-                                        {% endif %}
-                                    </div>
-                                </td>
                                 <td>
                                     <div class="comparison-value-cell experity-output">
                                         {% set experity_quality = experity_complaint.get('notesPayload', {}).get('quality') or experity_complaint.get('quality') %}
                                         {% if experity_quality %}
                                             {% if experity_quality is iterable and experity_quality is not string %}
                                                 {{ experity_quality|join(', ') }}
-                                            {% else %}
+                                {% else %}
                                                 {{ experity_quality }}
-                                            {% endif %}
-                                        {% else %}
-                                            —
-                                        {% endif %}
+                                {% endif %}
+                            {% else %}
+                                —
+                            {% endif %}
                                     </div>
-                                </td>
+                        </td>
+                                <td class="comparison-validation-cell">
+                                    <div class="comparison-validation-buttons">
+                                        <div class="comparison-validation-option">
+                                    <input type="radio" 
+                                           name="quality_{{ complaint.complaint_id }}" 
+                                           id="quality_correct_{{ complaint.complaint_id }}"
+                                           value="correct"
+                                           {% if complaint.existing_validation.get('quality') == 'correct' %}checked{% endif %}>
+                                    <label for="quality_correct_{{ complaint.complaint_id }}">Correct</label>
+                                </div>
+                                        <div class="comparison-validation-option">
+                                    <input type="radio" 
+                                           name="quality_{{ complaint.complaint_id }}" 
+                                           id="quality_incorrect_{{ complaint.complaint_id }}"
+                                           value="incorrect"
+                                           {% if complaint.existing_validation.get('quality') == 'incorrect' %}checked{% endif %}>
+                                    <label for="quality_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                </div>
+                            </div>
+                        </td>
                                 <td class="comparison-validation-cell">
                                     <div class="comparison-validation-buttons">
                                         <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="quality_{{ complaint.complaint_id }}" 
-                                                   id="quality_correct_{{ complaint.complaint_id }}"
+                                                   name="quality_screenshot_{{ complaint.complaint_id }}" 
+                                                   id="quality_screenshot_correct_{{ complaint.complaint_id }}"
                                                    value="correct"
-                                                   {% if complaint.existing_validation.get('quality') == 'correct' %}checked{% endif %}>
-                                            <label for="quality_correct_{{ complaint.complaint_id }}">Correct</label>
+                                                   {% if complaint.screenshot_existing_validation.get('quality') == 'correct' %}checked{% endif %}>
+                                            <label for="quality_screenshot_correct_{{ complaint.complaint_id }}">Correct</label>
                                         </div>
                                         <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="quality_{{ complaint.complaint_id }}" 
-                                                   id="quality_incorrect_{{ complaint.complaint_id }}"
+                                                   name="quality_screenshot_{{ complaint.complaint_id }}" 
+                                                   id="quality_screenshot_incorrect_{{ complaint.complaint_id }}"
                                                    value="incorrect"
-                                                   {% if complaint.existing_validation.get('quality') == 'incorrect' %}checked{% endif %}>
-                                            <label for="quality_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                                   {% if complaint.screenshot_existing_validation.get('quality') == 'incorrect' %}checked{% endif %}>
+                                            <label for="quality_screenshot_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
                                         </div>
                                     </div>
                                 </td>
-                            </tr>
+                    </tr>
                             
                             <!-- Severity Row -->
                             <tr>
                                 <td class="comparison-field-name">Severity</td>
                                 <td>
-                                    <div class="comparison-value-cell encounter-data">
-                                        {{ encounter_complaint.get('painScale') or encounter_complaint.get('severity') or encounter_complaint.get('notesPayload', {}).get('severity') or raw_payload.get('severity') or '—' }}
-                                    </div>
-                                </td>
-                                <td>
                                     <div class="comparison-value-cell experity-output">
                                         {{ experity_complaint.get('notesPayload', {}).get('severity') or experity_complaint.get('severity') or '—' }}
                                     </div>
-                                </td>
+                        </td>
+                                <td class="comparison-validation-cell">
+                                    <div class="comparison-validation-buttons">
+                                        <div class="comparison-validation-option">
+                                    <input type="radio" 
+                                           name="severity_{{ complaint.complaint_id }}" 
+                                           id="severity_correct_{{ complaint.complaint_id }}"
+                                           value="correct"
+                                           {% if complaint.existing_validation.get('severity') == 'correct' %}checked{% endif %}>
+                                    <label for="severity_correct_{{ complaint.complaint_id }}">Correct</label>
+                                </div>
+                                        <div class="comparison-validation-option">
+                                    <input type="radio" 
+                                           name="severity_{{ complaint.complaint_id }}" 
+                                           id="severity_incorrect_{{ complaint.complaint_id }}"
+                                           value="incorrect"
+                                           {% if complaint.existing_validation.get('severity') == 'incorrect' %}checked{% endif %}>
+                                    <label for="severity_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                </div>
+                            </div>
+                        </td>
                                 <td class="comparison-validation-cell">
                                     <div class="comparison-validation-buttons">
                                         <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="severity_{{ complaint.complaint_id }}" 
-                                                   id="severity_correct_{{ complaint.complaint_id }}"
+                                                   name="severity_screenshot_{{ complaint.complaint_id }}" 
+                                                   id="severity_screenshot_correct_{{ complaint.complaint_id }}"
                                                    value="correct"
-                                                   {% if complaint.existing_validation.get('severity') == 'correct' %}checked{% endif %}>
-                                            <label for="severity_correct_{{ complaint.complaint_id }}">Correct</label>
+                                                   {% if complaint.screenshot_existing_validation.get('severity') == 'correct' %}checked{% endif %}>
+                                            <label for="severity_screenshot_correct_{{ complaint.complaint_id }}">Correct</label>
                                         </div>
                                         <div class="comparison-validation-option">
                                             <input type="radio" 
-                                                   name="severity_{{ complaint.complaint_id }}" 
-                                                   id="severity_incorrect_{{ complaint.complaint_id }}"
+                                                   name="severity_screenshot_{{ complaint.complaint_id }}" 
+                                                   id="severity_screenshot_incorrect_{{ complaint.complaint_id }}"
                                                    value="incorrect"
-                                                   {% if complaint.existing_validation.get('severity') == 'incorrect' %}checked{% endif %}>
-                                            <label for="severity_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                                   {% if complaint.screenshot_existing_validation.get('severity') == 'incorrect' %}checked{% endif %}>
+                                            <label for="severity_screenshot_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
                                         </div>
                                     </div>
                                 </td>
-                            </tr>
+                    </tr>
                         {% else %}
                             <tr>
                                 <td colspan="4" style="text-align: center; padding: 40px; color: #6b7280;">
-                                    {% if not raw_payload and not experity_actions %}
-                                        No data available for comparison
-                                    {% elif not raw_payload %}
-                                        Encounter data not available
-                                    {% else %}
-                                        Experity output not available
-                                    {% endif %}
+                                    Experity output not available
                                 </td>
                             </tr>
                         {% endif %}
-                    </tbody>
-                </table>
+                </tbody>
+            </table>
                 
                 <!-- JSON Viewers -->
                 <div style="margin-top: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
@@ -1103,9 +1140,13 @@
         async function saveValidation(complaintId) {
             // Collect field validations for this complaint
             const fieldValidations = {};
+            const screenshotFieldValidations = {};
             const fieldNames = ['mainProblem', 'bodyAreaKey', 'notesFreeText', 'quality', 'severity'];
             
             let allFieldsValidated = true;
+            let allScreenshotFieldsValidated = true;
+            
+            // Collect regular field validations
             for (const fieldName of fieldNames) {
                 const radioName = `${fieldName}_${complaintId}`;
                 const selectedRadio = document.querySelector(`input[name="${radioName}"]:checked`);
@@ -1117,8 +1158,20 @@
                 }
             }
 
-            if (!allFieldsValidated) {
-                showAlert('Please validate all fields before saving.', 'error');
+            // Collect screenshot field validations
+            for (const fieldName of fieldNames) {
+                const radioName = `${fieldName}_screenshot_${complaintId}`;
+                const selectedRadio = document.querySelector(`input[name="${radioName}"]:checked`);
+                
+                if (selectedRadio) {
+                    screenshotFieldValidations[fieldName] = selectedRadio.value;
+                } else {
+                    allScreenshotFieldsValidated = false;
+                }
+            }
+
+            if (!allFieldsValidated || !allScreenshotFieldsValidated) {
+                showAlert('Please validate all fields (both Validation and Screenshot Validation) before saving.', 'error');
                 return;
             }
 
@@ -1146,7 +1199,8 @@
                     credentials: 'same-origin',
                     body: JSON.stringify({
                         complaint_id: complaintId,
-                        field_validations: fieldValidations
+                        field_validations: fieldValidations,
+                        screenshot_field_validations: screenshotFieldValidations
                     })
                 });
 

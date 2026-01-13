@@ -1080,9 +1080,6 @@
                                     </td>
                                     <td>
                                         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-start; align-items: center;">
-                                            <button class="btn-verify primary" onclick='showVerification({{ entry.queue_id|tojson }}, {{ entry.encounter_payload|tojson }})'>
-                                                View Encounter
-                                            </button>
                                             {% if entry.encounter_id %}
                                                 <a href="#" 
                                                    class="btn-verify secondary" 
