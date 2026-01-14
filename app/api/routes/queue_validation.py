@@ -364,7 +364,9 @@ async def manual_validation_page(
 
                 parsed_payload,
 
-                raw_payload
+                raw_payload,
+
+                created_at
 
             FROM queue
 
@@ -427,6 +429,16 @@ async def manual_validation_page(
         parsed_payload = queue_entry.get('parsed_payload')
 
         raw_payload = queue_entry.get('raw_payload')
+        
+        # Get encounter created date from queue
+        encounter_created_at = queue_entry.get('created_at')
+        encounter_created_date_str = None
+        if encounter_created_at:
+            if isinstance(encounter_created_at, datetime):
+                # Format as "Jan 21, 2025 at 10:30 AM" for display
+                encounter_created_date_str = encounter_created_at.strftime('%b %d, %Y at %I:%M %p')
+            else:
+                encounter_created_date_str = str(encounter_created_at)
         
         # Parse raw_payload if it's a string
         if isinstance(raw_payload, str):
@@ -859,6 +871,8 @@ async def manual_validation_page(
                 "page_title": "Encounter Validation",
 
                 "page_subtitle": f"Encounter ID: {encounter_id}",
+
+                "encounter_created_date": encounter_created_date_str,
 
                 "show_navigation": False,
 
