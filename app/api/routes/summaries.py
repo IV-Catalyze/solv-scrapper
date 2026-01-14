@@ -30,7 +30,6 @@ router = APIRouter()
     "/summary",
     tags=["Summaries"],
     summary="Create summary record",
-    response_model=SummaryResponse,
     status_code=201,
         responses={
         201: {
@@ -155,7 +154,6 @@ async def create_summary(
     "/summary",
     tags=["Summaries"],
     summary="Get summary by EMR ID, Queue ID, or Encounter ID",
-    response_model=SummaryResponse,
     responses={
         200: {
             "description": "Summary record",
