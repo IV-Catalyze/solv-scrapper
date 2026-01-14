@@ -772,6 +772,56 @@
                                 </td>
                     </tr>
                             
+                            <!-- Body Part Row -->
+                            <tr>
+                                <td class="comparison-field-name">Body Part</td>
+                                <td>
+                                    <div class="comparison-value-cell experity-output">
+                                        {{ experity_complaint.get('bodyPartRaw') or '—' }}
+                                    </div>
+                                </td>
+                                <td class="comparison-validation-cell">
+                                    <div class="comparison-validation-buttons">
+                                        <div class="comparison-validation-option">
+                                    <input type="radio" 
+                                           name="bodyPartRaw_{{ complaint.complaint_id }}" 
+                                           id="bodyPartRaw_correct_{{ complaint.complaint_id }}"
+                                           value="correct"
+                                           {% if complaint.existing_validation.get('bodyPartRaw') == 'correct' %}checked{% endif %}>
+                                    <label for="bodyPartRaw_correct_{{ complaint.complaint_id }}">Correct</label>
+                                </div>
+                                        <div class="comparison-validation-option">
+                                    <input type="radio" 
+                                           name="bodyPartRaw_{{ complaint.complaint_id }}" 
+                                           id="bodyPartRaw_incorrect_{{ complaint.complaint_id }}"
+                                           value="incorrect"
+                                           {% if complaint.existing_validation.get('bodyPartRaw') == 'incorrect' %}checked{% endif %}>
+                                    <label for="bodyPartRaw_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                </div>
+                            </div>
+                        </td>
+                                <td class="comparison-validation-cell">
+                                    <div class="comparison-validation-buttons">
+                                        <div class="comparison-validation-option">
+                                            <input type="radio" 
+                                                   name="bodyPartRaw_screenshot_{{ complaint.complaint_id }}" 
+                                                   id="bodyPartRaw_screenshot_correct_{{ complaint.complaint_id }}"
+                                                   value="correct"
+                                                   {% if complaint.screenshot_existing_validation.get('bodyPartRaw') == 'correct' %}checked{% endif %}>
+                                            <label for="bodyPartRaw_screenshot_correct_{{ complaint.complaint_id }}">Correct</label>
+                                        </div>
+                                        <div class="comparison-validation-option">
+                                            <input type="radio" 
+                                                   name="bodyPartRaw_screenshot_{{ complaint.complaint_id }}" 
+                                                   id="bodyPartRaw_screenshot_incorrect_{{ complaint.complaint_id }}"
+                                                   value="incorrect"
+                                                   {% if complaint.screenshot_existing_validation.get('bodyPartRaw') == 'incorrect' %}checked{% endif %}>
+                                            <label for="bodyPartRaw_screenshot_incorrect_{{ complaint.complaint_id }}">Incorrect</label>
+                                        </div>
+                                    </div>
+                                </td>
+                    </tr>
+                            
                             <!-- Notes Row -->
                             <tr>
                                 <td class="comparison-field-name">Notes</td>
@@ -1146,7 +1196,7 @@
             // Collect field validations for this complaint
             const fieldValidations = {};
             const screenshotFieldValidations = {};
-            const fieldNames = ['mainProblem', 'bodyAreaKey', 'notesFreeText', 'quality', 'severity'];
+            const fieldNames = ['mainProblem', 'bodyAreaKey', 'bodyPartRaw', 'notesFreeText', 'quality', 'severity'];
             
             let allFieldsValidated = true;
             let allScreenshotFieldsValidated = true;
