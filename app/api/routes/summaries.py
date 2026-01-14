@@ -55,7 +55,7 @@ router = APIRouter()
 async def create_summary(
     summary_data: SummaryRequest,
     current_client: TokenData = get_auth_dependency()
-) -> SummaryResponse:
+) -> Dict[str, Any]:
     """
     **Request Body:**
     - `emrId` (required): EMR identifier for the patient
@@ -181,7 +181,7 @@ async def get_summary(
     queueId: Optional[str] = Query(None, alias="queueId", description="Queue identifier (UUID). If provided, will lookup emrId from queue entry."),
     encounterId: Optional[str] = Query(None, alias="encounterId", description="Encounter identifier (UUID). If provided, will lookup summary by encounter ID."),
     current_client: TokenData = get_auth_dependency()
-) -> SummaryResponse:
+) -> Dict[str, Any]:
     """
     Get the most recent summary record for a patient.
     
