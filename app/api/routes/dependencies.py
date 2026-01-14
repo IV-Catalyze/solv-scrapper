@@ -86,6 +86,7 @@ from app.api.database import (
     save_vm_health,
     get_latest_vm_health,
     get_summary_by_emr_id,
+    get_summary_by_encounter_id,
     create_queue_from_encounter,
     update_queue_status_and_experity_action,
 )
@@ -182,6 +183,7 @@ __all__ = [
     "save_vm_health",
     "get_latest_vm_health",
     "get_summary_by_emr_id",
+    "get_summary_by_encounter_id",
     "create_queue_from_encounter",
     "update_queue_status_and_experity_action",
     "build_patient_payload",

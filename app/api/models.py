@@ -394,6 +394,12 @@ class SummaryRequest(BaseModel):
         example="EMR12345",
         alias="emr_id"
     )
+    encounterId: str = Field(
+        ...,
+        description="Encounter identifier (UUID) for the encounter",
+        example="550e8400-e29b-41d4-a716-446655440000",
+        alias="encounter_id"
+    )
     note: str = Field(
         ..., 
         description="Summary note text containing clinical information",
@@ -405,6 +411,7 @@ class SummaryRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "emrId": "EMR12345",
+                "encounterId": "550e8400-e29b-41d4-a716-446655440000",
                 "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days."
             }
         }
@@ -421,6 +428,7 @@ class SummaryResponse(BaseModel):
     """Response model for summary records."""
     id: int = Field(..., description="Unique identifier for the summary record", example=123)
     emrId: str = Field(..., description="EMR identifier for the patient", example="EMR12345", alias="emr_id")
+    encounterId: str = Field(..., description="Encounter identifier (UUID) for the encounter", example="550e8400-e29b-41d4-a716-446655440000", alias="encounter_id")
     note: str = Field(..., description="Summary note text", example="Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.")
     createdAt: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was created", example="2025-11-21T10:30:00Z", alias="created_at")
     updatedAt: Optional[str] = Field(None, description="ISO 8601 timestamp when the record was last updated", example="2025-11-21T10:30:00Z", alias="updated_at")
@@ -431,6 +439,7 @@ class SummaryResponse(BaseModel):
             "example": {
                 "id": 123,
                 "emrId": "EMR12345",
+                "encounterId": "550e8400-e29b-41d4-a716-446655440000",
                 "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.",
                 "createdAt": "2025-11-21T10:30:00Z",
                 "updatedAt": "2025-11-21T10:30:00Z"

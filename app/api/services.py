@@ -102,6 +102,7 @@ def format_summary_response(record: Dict[str, Any]) -> Dict[str, Any]:
     formatted = {
         'id': record.get('id'),
         'emrId': record.get('emr_id', ''),
+        'encounterId': record.get('encounter_id', ''),
         'note': record.get('note', ''),
         'createdAt': None,
         'updatedAt': None,

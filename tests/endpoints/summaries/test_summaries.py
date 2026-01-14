@@ -17,7 +17,8 @@ class TestCreateSummary:
     def sample_summary_data(self, test_location_id):
         """Sample summary data for testing"""
         return {
-            "emr_id": f"TEST_SUMMARY_{uuid.uuid4().hex[:8]}",
+            "emrId": f"TEST_SUMMARY_{uuid.uuid4().hex[:8]}",
+            "encounterId": str(uuid.uuid4()),
             "note": "This is a test summary note for the patient."
         }
     
@@ -25,7 +26,7 @@ class TestCreateSummary:
         """Test creating a summary successfully"""
         # First create a patient
         patient_data = {
-            "emr_id": sample_summary_data["emr_id"],
+            "emr_id": sample_summary_data["emrId"],
             "location_id": test_location_id,
             "legalFirstName": "Summary",
             "legalLastName": "Test"
@@ -41,8 +42,14 @@ class TestCreateSummary:
         response = client.post(summary_path, json=sample_summary_data, headers=summary_headers)
         assert response.status_code == 201
         data = response.json()
-        assert data.get("emr_id") == sample_summary_data["emr_id"]
-        assert data.get("note") == sample_summary_data["note"]
+        # Handle both camelCase and snake_case responses
+        emr_id = data.get("emrId") or data.get("emr_id")
+        encounter_id = data.get("encounterId") or data.get("encounter_id")
+        note = data.get("note")
+        
+        assert emr_id == sample_summary_data["emrId"], f"emrId mismatch: expected {sample_summary_data['emrId']}, got {emr_id}"
+        assert encounter_id == sample_summary_data["encounterId"], f"encounterId mismatch: expected {sample_summary_data['encounterId']}, got {encounter_id}"
+        assert note == sample_summary_data["note"], f"note mismatch: expected {sample_summary_data['note']}, got {note}"
     
     def test_create_summary_missing_emr_id(self, client, hmac_headers):
         """Test creating summary without emr_id (required)"""

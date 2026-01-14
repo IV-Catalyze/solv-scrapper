@@ -19,6 +19,7 @@ from app.api.routes.dependencies import (
     get_db_connection,
     save_summary,
     get_summary_by_emr_id,
+    get_summary_by_encounter_id,
     format_summary_response,
 )
 
@@ -31,7 +32,7 @@ router = APIRouter()
     summary="Create summary record",
     response_model=SummaryResponse,
     status_code=201,
-    responses={
+        responses={
         201: {
             "description": "Summary record created successfully",
             "content": {
@@ -39,6 +40,7 @@ router = APIRouter()
                     "example": {
                         "id": 123,
                         "emrId": "EMR12345",
+                        "encounterId": "550e8400-e29b-41d4-a716-446655440000",
                         "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.",
                         "createdAt": "2025-11-21T10:30:00Z",
                         "updatedAt": "2025-11-21T10:30:00Z"
@@ -58,6 +60,7 @@ async def create_summary(
     """
     **Request Body:**
     - `emrId` (required): EMR identifier for the patient
+    - `encounterId` (required): Encounter identifier (UUID) for the encounter
     - `note` (required): Summary note text containing clinical information
     
     **Example:**
@@ -65,6 +68,7 @@ async def create_summary(
     POST /summary
     {
       "emrId": "EMR12345",
+      "encounterId": "550e8400-e29b-41d4-a716-446655440000",
       "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days."
     }
     ```
@@ -82,6 +86,12 @@ async def create_summary(
                 detail="emrId is required. Please provide an EMR identifier."
             )
         
+        if not summary_data.encounterId:
+            raise HTTPException(
+                status_code=400,
+                detail="encounterId is required. Please provide an encounter identifier (UUID)."
+            )
+        
         if not summary_data.note:
             raise HTTPException(
                 status_code=400,
@@ -91,6 +101,7 @@ async def create_summary(
         # Prepare summary data
         summary_dict = {
             'emr_id': summary_data.emrId,
+            'encounter_id': summary_data.encounterId,
             'note': summary_data.note,
         }
         
@@ -137,7 +148,7 @@ async def create_summary(
 @router.get(
     "/summary",
     tags=["Summaries"],
-    summary="Get summary by EMR ID or Queue ID",
+    summary="Get summary by EMR ID, Queue ID, or Encounter ID",
     response_model=SummaryResponse,
     responses={
         200: {
@@ -147,6 +158,7 @@ async def create_summary(
                     "example": {
                         "id": 123,
                         "emrId": "EMR12345",
+                        "encounterId": "550e8400-e29b-41d4-a716-446655440000",
                         "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.",
                         "createdAt": "2025-11-21T10:30:00Z",
                         "updatedAt": "2025-11-21T10:30:00Z"
@@ -154,7 +166,7 @@ async def create_summary(
                 }
             }
         },
-        400: {"description": "Invalid request - either emrId or queueId must be provided"},
+        400: {"description": "Invalid request - either emrId, queueId, or encounterId must be provided"},
         401: {"description": "Authentication required"},
         404: {"description": "Queue entry or summary not found"},
         500: {"description": "Server error"},
@@ -163,18 +175,21 @@ async def create_summary(
 async def get_summary(
     emrId: Optional[str] = Query(None, alias="emrId", description="EMR identifier for the patient"),
     queueId: Optional[str] = Query(None, alias="queueId", description="Queue identifier (UUID). If provided, will lookup emrId from queue entry."),
+    encounterId: Optional[str] = Query(None, alias="encounterId", description="Encounter identifier (UUID). If provided, will lookup summary by encounter ID."),
     current_client: TokenData = get_auth_dependency()
 ) -> SummaryResponse:
     """
     Get the most recent summary record for a patient.
     
-    Can be retrieved by either `emrId` or `queueId`. If `queueId` is provided, the system will
-    first lookup the associated `emrId` from the queue entry, then retrieve the summary.
+    Can be retrieved by `emrId`, `queueId`, or `encounterId`. If `queueId` is provided, the system will
+    first lookup the associated `emrId` from the queue entry, then retrieve the summary. If `encounterId`
+    is provided, the summary will be retrieved directly by encounter ID.
     
     **Examples:**
     ```
     GET /summary?emrId=EMR12345
     GET /summary?queueId=550e8400-e29b-41d4-a716-446655440000
+    GET /summary?encounterId=550e8400-e29b-41d4-a716-446655440000
     ```
     
     Returns the summary with the latest `updatedAt` timestamp. If multiple summaries exist, only the most recent one is returned.
@@ -184,55 +199,72 @@ async def get_summary(
     
     try:
         # Validate that at least one parameter is provided
-        if not emrId and not queueId:
+        if not emrId and not queueId and not encounterId:
             raise HTTPException(
                 status_code=400,
-                detail="Either emrId or queueId must be provided."
+                detail="Either emrId, queueId, or encounterId must be provided."
             )
         
         # Get database connection
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Resolve emr_id: either use provided emrId or lookup from queue
-        emr_id_to_use = None
+        summary = None
         
-        if queueId:
-            # Lookup emr_id from queue table
-            cursor.execute(
-                "SELECT emr_id FROM queue WHERE queue_id = %s",
-                (queueId,)
-            )
-            queue_entry = cursor.fetchone()
+        # If encounterId is provided, use it directly
+        if encounterId:
+            # Close cursor before calling get_summary_by_encounter_id (which creates its own cursor)
+            cursor.close()
+            cursor = None
             
-            if not queue_entry:
+            # Retrieve the summary using encounter_id
+            summary = get_summary_by_encounter_id(conn, encounterId)
+            
+            if not summary:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"Queue entry not found: {queueId}"
-                )
-            
-            emr_id_to_use = queue_entry.get('emr_id')
-            if not emr_id_to_use:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Queue entry exists but has no emr_id associated: {queueId}"
+                    detail=f"Summary not found for Encounter ID: {encounterId}"
                 )
         else:
-            # Use provided emrId directly
-            emr_id_to_use = emrId
-        
-        # Close cursor before calling get_summary_by_emr_id (which creates its own cursor)
-        cursor.close()
-        cursor = None
-        
-        # Retrieve the summary using the resolved emr_id
-        summary = get_summary_by_emr_id(conn, emr_id_to_use)
-        
-        if not summary:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Summary not found for EMR ID: {emr_id_to_use}"
-            )
+            # Resolve emr_id: either use provided emrId or lookup from queue
+            emr_id_to_use = None
+            
+            if queueId:
+                # Lookup emr_id from queue table
+                cursor.execute(
+                    "SELECT emr_id FROM queue WHERE queue_id = %s",
+                    (queueId,)
+                )
+                queue_entry = cursor.fetchone()
+                
+                if not queue_entry:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Queue entry not found: {queueId}"
+                    )
+                
+                emr_id_to_use = queue_entry.get('emr_id')
+                if not emr_id_to_use:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Queue entry exists but has no emr_id associated: {queueId}"
+                    )
+            else:
+                # Use provided emrId directly
+                emr_id_to_use = emrId
+            
+            # Close cursor before calling get_summary_by_emr_id (which creates its own cursor)
+            cursor.close()
+            cursor = None
+            
+            # Retrieve the summary using the resolved emr_id
+            summary = get_summary_by_emr_id(conn, emr_id_to_use)
+            
+            if not summary:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Summary not found for EMR ID: {emr_id_to_use}"
+                )
         
         # Format the response
         formatted_response = format_summary_response(summary)

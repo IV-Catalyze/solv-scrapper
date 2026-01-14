@@ -773,6 +773,7 @@ def save_summary(conn, summary_data: Dict[str, Any]) -> Dict[str, Any]:
         conn: PostgreSQL database connection
         summary_data: Dictionary containing summary data with:
             - emr_id: EMR identifier (required)
+            - encounter_id: Encounter identifier UUID (required)
             - note: Summary note text (required)
         
     Returns:
@@ -785,21 +786,24 @@ def save_summary(conn, summary_data: Dict[str, Any]) -> Dict[str, Any]:
     
     try:
         emr_id = summary_data.get('emr_id')
+        encounter_id = summary_data.get('encounter_id')
         note = summary_data.get('note')
         
         if not emr_id:
             raise ValueError("emr_id is required for summary entries")
+        if not encounter_id:
+            raise ValueError("encounter_id is required for summary entries")
         if not note:
             raise ValueError("note is required for summary entries")
         
         # Insert new summary record
         query = """
-            INSERT INTO summaries (emr_id, note)
-            VALUES (%s, %s)
+            INSERT INTO summaries (emr_id, encounter_id, note)
+            VALUES (%s, %s, %s)
             RETURNING *
         """
         
-        cursor.execute(query, (emr_id, note))
+        cursor.execute(query, (emr_id, encounter_id, note))
         
         result = cursor.fetchone()
         conn.commit()
@@ -841,6 +845,47 @@ def get_summary_by_emr_id(conn, emr_id: str) -> Optional[Dict[str, Any]]:
         """
         
         cursor.execute(query, (emr_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            return None
+        
+        # Format the result for response
+        formatted_result = format_patient_record(result)
+        
+        return formatted_result
+        
+    except psycopg2.Error as e:
+        raise e
+    finally:
+        cursor.close()
+
+
+def get_summary_by_encounter_id(conn, encounter_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve a summary record by Encounter ID.
+    
+    Args:
+        conn: PostgreSQL database connection
+        encounter_id: Encounter identifier UUID to search for
+        
+    Returns:
+        Dictionary with the summary data, or None if not found
+        
+    Raises:
+        psycopg2.Error: If database operation fails
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        query = """
+            SELECT * FROM summaries
+            WHERE encounter_id = %s
+            ORDER BY updated_at DESC
+            LIMIT 1
+        """
+        
+        cursor.execute(query, (encounter_id,))
         result = cursor.fetchone()
         
         if not result:

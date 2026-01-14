@@ -271,6 +271,7 @@ CREATE TRIGGER update_queue_updated_at
 CREATE TABLE IF NOT EXISTS summaries (
     id SERIAL PRIMARY KEY,
     emr_id VARCHAR(255) NOT NULL,
+    encounter_id UUID NOT NULL,
     note TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -278,11 +279,13 @@ CREATE TABLE IF NOT EXISTS summaries (
 
 -- Create indexes for summaries table
 CREATE INDEX IF NOT EXISTS idx_summaries_emr_id ON summaries(emr_id);
+CREATE INDEX IF NOT EXISTS idx_summaries_encounter_id ON summaries(encounter_id);
 CREATE INDEX IF NOT EXISTS idx_summaries_created_at ON summaries(created_at);
 
 -- Ensure new columns exist (for legacy tables)
 ALTER TABLE summaries
     ADD COLUMN IF NOT EXISTS emr_id VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS encounter_id UUID,
     ADD COLUMN IF NOT EXISTS note TEXT,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
@@ -294,6 +297,11 @@ BEGIN
                WHERE table_name = 'summaries' AND column_name = 'emr_id' 
                AND is_nullable = 'YES') THEN
         ALTER TABLE summaries ALTER COLUMN emr_id SET NOT NULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name = 'summaries' AND column_name = 'encounter_id' 
+               AND is_nullable = 'YES') THEN
+        ALTER TABLE summaries ALTER COLUMN encounter_id SET NOT NULL;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns 
                WHERE table_name = 'summaries' AND column_name = 'note' 
