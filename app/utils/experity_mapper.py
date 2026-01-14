@@ -571,3 +571,132 @@ def merge_onset_into_complaints(
     )
     return llm_response
 
+
+def merge_vitals_into_response(
+    llm_response: Dict[str, Any],
+    code_based_vitals: Dict[str, Any],
+    overwrite: bool = True
+) -> Dict[str, Any]:
+    """
+    Merge code-based vitals into LLM response.
+    
+    This function merges code-based vitals (with preserved additional fields)
+    into the LLM response, ensuring all fields are preserved.
+    
+    Args:
+        llm_response: The LLM response dictionary (may have nested experityActions)
+        code_based_vitals: Code-based extracted vitals (includes preserved additional fields)
+        overwrite: If True, always use code-based vitals (recommended).
+                   If False, only use code-based if LLM didn't provide any.
+        
+    Returns:
+        Modified response dictionary with merged vitals
+        
+    Examples:
+        >>> response = {"experityActions": {"vitals": {"gender": "female"}}}
+        >>> vitals = {"gender": "male", "ageYears": 35, "newField": "value"}
+        >>> merge_vitals_into_response(response, vitals, overwrite=True)
+        # Response updated: vitals now has all fields from code_based_vitals
+    """
+    # Handle nested structure: response may have experityActions nested
+    target = llm_response
+    if "experityActions" in llm_response:
+        target = llm_response["experityActions"]
+    elif "data" in llm_response and "experityActions" in llm_response["data"]:
+        target = llm_response["data"]["experityActions"]
+    
+    if overwrite or "vitals" not in target or not target.get("vitals"):
+        # Merge code-based vitals (preserves all fields including additional ones)
+        if "vitals" in target and isinstance(target["vitals"], dict):
+            # Merge: code-based overwrites LLM, but preserves any LLM-only fields
+            merged_vitals = {**target["vitals"], **code_based_vitals}
+            target["vitals"] = merged_vitals
+        else:
+            target["vitals"] = code_based_vitals
+        logger.info(f"Merged code-based vitals into response (overwrite={overwrite})")
+    else:
+        llm_vitals = target.get("vitals", {})
+        logger.info(f"Keeping LLM's vitals ({len(llm_vitals)} fields) instead of code-based ({len(code_based_vitals)} fields)")
+    
+    return llm_response
+
+
+def merge_guardian_into_response(
+    llm_response: Dict[str, Any],
+    code_based_guardian: Dict[str, Any],
+    overwrite: bool = True
+) -> Dict[str, Any]:
+    """
+    Merge code-based guardian info into LLM response.
+    
+    This function merges code-based guardian info (with preserved additional fields)
+    into the LLM response, ensuring all fields are preserved.
+    
+    Args:
+        llm_response: The LLM response dictionary (may have nested experityActions)
+        code_based_guardian: Code-based extracted guardian info (includes preserved additional fields)
+        overwrite: If True, always use code-based guardian (recommended).
+                   If False, only use code-based if LLM didn't provide any.
+        
+    Returns:
+        Modified response dictionary with merged guardian info
+    """
+    # Handle nested structure: response may have experityActions nested
+    target = llm_response
+    if "experityActions" in llm_response:
+        target = llm_response["experityActions"]
+    elif "data" in llm_response and "experityActions" in llm_response["data"]:
+        target = llm_response["data"]["experityActions"]
+    
+    if overwrite or "guardianAssistedInterview" not in target or not target.get("guardianAssistedInterview"):
+        # Merge code-based guardian (preserves all fields including additional ones)
+        if "guardianAssistedInterview" in target and isinstance(target["guardianAssistedInterview"], dict):
+            # Merge: code-based overwrites LLM, but preserves any LLM-only fields
+            merged_guardian = {**target["guardianAssistedInterview"], **code_based_guardian}
+            target["guardianAssistedInterview"] = merged_guardian
+        else:
+            target["guardianAssistedInterview"] = code_based_guardian
+        logger.info(f"Merged code-based guardian into response (overwrite={overwrite})")
+    else:
+        llm_guardian = target.get("guardianAssistedInterview", {})
+        logger.info(f"Keeping LLM's guardian info instead of code-based")
+    
+    return llm_response
+
+
+def merge_lab_orders_into_response(
+    llm_response: Dict[str, Any],
+    code_based_lab_orders: List[Dict[str, Any]],
+    overwrite: bool = True
+) -> Dict[str, Any]:
+    """
+    Merge code-based lab orders into LLM response.
+    
+    This function merges code-based lab orders (with preserved additional fields)
+    into the LLM response, ensuring all fields are preserved.
+    
+    Args:
+        llm_response: The LLM response dictionary (may have nested experityActions)
+        code_based_lab_orders: Code-based extracted lab orders (includes preserved additional fields)
+        overwrite: If True, always use code-based lab orders (recommended).
+                   If False, only use code-based if LLM didn't provide any.
+        
+    Returns:
+        Modified response dictionary with merged lab orders
+    """
+    # Handle nested structure: response may have experityActions nested
+    target = llm_response
+    if "experityActions" in llm_response:
+        target = llm_response["experityActions"]
+    elif "data" in llm_response and "experityActions" in llm_response["data"]:
+        target = llm_response["data"]["experityActions"]
+    
+    if overwrite or "labOrders" not in target or not target.get("labOrders"):
+        target["labOrders"] = code_based_lab_orders
+        logger.info(f"Merged {len(code_based_lab_orders)} code-based lab orders into response (overwrite={overwrite})")
+    else:
+        llm_orders = target.get("labOrders", [])
+        logger.info(f"Keeping LLM's lab orders ({len(llm_orders)} items) instead of code-based ({len(code_based_lab_orders)} items)")
+    
+    return llm_response
+

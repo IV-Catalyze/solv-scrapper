@@ -26,6 +26,9 @@ if _parent_module_path.exists():
         merge_severity_into_complaints = _parent_module.merge_severity_into_complaints
         merge_quality_into_complaints = _parent_module.merge_quality_into_complaints
         merge_onset_into_complaints = _parent_module.merge_onset_into_complaints
+        merge_vitals_into_response = _parent_module.merge_vitals_into_response
+        merge_guardian_into_response = _parent_module.merge_guardian_into_response
+        merge_lab_orders_into_response = _parent_module.merge_lab_orders_into_response
 
 # Export new complaint mappers from this package
 from .complaint.severity_mapper import (
@@ -43,6 +46,20 @@ from .complaint.onset_mapper import (
     extract_onsets_from_complaints,
 )
 
+from .vitals_mapper import (
+    extract_vitals,
+    calculate_bmi,
+    calculate_weight_class,
+)
+
+from .guardian_mapper import (
+    extract_guardian,
+)
+
+from .lab_orders_mapper import (
+    extract_lab_orders,
+)
+
 __all__ = [
     # ICD functions (re-exported from parent module)
     "extract_icd_updates",
@@ -50,13 +67,24 @@ __all__ = [
     "merge_severity_into_complaints",
     "merge_quality_into_complaints",
     "merge_onset_into_complaints",
-    # Severity mapper (new)
+    "merge_vitals_into_response",
+    "merge_guardian_into_response",
+    "merge_lab_orders_into_response",
+    # Severity mapper
     "extract_severity",
     "extract_severities_from_complaints",
-    # Quality mapper (new)
+    # Quality mapper
     "extract_quality",
     "extract_qualities_from_complaints",
-    # Onset mapper (new)
+    # Onset mapper
     "extract_onset",
     "extract_onsets_from_complaints",
+    # Vitals mapper
+    "extract_vitals",
+    "calculate_bmi",
+    "calculate_weight_class",
+    # Guardian mapper
+    "extract_guardian",
+    # Lab orders mapper
+    "extract_lab_orders",
 ]

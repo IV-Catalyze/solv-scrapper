@@ -1184,6 +1184,39 @@ async def map_queue_to_experity(
             logger.warning(f"Failed to pre-extract onset (continuing anyway): {str(onset_error)}")
             # Continue without pre-extraction if it fails
         
+        # Extract vitals from encounter attributes (always enabled - code-based mapping)
+        pre_extracted_vitals = {}
+        try:
+            from app.utils.experity_mapper.vitals_mapper import extract_vitals
+            
+            pre_extracted_vitals = extract_vitals(raw_payload)
+            logger.info(f"Pre-extracted vitals before LLM processing (preserved {len(pre_extracted_vitals)} fields)")
+        except Exception as vitals_error:
+            logger.warning(f"Failed to pre-extract vitals (continuing anyway): {str(vitals_error)}")
+            # Continue without pre-extraction if it fails
+        
+        # Extract guardian info from encounter (always enabled - code-based mapping)
+        pre_extracted_guardian = {}
+        try:
+            from app.utils.experity_mapper.guardian_mapper import extract_guardian
+            
+            pre_extracted_guardian = extract_guardian(raw_payload)
+            logger.info(f"Pre-extracted guardian info before LLM processing (preserved {len(pre_extracted_guardian)} fields)")
+        except Exception as guardian_error:
+            logger.warning(f"Failed to pre-extract guardian (continuing anyway): {str(guardian_error)}")
+            # Continue without pre-extraction if it fails
+        
+        # Extract lab orders from encounter (always enabled - code-based mapping)
+        pre_extracted_lab_orders = []
+        try:
+            from app.utils.experity_mapper.lab_orders_mapper import extract_lab_orders
+            
+            pre_extracted_lab_orders = extract_lab_orders(raw_payload)
+            logger.info(f"Pre-extracted {len(pre_extracted_lab_orders)} lab orders before LLM processing")
+        except Exception as lab_orders_error:
+            logger.warning(f"Failed to pre-extract lab orders (continuing anyway): {str(lab_orders_error)}")
+            # Continue without pre-extraction if it fails
+        
         # Call Azure AI agent with retry logic at endpoint level
         # This provides additional retries for transient errors beyond the client-level retries
         endpoint_max_retries = 3
@@ -1271,6 +1304,51 @@ async def map_queue_to_experity(
                         logger.info("Merged pre-extracted onset values into LLM response")
                     except Exception as merge_error:
                         logger.warning(f"Failed to merge onset (continuing anyway): {str(merge_error)}")
+                        # Continue even if merge fails
+                
+                # Merge pre-extracted vitals into LLM response (always enabled - code-based mapping)
+                if pre_extracted_vitals:
+                    try:
+                        from app.utils.experity_mapper import merge_vitals_into_response
+                        
+                        experity_mapping = merge_vitals_into_response(
+                            experity_mapping,
+                            pre_extracted_vitals,
+                            overwrite=True  # Always use deterministic extraction
+                        )
+                        logger.info("Merged pre-extracted vitals into LLM response")
+                    except Exception as merge_error:
+                        logger.warning(f"Failed to merge vitals (continuing anyway): {str(merge_error)}")
+                        # Continue even if merge fails
+                
+                # Merge pre-extracted guardian into LLM response (always enabled - code-based mapping)
+                if pre_extracted_guardian:
+                    try:
+                        from app.utils.experity_mapper import merge_guardian_into_response
+                        
+                        experity_mapping = merge_guardian_into_response(
+                            experity_mapping,
+                            pre_extracted_guardian,
+                            overwrite=True  # Always use deterministic extraction
+                        )
+                        logger.info("Merged pre-extracted guardian info into LLM response")
+                    except Exception as merge_error:
+                        logger.warning(f"Failed to merge guardian (continuing anyway): {str(merge_error)}")
+                        # Continue even if merge fails
+                
+                # Merge pre-extracted lab orders into LLM response (always enabled - code-based mapping)
+                if pre_extracted_lab_orders:
+                    try:
+                        from app.utils.experity_mapper import merge_lab_orders_into_response
+                        
+                        experity_mapping = merge_lab_orders_into_response(
+                            experity_mapping,
+                            pre_extracted_lab_orders,
+                            overwrite=True  # Always use deterministic extraction
+                        )
+                        logger.info("Merged pre-extracted lab orders into LLM response")
+                    except Exception as merge_error:
+                        logger.warning(f"Failed to merge lab orders (continuing anyway): {str(merge_error)}")
                         # Continue even if merge fails
                 
                 # Validate and fix format issues in the response
