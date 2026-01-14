@@ -114,8 +114,14 @@ async def create_summary(
         # Format the response
         formatted_response = format_summary_response(saved_summary)
         
-        # Use by_alias=False to output camelCase field names (matching OpenAPI schema)
-        return SummaryResponse(**formatted_response).model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+        # Create model for validation, then return dict with camelCase keys
+        # FastAPI's jsonable_encoder uses aliases for models, but preserves dict keys
+        summary_response = SummaryResponse(**formatted_response)
+        response_dict = summary_response.model_dump(by_alias=False)
+        
+        # Return dict directly - FastAPI will serialize it as-is (camelCase)
+        # Bypassing response_model serialization which would use aliases
+        return response_dict
         
     except HTTPException:
         raise
@@ -269,8 +275,14 @@ async def get_summary(
         # Format the response
         formatted_response = format_summary_response(summary)
         
-        # Use by_alias=False to output camelCase field names (matching OpenAPI schema)
-        return SummaryResponse(**formatted_response).model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+        # Create model for validation, then return dict with camelCase keys
+        # FastAPI's jsonable_encoder uses aliases for models, but preserves dict keys
+        summary_response = SummaryResponse(**formatted_response)
+        response_dict = summary_response.model_dump(by_alias=False)
+        
+        # Return dict directly - FastAPI will serialize it as-is (camelCase)
+        # Bypassing response_model serialization which would use aliases
+        return response_dict
         
     except HTTPException:
         raise
