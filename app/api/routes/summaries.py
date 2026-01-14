@@ -110,17 +110,12 @@ async def create_summary(
         # Save the summary
         saved_summary = save_summary(conn, summary_dict)
         
-        # Format the response
+        # Format the response - format_summary_response already returns camelCase
         formatted_response = format_summary_response(saved_summary)
         
-        # Create model for validation, then return dict with camelCase keys
-        # FastAPI's jsonable_encoder uses aliases for models, but preserves dict keys
-        summary_response = SummaryResponse(**formatted_response)
-        response_dict = summary_response.model_dump(by_alias=False)
-        
         # Return dict directly - FastAPI will serialize it as-is (camelCase)
-        # Bypassing response_model serialization which would use aliases
-        return response_dict
+        # No model creation needed - format_summary_response handles conversion
+        return formatted_response
         
     except HTTPException:
         raise
@@ -270,17 +265,12 @@ async def get_summary(
                     detail=f"Summary not found for EMR ID: {emr_id_to_use}"
                 )
         
-        # Format the response
+        # Format the response - format_summary_response already returns camelCase
         formatted_response = format_summary_response(summary)
         
-        # Create model for validation, then return dict with camelCase keys
-        # FastAPI's jsonable_encoder uses aliases for models, but preserves dict keys
-        summary_response = SummaryResponse(**formatted_response)
-        response_dict = summary_response.model_dump(by_alias=False)
-        
         # Return dict directly - FastAPI will serialize it as-is (camelCase)
-        # Bypassing response_model serialization which would use aliases
-        return response_dict
+        # No model creation needed - format_summary_response handles conversion
+        return formatted_response
         
     except HTTPException:
         raise
