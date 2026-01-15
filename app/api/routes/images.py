@@ -710,6 +710,192 @@ async def check_blob_storage_status(
 
 
 
+def sanitize_encounter_id(encounter_id: str) -> str:
+    """
+    Sanitize encounter ID to prevent path traversal attacks.
+    
+    Ensures the encounter ID only contains safe characters (alphanumeric, hyphens, underscores)
+    and prevents any path traversal attempts.
+    
+    Args:
+        encounter_id: The encounter ID from the URL path
+        
+    Returns:
+        Sanitized encounter ID
+        
+    Raises:
+        HTTPException: If encounter ID contains invalid characters or path traversal attempts
+    """
+    if not encounter_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Encounter ID cannot be empty"
+        )
+    
+    # Check for path traversal attempts
+    if ".." in encounter_id or "/" in encounter_id or "\\" in encounter_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid encounter ID: path traversal not allowed"
+        )
+    
+    # Allow only alphanumeric, hyphens, and underscores
+    if not all(c.isalnum() or c in "-_" for c in encounter_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid encounter ID: only alphanumeric characters, hyphens, and underscores are allowed"
+        )
+    
+    # Trim whitespace
+    encounter_id = encounter_id.strip()
+    
+    # Check length (reasonable limit)
+    if len(encounter_id) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Encounter ID cannot be empty"
+        )
+    
+    if len(encounter_id) > 255:
+        raise HTTPException(
+            status_code=400,
+            detail="Encounter ID too long (maximum 255 characters)"
+        )
+    
+    return encounter_id
+
+
+@router.delete(
+    "/images/encounter/{encounter_id}",
+    tags=["Images"],
+    summary="Delete all images for an encounter",
+    description="""
+Delete all images stored for a specific encounter ID from Azure Blob Storage.
+
+**Authentication:** Uses HMAC authentication (X-Timestamp and X-Signature headers).
+
+**Path parameter:**
+- `encounter_id`: The encounter ID whose images should be deleted
+
+**Returns:** JSON object with deletion summary including count and list of deleted blob names.
+    """,
+    responses={
+        200: {"description": "Images deleted successfully"},
+        400: {"description": "Invalid encounter ID"},
+        401: {"description": "Authentication required"},
+        404: {"description": "No images found for encounter ID"},
+        500: {"description": "Deletion failed"},
+        503: {"description": "Azure Blob Storage not configured"},
+    }
+)
+async def delete_encounter_images(
+    encounter_id: str,
+    _auth: TokenData = Depends(get_current_client) if AUTH_ENABLED else Depends(lambda: None)
+):
+    """
+    Delete all images for a specific encounter ID.
+    
+    This endpoint deletes all blobs (images) stored in the encounters/{encounter_id}/ folder
+    from Azure Blob Storage. The folder structure is simulated using blob name prefixes.
+    """
+    # Check if Azure Blob Storage is available
+    if not AZURE_BLOB_AVAILABLE or not container_client:
+        raise HTTPException(
+            status_code=503,
+            detail="Azure Blob Storage is not configured. Please set AZURE_STORAGE_CONNECTION_STRING environment variable."
+        )
+    
+    # Sanitize encounter ID to prevent path traversal attacks
+    try:
+        sanitized_encounter_id = sanitize_encounter_id(encounter_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid encounter ID: {str(e)}"
+        )
+    
+    # Build folder prefix
+    folder_prefix = f"encounters/{sanitized_encounter_id}/"
+    
+    try:
+        # List all blobs with the prefix
+        blob_list = container_client.list_blobs(name_starts_with=folder_prefix)
+        
+        # Convert generator to list to iterate multiple times if needed
+        blobs = list(blob_list)
+        
+        # Check if any blobs exist
+        if not blobs:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No images found for encounter ID: {sanitized_encounter_id}"
+            )
+        
+        # Delete each blob
+        deleted_blobs = []
+        failed_deletions = []
+        
+        for blob in blobs:
+            try:
+                container_client.delete_blob(blob.name)
+                deleted_blobs.append(blob.name)
+                logger.info(f"Deleted blob: {blob.name}")
+            except Exception as e:
+                error_msg = f"Failed to delete blob {blob.name}: {str(e)}"
+                logger.error(error_msg)
+                failed_deletions.append({
+                    "blob_name": blob.name,
+                    "error": str(e)
+                })
+        
+        # If all deletions failed, return error
+        if len(deleted_blobs) == 0 and len(failed_deletions) > 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to delete images for encounter ID {sanitized_encounter_id}. All deletions failed."
+            )
+        
+        # Build response
+        response = {
+            "success": True,
+            "encounter_id": sanitized_encounter_id,
+            "deleted_count": len(deleted_blobs),
+            "deleted_blobs": deleted_blobs,
+            "message": f"Successfully deleted {len(deleted_blobs)} image(s) for encounter {sanitized_encounter_id}"
+        }
+        
+        # Include failed deletions in response if any
+        if failed_deletions:
+            response["failed_deletions"] = failed_deletions
+            response["failed_count"] = len(failed_deletions)
+            response["message"] += f" ({len(failed_deletions)} failed)"
+            # If some deletions failed, we still return 200 but with partial success info
+            logger.warning(f"Partial deletion: {len(deleted_blobs)} succeeded, {len(failed_deletions)} failed for encounter {sanitized_encounter_id}")
+        
+        return response
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 404)
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete images for encounter {sanitized_encounter_id}: {str(e)}")
+        
+        # Check if it's a 404 error from Azure
+        error_msg = str(e).lower()
+        if "not found" in error_msg or "404" in error_msg or "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No images found for encounter ID: {sanitized_encounter_id}"
+            )
+        
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete images for encounter ID {sanitized_encounter_id}: {str(e)}"
+        )
+
+
 def sanitize_blob_name(image_name: str) -> str:
 
     """
