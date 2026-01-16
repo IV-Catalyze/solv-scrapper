@@ -1027,23 +1027,68 @@
                 padding: 0.75rem 0;
                 text-align: left;
                 position: relative;
-                padding-left: 38%;
+                padding-left: 0;
                 min-height: 2.5rem;
-                display: block;
+                display: flex;
+                flex-wrap: nowrap;
+                align-items: flex-start;
+                gap: 0.5rem;
+                white-space: normal !important;
+                word-wrap: break-word !important;
+                overflow-wrap: break-word !important;
+                word-break: break-word !important;
                 line-height: 1.5;
+                width: 100%;
+                box-sizing: border-box;
             }
-
+            
+            /* Label on the left */
             td:before {
                 content: attr(data-label);
-                position: absolute;
-                left: 0;
-                width: 35%;
+                flex: 0 0 35%;
+                max-width: 35%;
                 font-weight: 600;
                 font-size: 0.75rem;
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
                 color: var(--muted);
-                top: 0.75rem;
+                white-space: normal;
+                word-break: normal;
+                padding-right: 0.5rem;
+            }
+            
+            /* Content area - text nodes and child elements take remaining space */
+            td {
+                min-width: 0;
+            }
+            
+            /* Ensure all content inside td displays properly - prevent character breaking */
+            td * {
+                white-space: normal !important;
+                word-break: break-word !important;
+                overflow-wrap: break-word !important;
+                display: inline !important;
+            }
+            
+            td > span,
+            td > strong,
+            td .muted {
+                display: inline !important;
+                white-space: normal !important;
+            }
+            
+            /* Fix for encounter IDs and EMR IDs - allow breaking at hyphens */
+            .encounter-id,
+            .emr-id {
+                word-break: break-all !important;
+                white-space: normal !important;
+                display: inline !important;
+            }
+            
+            .patient-name {
+                white-space: normal !important;
+                word-break: break-word !important;
+                display: inline !important;
             }
 
             /* Special handling for action column */
@@ -1059,40 +1104,33 @@
                 display: none;
             }
 
-            .patient-name {
+            .patient-name,
+            .encounter-id,
+            .emr-id {
                 word-break: break-word;
-            }
-
-            /* Better handling for long IDs - stack label above value on mobile */
-            td.encounter-id,
-            td.emr-id {
-                padding-left: 0 !important;
-                padding-top: 0.5rem;
-                display: block;
+                white-space: normal !important;
+                display: inline-block;
+                max-width: 100%;
             }
             
-            td.encounter-id:before,
-            td.emr-id:before {
-                position: static !important;
-                display: block !important;
-                width: 100% !important;
-                margin-bottom: 0.5rem;
-                padding: 0;
-                top: 0;
+            /* Ensure text content doesn't break vertically */
+            td span,
+            td .muted {
+                display: inline;
+                white-space: normal !important;
             }
             
-            td.encounter-id .encounter-id,
-            td.emr-id .emr-id,
-            td.encounter-id,
-            td.emr-id {
-                display: block;
-                width: 100%;
-                word-break: break-word;
-                overflow-wrap: break-word;
-                font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Courier New', monospace;
-                font-size: 0.85rem;
-                line-height: 1.6;
-                white-space: normal;
+            td strong {
+                display: inline;
+                white-space: normal !important;
+            }
+            
+            /* Fix for encounter IDs and other long text */
+            .encounter-id,
+            .emr-id {
+                word-break: break-all;
+                white-space: normal !important;
+                display: inline-block;
             }
 
             .status-badge {
@@ -1205,11 +1243,6 @@
             td:before {
                 width: 40%;
                 font-size: 0.7rem;
-            }
-
-            .encounter-id,
-            .emr-id {
-                font-size: 0.8rem;
             }
 
             .pagination-btn {
