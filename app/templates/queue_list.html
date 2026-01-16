@@ -1032,6 +1032,14 @@
                 display: block;
                 line-height: 1.5;
             }
+            
+            /* Override padding for stacked columns */
+            td.encounter-id,
+            td.emr-id,
+            td.created-by,
+            td.created-at {
+                padding-left: 0 !important;
+            }
 
             td:before {
                 content: attr(data-label);
@@ -1065,14 +1073,18 @@
 
             /* Better handling for long IDs - stack label above value on mobile */
             td.encounter-id,
-            td.emr-id {
+            td.emr-id,
+            td.created-by,
+            td.created-at {
                 padding-left: 0 !important;
                 padding-top: 0.5rem;
                 display: block;
             }
             
             td.encounter-id:before,
-            td.emr-id:before {
+            td.emr-id:before,
+            td.created-by:before,
+            td.created-at:before {
                 position: static !important;
                 display: block !important;
                 width: 100% !important;
@@ -1093,6 +1105,25 @@
                 font-size: 0.85rem;
                 line-height: 1.6;
                 white-space: normal;
+            }
+            
+            /* Created By and Created At - use regular font (not monospace) */
+            td.created-by,
+            td.created-at {
+                display: block !important;
+                width: 100%;
+                word-break: break-word;
+                overflow-wrap: break-word;
+                font-size: 0.9rem;
+                line-height: 1.6;
+                white-space: normal;
+            }
+            
+            /* Ensure content inside Created By and Created At displays as block */
+            td.created-by > *,
+            td.created-at > * {
+                display: block;
+                width: 100%;
             }
 
             .status-badge {
@@ -1309,7 +1340,7 @@
                                             <span class="muted">—</span>
                                         {% endif %}
                                     </td>
-                                    <td data-label="Created At">
+                                    <td class="created-at" data-label="Created At">
                                         {% if entry.created_at %}
                                             {{ entry.created_at }}
                                         {% else %}
