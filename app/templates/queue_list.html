@@ -1027,10 +1027,10 @@
                 padding: 0.75rem 0;
                 text-align: left;
                 position: relative;
-                padding-left: 40%;
+                padding-left: 38%;
                 min-height: 2.5rem;
-                display: flex;
-                align-items: center;
+                display: block;
+                line-height: 1.5;
             }
 
             td:before {
@@ -1043,6 +1043,7 @@
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
                 color: var(--muted);
+                top: 0.75rem;
             }
 
             /* Special handling for action column */
@@ -1058,10 +1059,40 @@
                 display: none;
             }
 
-            .patient-name,
-            .encounter-id,
-            .emr-id {
+            .patient-name {
                 word-break: break-word;
+            }
+
+            /* Better handling for long IDs - stack label above value on mobile */
+            td.encounter-id,
+            td.emr-id {
+                padding-left: 0 !important;
+                padding-top: 0.5rem;
+                display: block;
+            }
+            
+            td.encounter-id:before,
+            td.emr-id:before {
+                position: static !important;
+                display: block !important;
+                width: 100% !important;
+                margin-bottom: 0.5rem;
+                padding: 0;
+                top: 0;
+            }
+            
+            td.encounter-id .encounter-id,
+            td.emr-id .emr-id,
+            td.encounter-id,
+            td.emr-id {
+                display: block;
+                width: 100%;
+                word-break: break-word;
+                overflow-wrap: break-word;
+                font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Courier New', monospace;
+                font-size: 0.85rem;
+                line-height: 1.6;
+                white-space: normal;
             }
 
             .status-badge {
@@ -1174,6 +1205,11 @@
             td:before {
                 width: 40%;
                 font-size: 0.7rem;
+            }
+
+            .encounter-id,
+            .emr-id {
+                font-size: 0.8rem;
             }
 
             .pagination-btn {
