@@ -933,52 +933,254 @@
             font-size: 0.875rem;
         }
 
-        @media (max-width: 960px) {
-            body {
-                padding: 0 1rem 2rem;
-            }
-
+        /* Tablet optimizations */
+        @media (min-width: 769px) and (max-width: 1024px) {
             .hero {
-                padding: 2rem;
+                padding: 2rem 2rem;
             }
 
             .filters {
-                margin: 2rem 1.5rem 1.5rem;
-                padding: 1.25rem;
+                margin: 1.5rem 2rem;
+                padding: 1.25rem 1.5rem;
             }
 
             .card {
-                margin: 0 1.5rem 2rem;
+                margin: 0 2rem 2rem;
             }
 
             table {
+                font-size: 0.875rem;
+            }
+
+            th, td {
+                padding: 0.75rem 1rem;
+            }
+        }
+
+        /* Mobile optimizations - Card layout */
+        @media (max-width: 768px) {
+            body {
+                padding: 0;
+            }
+
+            .container {
+                border-radius: 0;
+                min-height: 100vh;
+                box-shadow: none;
+            }
+
+            .hero {
+                padding: 1.5rem 1rem;
+            }
+
+            .hero__title h1 {
+                font-size: 1.75rem;
+            }
+
+            .filters {
+                margin: 1rem;
+                padding: 1rem;
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .filter-group {
+                width: 100%;
+            }
+
+            .filters select {
+                width: 100%;
+                min-width: unset;
+            }
+
+            .card {
+                margin: 0 1rem 1rem;
+                border-radius: 12px;
+            }
+
+            /* Hide table on mobile, show card layout */
+            table, thead, tbody, th, td, tr {
                 display: block;
-                overflow-x: auto;
-                white-space: nowrap;
-                table-layout: auto;
             }
 
-            /* On smaller screens, allow columns to expand naturally but keep constraints */
-            th:nth-child(2), td:nth-child(2) { /* Encounter ID */
-                max-width: 150px;
+            thead tr {
+                position: absolute;
+                top: -9999px;
+                left: -9999px;
             }
 
-            th:nth-child(3), td:nth-child(3) { /* EMR ID */
-                max-width: 120px;
+            tbody tr {
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                margin-bottom: 1rem;
+                padding: 1rem;
+                background: white;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
             }
 
-            th:nth-child(7), td:nth-child(7) { /* Actions */
-                min-width: 240px;
+            tbody tr:last-child {
+                margin-bottom: 0;
+            }
+
+            td {
+                border: none;
+                padding: 0.75rem 0;
+                text-align: left;
+                position: relative;
+                padding-left: 40%;
+                min-height: 2.5rem;
+                display: flex;
+                align-items: center;
+            }
+
+            td:before {
+                content: attr(data-label);
+                position: absolute;
+                left: 0;
+                width: 35%;
+                font-weight: 600;
+                font-size: 0.75rem;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                color: var(--muted);
+            }
+
+            /* Special handling for action column */
+            td:last-child {
+                padding-left: 0;
+                padding-top: 1rem;
+                border-top: 1px solid #e5e7eb;
+                margin-top: 0.5rem;
+                min-height: auto;
+            }
+
+            td:last-child:before {
+                display: none;
+            }
+
+            .patient-name,
+            .encounter-id,
+            .emr-id {
+                word-break: break-word;
+            }
+
+            .status-badge {
+                display: inline-block;
             }
 
             .pagination-container {
                 flex-direction: column;
                 gap: 1rem;
+                padding: 1rem;
+                margin: 1rem;
             }
 
             .pagination-controls {
                 flex-wrap: wrap;
                 justify-content: center;
+                gap: 0.5rem;
+            }
+
+            .pagination-btn {
+                min-width: 44px;
+                height: 44px;
+                font-size: 0.875rem;
+            }
+
+            /* Modal mobile optimization */
+            .modal-content,
+            #validationModalContent {
+                max-width: 100% !important;
+                max-height: 100vh;
+                border-radius: 0;
+                margin: 0;
+                height: 100vh;
+            }
+
+            .modal-header {
+                padding: 1rem;
+                position: sticky;
+                top: 0;
+                z-index: 10;
+                background: white;
+            }
+
+            .modal-header h2 {
+                font-size: 1.25rem;
+            }
+
+            .close {
+                width: 44px;
+                height: 44px;
+                font-size: 24px;
+            }
+
+            .modal-body {
+                padding: 1rem;
+                overflow-y: auto;
+            }
+
+            /* Tab navigation mobile */
+            .tab-nav {
+                flex-wrap: wrap;
+                padding: 0.5rem;
+            }
+
+            .tab-btn {
+                flex: 1;
+                min-width: 0;
+                padding: 0.75rem 0.5rem;
+                font-size: 0.875rem;
+            }
+
+            .validation-layout {
+                flex-direction: column;
+            }
+
+            .complaint-sidebar {
+                width: 100%;
+                max-height: 200px;
+            }
+
+            /* Action buttons mobile */
+            .btn-verify {
+                width: 100%;
+                padding: 0.75rem 1rem;
+                font-size: 0.9375rem;
+                min-height: 44px;
+            }
+        }
+
+        /* Very small screens */
+        @media (max-width: 480px) {
+            .hero__title h1 {
+                font-size: 1.5rem;
+            }
+
+            .hero__meta {
+                font-size: 0.85rem;
+            }
+
+            .pill {
+                font-size: 0.75rem;
+                padding: 0.35rem 0.75rem;
+            }
+
+            td {
+                padding-left: 45%;
+                font-size: 0.875rem;
+            }
+
+            td:before {
+                width: 40%;
+                font-size: 0.7rem;
+            }
+
+            .pagination-btn {
+                min-width: 40px;
+                height: 40px;
+                font-size: 0.8rem;
+                padding: 0 8px;
             }
         }
     </style>
@@ -1038,40 +1240,40 @@
                         <tbody>
                             {% for entry in queue_entries %}
                                 <tr>
-                                    <td class="patient-name">
+                                    <td class="patient-name" data-label="Patient">
                                         {% if entry.patient_name %}
                                             {{ entry.patient_name }}
                                         {% else %}
                                             <span class="muted">—</span>
                                         {% endif %}
                                     </td>
-                                    <td class="encounter-id">
+                                    <td class="encounter-id" data-label="Encounter ID">
                                         {% if entry.encounter_id %}
                                             {{ entry.encounter_id }}
                                         {% else %}
                                             <span class="muted">—</span>
                                         {% endif %}
                                     </td>
-                                    <td class="emr-id">
+                                    <td class="emr-id" data-label="EMR ID">
                                         {% if entry.emr_id %}
                                             <strong>{{ entry.emr_id }}</strong>
                                         {% else %}
                                             <span class="muted">—</span>
                                         {% endif %}
                                     </td>
-                                    <td>
+                                    <td data-label="Status">
                                         <span class="status-badge {{ entry.status|lower }}">
                                             {{ entry.status }}
                                         </span>
                                     </td>
-                                    <td class="created-by">
+                                    <td class="created-by" data-label="Created By">
                                         {% if entry.created_by %}
                                             {{ entry.created_by }}
                                         {% else %}
                                             <span class="muted">—</span>
                                         {% endif %}
                                     </td>
-                                    <td>
+                                    <td data-label="Created At">
                                         {% if entry.created_at %}
                                             {{ entry.created_at }}
                                         {% else %}
@@ -1184,7 +1386,7 @@
 
     <!-- Validation Modal with Tabs -->
     <div id="validationModal" class="modal">
-        <div class="modal-content" style="max-width: 1200px;">
+        <div class="modal-content" style="max-width: 1200px;" id="validationModalContent">
             <div class="modal-header">
                 <h2>Validation Details</h2>
                 <button class="close" onclick="closeValidation()">&times;</button>
