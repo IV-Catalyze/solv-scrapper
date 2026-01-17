@@ -572,6 +572,190 @@ async def queue_list_ui(
 
 
 @router.get(
+    "/summaries/list",
+    summary="Summaries List",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    responses={
+        200: {
+            "content": {"text/html": {"example": "<!-- Summaries List UI -->"}},
+            "description": "Summaries list page showing all summaries.",
+        },
+        303: {"description": "Redirect to login page if not authenticated."},
+    },
+)
+async def summaries_list_ui(
+    request: Request,
+    emrId: Optional[str] = Query(
+        default=None,
+        alias="emrId",
+        description="Filter by EMR ID"
+    ),
+    page: int = Query(
+        default=1,
+        ge=1,
+        alias="page",
+        description="Page number (1-indexed)"
+    ),
+    per_page: int = Query(
+        default=50,
+        ge=1,
+        le=200,
+        alias="per_page",
+        description="Number of records per page (1-200)"
+    ),
+    current_user: dict = Depends(require_auth),
+):
+    """
+    Render the Summaries List UI.
+    
+    This page provides an interface to:
+    - View all summaries with patient names and encounter IDs
+    - Filter by EMR ID
+    - View summary notes with pagination
+    
+    Requires authentication - users must be logged in to access this page.
+    """
+    conn = None
+    cursor = None
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Build where clause
+        where_clause = ""
+        params: List[Any] = []
+        
+        if emrId:
+            where_clause = "WHERE s.emr_id = %s"
+            params.append(emrId)
+        
+        # Get total count
+        count_query = f"SELECT COUNT(*) as total FROM summaries s {where_clause}"
+        cursor.execute(count_query, tuple(params))
+        total_count = cursor.fetchone()['total']
+        
+        # Calculate pagination
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+        has_next = page < total_pages
+        has_prev = page > 1
+        current_page = min(page, total_pages) if total_pages > 0 else 1
+        offset = (current_page - 1) * per_page
+        
+        # Build main query with pagination - join with patients to get patient name
+        query = f"""
+            SELECT 
+                s.emr_id,
+                s.encounter_id,
+                s.note,
+                s.created_at,
+                s.updated_at,
+                TRIM(
+                    CONCAT(
+                        COALESCE(p.legal_first_name, ''), 
+                        ' ', 
+                        COALESCE(p.legal_last_name, '')
+                    )
+                ) as patient_name
+            FROM summaries s
+            LEFT JOIN patients p ON s.emr_id = p.emr_id
+            {where_clause}
+            ORDER BY s.created_at DESC
+            LIMIT %s OFFSET %s
+        """
+        params.append(per_page)
+        params.append(offset)
+        
+        cursor.execute(query, tuple(params))
+        results = cursor.fetchall()
+        
+        # Format summaries for template
+        summary_list = []
+        for r in results:
+            # Format created_at
+            created_at = r.get('created_at')
+            if created_at:
+                if isinstance(created_at, datetime):
+                    created_at = created_at.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    created_at = str(created_at)
+            
+            # Format updated_at
+            updated_at = r.get('updated_at')
+            if updated_at:
+                if isinstance(updated_at, datetime):
+                    updated_at = updated_at.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    updated_at = str(updated_at)
+            
+            # Get patient name
+            patient_name = r.get('patient_name')
+            if patient_name:
+                patient_name = str(patient_name).strip()
+                if not patient_name:
+                    patient_name = None
+            else:
+                patient_name = None
+            
+            summary_list.append({
+                'emrId': r.get('emr_id'),
+                'encounterId': str(r.get('encounter_id')) if r.get('encounter_id') else None,
+                'note': r.get('note', ''),
+                'createdAt': created_at,
+                'updatedAt': updated_at,
+                'patientName': patient_name or '—',
+            })
+        
+        # Calculate page numbers to display (10 pages around current)
+        max_visible = 10
+        start_page = max(1, current_page - max_visible // 2)
+        end_page = min(total_pages, start_page + max_visible - 1)
+        if end_page - start_page < max_visible - 1:
+            start_page = max(1, end_page - max_visible + 1)
+        
+        page_numbers = list(range(start_page, end_page + 1))
+        
+        response = templates.TemplateResponse(
+            "summaries_list.html",
+            {
+                "request": request,
+                "current_user": current_user,
+                "summaries": summary_list,
+                "emrId_filter": emrId,
+                "total_count": total_count,
+                "current_page": current_page,
+                "per_page": per_page,
+                "total_pages": total_pages,
+                "has_next": has_next,
+                "has_prev": has_prev,
+                "page_numbers": page_numbers,
+                "start_page": start_page,
+                "end_page": end_page,
+                "page_title": "Summaries",
+                "current_page_id": "summaries",
+            },
+        )
+        # Use no-cache instead of no-store to allow history navigation while preventing stale cache
+        response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error rendering summaries list: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error loading summaries list: {str(e)}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@router.get(
     "/images/",
     summary="Images Gallery",
     response_class=HTMLResponse,
