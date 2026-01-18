@@ -248,7 +248,7 @@ def merge_icd_updates_into_response(
 
 def merge_severity_into_complaints(
     llm_response: Dict[str, Any],
-    severity_map: Dict[str, int],
+    severity_map: Dict[str, Optional[int]],
     source_complaints: Optional[list] = None,
     overwrite: bool = True
 ) -> Dict[str, Any]:
@@ -310,27 +310,31 @@ def merge_severity_into_complaints(
         
         # Try to find matching severity
         severity = None
+        severity_found = False
         
         # Priority 1: Match by complaint ID
         if complaint_id and complaint_id in severity_map:
             severity = severity_map[complaint_id]
+            severity_found = True
         # Priority 2: Match by index (if source_complaints provided for alignment)
         elif str(idx) in severity_map:
             severity = severity_map[str(idx)]
+            severity_found = True
         # Priority 3: Try to match by description (if source_complaints provided)
         elif source_complaints and idx < len(source_complaints):
             source_complaint = source_complaints[idx]
             source_id = source_complaint.get("id") or source_complaint.get("complaintId")
             if source_id and source_id in severity_map:
                 severity = severity_map[source_id]
+                severity_found = True
         
-        # Merge severity if found
-        if severity is not None:
+        # Merge severity if found in map (including None values - None means painScale was missing)
+        if severity_found:
             # Ensure notesPayload exists
             if "notesPayload" not in complaint:
                 complaint["notesPayload"] = {}
             
-            # Merge severity
+            # Merge severity (including None values - None means painScale was missing)
             if overwrite or "severity" not in complaint["notesPayload"]:
                 old_severity = complaint["notesPayload"].get("severity")
                 complaint["notesPayload"]["severity"] = severity

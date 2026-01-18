@@ -4,7 +4,6 @@ import pytest
 from app.utils.experity_mapper.complaint.severity_mapper import (
     extract_severity,
     extract_severities_from_complaints,
-    DEFAULT_SEVERITY,
     MIN_SEVERITY,
     MAX_SEVERITY,
 )
@@ -21,10 +20,10 @@ class TestExtractSeverity:
         assert extract_severity({"painScale": 7}) == 7
     
     def test_missing_pain_scale(self):
-        """Test with missing painScale (should default to 5)."""
-        assert extract_severity({}) == DEFAULT_SEVERITY
-        assert extract_severity({"painScale": None}) == DEFAULT_SEVERITY
-        assert extract_severity({"description": "pain"}) == DEFAULT_SEVERITY
+        """Test with missing painScale (should return None)."""
+        assert extract_severity({}) is None
+        assert extract_severity({"painScale": None}) is None
+        assert extract_severity({"description": "pain"}) is None
     
     def test_string_pain_scale(self):
         """Test with string painScale (should convert to int)."""
@@ -48,16 +47,16 @@ class TestExtractSeverity:
         assert extract_severity({"painScale": 100}) == MAX_SEVERITY
     
     def test_invalid_pain_scale(self):
-        """Test with invalid painScale (should default)."""
-        assert extract_severity({"painScale": "invalid"}) == DEFAULT_SEVERITY
-        assert extract_severity({"painScale": []}) == DEFAULT_SEVERITY
-        assert extract_severity({"painScale": {}}) == DEFAULT_SEVERITY
+        """Test with invalid painScale (should return None)."""
+        assert extract_severity({"painScale": "invalid"}) is None
+        assert extract_severity({"painScale": []}) is None
+        assert extract_severity({"painScale": {}}) is None
     
     def test_non_dict_complaint(self):
-        """Test with non-dict complaint (should default)."""
-        assert extract_severity(None) == DEFAULT_SEVERITY
-        assert extract_severity([]) == DEFAULT_SEVERITY
-        assert extract_severity("not a dict") == DEFAULT_SEVERITY
+        """Test with non-dict complaint (should return None)."""
+        assert extract_severity(None) is None
+        assert extract_severity([]) is None
+        assert extract_severity("not a dict") is None
 
 
 class TestExtractSeveritiesFromComplaints:
@@ -93,14 +92,14 @@ class TestExtractSeveritiesFromComplaints:
         assert result == {"c1": 7, "1": 3, "c3": 5}
     
     def test_missing_pain_scale(self):
-        """Test with missing painScale (should default)."""
+        """Test with missing painScale (should return None)."""
         complaints = [
             {"id": "c1", "painScale": 7},
             {"id": "c2"},  # Missing painScale
             {"id": "c3", "painScale": None},
         ]
         result = extract_severities_from_complaints(complaints)
-        assert result == {"c1": 7, "c2": DEFAULT_SEVERITY, "c3": DEFAULT_SEVERITY}
+        assert result == {"c1": 7, "c2": None, "c3": None}
     
     def test_empty_list(self):
         """Test with empty list."""

@@ -3,7 +3,6 @@
 from .severity_mapper import (
     extract_severity,
     extract_severities_from_complaints,
-    DEFAULT_SEVERITY,
     MIN_SEVERITY,
     MAX_SEVERITY,
 )
@@ -22,7 +21,6 @@ __all__ = [
     # Severity mapper
     "extract_severity",
     "extract_severities_from_complaints",
-    "DEFAULT_SEVERITY",
     "MIN_SEVERITY",
     "MAX_SEVERITY",
     # Quality mapper

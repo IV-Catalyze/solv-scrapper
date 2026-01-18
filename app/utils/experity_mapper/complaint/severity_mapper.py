@@ -10,22 +10,19 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Default severity when painScale is missing (from prompt: default to 5)
-DEFAULT_SEVERITY = 5
-
 # Valid severity range (0-10)
 MIN_SEVERITY = 0
 MAX_SEVERITY = 10
 
 
-def extract_severity(complaint: Dict[str, Any]) -> int:
+def extract_severity(complaint: Dict[str, Any]) -> Optional[int]:
     """
     Extract severity from complaint data.
     
-    Rules (from prompt):
+    Rules:
     - Use painScale from complaint if available (numeric 0-10)
-    - If missing, default to 5
-    - Always return numeric (never string)
+    - If missing or None, return None (no default value)
+    - Always return numeric (never string) when painScale is present
     - Validate range (0-10)
     - Clamp out-of-range values to valid range
     
@@ -33,15 +30,15 @@ def extract_severity(complaint: Dict[str, Any]) -> int:
         complaint: Complaint dictionary from chiefComplaints array
         
     Returns:
-        Severity value (0-10) as integer
+        Severity value (0-10) as integer, or None if painScale is missing
         
     Examples:
         >>> extract_severity({"painScale": 7})
         7
         >>> extract_severity({"painScale": None})
-        5
+        None
         >>> extract_severity({})
-        5
+        None
         >>> extract_severity({"painScale": "8"})
         8
         >>> extract_severity({"painScale": 15})
@@ -50,16 +47,16 @@ def extract_severity(complaint: Dict[str, Any]) -> int:
         0
     """
     if not isinstance(complaint, dict):
-        logger.warning(f"Complaint is not a dict, using default severity {DEFAULT_SEVERITY}")
-        return DEFAULT_SEVERITY
+        logger.warning(f"Complaint is not a dict, returning None for severity")
+        return None
     
     # Extract painScale
     pain_scale = complaint.get("painScale")
     
-    # Handle None or missing
+    # Handle None or missing - return None (no default)
     if pain_scale is None:
-        logger.debug(f"No painScale found in complaint, using default {DEFAULT_SEVERITY}")
-        return DEFAULT_SEVERITY
+        logger.debug(f"No painScale found in complaint, returning None for severity")
+        return None
     
     # Convert to numeric if needed
     try:
@@ -72,11 +69,11 @@ def extract_severity(complaint: Dict[str, Any]) -> int:
         elif isinstance(pain_scale, int):
             severity = pain_scale
         else:
-            logger.warning(f"painScale has unexpected type {type(pain_scale)}, using default {DEFAULT_SEVERITY}")
-            return DEFAULT_SEVERITY
+            logger.warning(f"painScale has unexpected type {type(pain_scale)}, returning None for severity")
+            return None
     except (ValueError, TypeError) as e:
-        logger.warning(f"Invalid painScale '{pain_scale}' (error: {e}), using default {DEFAULT_SEVERITY}")
-        return DEFAULT_SEVERITY
+        logger.warning(f"Invalid painScale '{pain_scale}' (error: {e}), returning None for severity")
+        return None
     
     # Validate and clamp range
     if severity < MIN_SEVERITY:
@@ -93,7 +90,7 @@ def extract_severity(complaint: Dict[str, Any]) -> int:
 def extract_severities_from_complaints(
     complaints: list,
     encounter_id: Optional[str] = None
-) -> Dict[str, int]:
+) -> Dict[str, Optional[int]]:
     """
     Extract severity for all complaints in a list.
     
@@ -107,7 +104,7 @@ def extract_severities_from_complaints(
     Returns:
         Dictionary mapping complaint identifier to severity:
         - Key: complaint ID (if available) or index as string
-        - Value: severity (0-10)
+        - Value: severity (0-10) or None if painScale is missing
         
     Examples:
         >>> complaints = [
