@@ -20,6 +20,8 @@ from app.api.routes.dependencies import (
     require_auth,
     templates,
     get_db_connection,
+    get_summary_by_encounter_id,
+    format_summary_response,
 )
 
 router = APIRouter()
@@ -848,6 +850,14 @@ async def manual_validation_page(
         has_icd_image = find_encounter_image(encounter_id, "icd") is not None
         has_historian_image = find_encounter_image(encounter_id, "historian") is not None
 
+        # Check if summary exists for this encounter
+        has_summary = False
+        try:
+            summary = get_summary_by_encounter_id(conn, encounter_id)
+            has_summary = summary is not None
+        except Exception as e:
+            logger.warning(f"Error checking for summary: {e}")
+
         return templates.TemplateResponse(
 
             "queue_validation_comparison.html",
@@ -881,6 +891,8 @@ async def manual_validation_page(
                 "has_icd_image": has_icd_image,
 
                 "has_historian_image": has_historian_image,
+
+                "has_summary": has_summary,
 
             }
 
@@ -1627,5 +1639,72 @@ async def get_historian_image(
             detail=f"Internal server error: {str(e)}"
 
         )
+
+
+@router.get(
+    "/queue/validation/{encounter_id}/summary",
+    tags=["Queue"],
+    summary="Get summary for validation page (UI endpoint)",
+    include_in_schema=False,
+    responses={
+        200: {"description": "Summary retrieved successfully"},
+        404: {"description": "Summary not found for encounter ID"},
+        303: {"description": "Redirect to login page if not authenticated."},
+    },
+)
+async def get_summary_for_validation(
+    encounter_id: str,
+    request: Request,
+    current_user: dict = Depends(require_auth)
+) -> Dict[str, Any]:
+    """
+    Get summary by encounter ID for the validation page.
+    
+    This is a UI-specific endpoint that uses session authentication (require_auth)
+    instead of HMAC authentication, making it accessible from browser JavaScript.
+    
+    Returns the summary in the same format as the API endpoint.
+    """
+    conn = None
+    
+    try:
+        conn = get_db_connection()
+        
+        # Retrieve the summary using encounter_id
+        summary = get_summary_by_encounter_id(conn, encounter_id)
+        
+        if not summary:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Summary not found for Encounter ID: {encounter_id}"
+            )
+        
+        # Format the response - format_summary_response already returns camelCase
+        formatted_response = format_summary_response(summary)
+        
+        # Return dict directly - FastAPI will serialize it as-is (camelCase)
+        return formatted_response
+        
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Database error fetching summary for encounter_id {encounter_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Error fetching summary for encounter_id {encounter_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
 
 

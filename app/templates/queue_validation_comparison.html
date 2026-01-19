@@ -321,6 +321,173 @@
             padding: 40px;
             font-style: italic;
         }
+        /* Summary Modal */
+        .summary-modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.2s ease-out;
+        }
+        .summary-modal.show {
+            display: flex;
+        }
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+        .summary-modal-content {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 700px;
+            width: 90%;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: slideUp 0.3s ease-out;
+        }
+        @keyframes slideUp {
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        .summary-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid #e5e7eb;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .summary-modal-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        .summary-modal-close {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            font-size: 28px;
+            font-weight: 300;
+            cursor: pointer;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+            padding: 0;
+            line-height: 1;
+        }
+        .summary-modal-close:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        .summary-modal-body {
+            padding: 2rem;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .summary-loading {
+            text-align: center;
+            padding: 3rem 2rem;
+            color: #6b7280;
+        }
+        .summary-spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .summary-content {
+            animation: fadeIn 0.3s ease-out;
+        }
+        .summary-meta {
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .summary-meta-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .summary-meta-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #6b7280;
+        }
+        .summary-meta-value {
+            font-size: 0.95rem;
+            color: #1f2937;
+            font-weight: 500;
+        }
+        .summary-note-container {
+            margin-top: 1.5rem;
+        }
+        .summary-note-label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .summary-note-text {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 1.5rem;
+            font-size: 0.95rem;
+            line-height: 1.7;
+            color: #1f2937;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .summary-error {
+            text-align: center;
+            padding: 3rem 2rem;
+            color: #dc2626;
+        }
+        .summary-error-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        .summary-error-message {
+            font-size: 1rem;
+            font-weight: 500;
+        }
         /* No Image Dialog */
         .no-image-dialog {
             display: none;
@@ -1040,6 +1207,13 @@
                         View Historian Screenshot
                     </button>
                     {% endif %}
+                    {% if has_summary %}
+                    <button class="btn btn-secondary" 
+                            onclick="viewSummary('{{ encounter_id }}')"
+                            style="font-size: 14px; padding: 10px 20px;">
+                        View Summary
+                    </button>
+                    {% endif %}
                 </div>
             </div>
 
@@ -1072,6 +1246,38 @@
                 The requested image is not available.
             </div>
             <button class="no-image-dialog-close" onclick="closeNoImageDialog()">Close</button>
+        </div>
+    </div>
+
+    <!-- Summary Modal -->
+    <div id="summaryModal" class="summary-modal" onclick="closeSummaryModal(event)">
+        <div class="summary-modal-content" onclick="event.stopPropagation()">
+            <div class="summary-modal-header">
+                <h2>Patient Summary</h2>
+                <button class="summary-modal-close" onclick="closeSummaryModal()">&times;</button>
+            </div>
+            <div class="summary-modal-body">
+                <div id="summaryLoading" class="summary-loading">
+                    <div class="summary-spinner"></div>
+                    <p>Loading summary...</p>
+                </div>
+                <div id="summaryContent" class="summary-content" style="display: none;">
+                    <div class="summary-meta">
+                        <div class="summary-meta-item">
+                            <span class="summary-meta-label">Created</span>
+                            <span class="summary-meta-value" id="summaryCreatedAt">—</span>
+                        </div>
+                    </div>
+                    <div class="summary-note-container">
+                        <div class="summary-note-label">Summary Note</div>
+                        <div class="summary-note-text" id="summaryNote">—</div>
+                    </div>
+                </div>
+                <div id="summaryError" class="summary-error" style="display: none;">
+                    <div class="summary-error-icon">⚠️</div>
+                    <div class="summary-error-message">Unable to load summary</div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1158,6 +1364,78 @@
             dialog.classList.remove('show');
             document.body.style.overflow = '';
         }
+
+        function viewSummary(encounterId) {
+            const modal = document.getElementById('summaryModal');
+            const summaryLoading = document.getElementById('summaryLoading');
+            const summaryContent = document.getElementById('summaryContent');
+            const summaryError = document.getElementById('summaryError');
+            
+            // Show modal and loading state
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden';
+            summaryLoading.style.display = 'block';
+            summaryContent.style.display = 'none';
+            summaryError.style.display = 'none';
+            
+            // Fetch summary from UI endpoint (uses session auth)
+            fetch(`/queue/validation/${encodeURIComponent(encounterId)}/summary`, {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Failed to load summary: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Format created date
+                const createdAt = data.createdAt ? new Date(data.createdAt).toLocaleString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }) : '—';
+                
+                // Populate summary data
+                document.getElementById('summaryCreatedAt').textContent = createdAt;
+                document.getElementById('summaryNote').textContent = data.note || 'No note available';
+                
+                // Show content
+                summaryLoading.style.display = 'none';
+                summaryContent.style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Error fetching summary:', error);
+                summaryLoading.style.display = 'none';
+                summaryError.style.display = 'block';
+            });
+        }
+
+        function closeSummaryModal(event) {
+            // Allow closing by clicking outside or on close button
+            if (event && event.target.id !== 'summaryModal' && event.target.className !== 'summary-modal-close' && !event.target.closest('.summary-modal-content')) {
+                return;
+            }
+            const modal = document.getElementById('summaryModal');
+            modal.classList.remove('show');
+            document.body.style.overflow = '';
+        }
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                const modal = document.getElementById('summaryModal');
+                if (modal && modal.classList.contains('show')) {
+                    closeSummaryModal();
+                }
+            }
+        });
 
         function handleImageError(imgElement, complaintId) {
             // Handle 404 or other image loading errors gracefully
