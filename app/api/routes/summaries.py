@@ -78,26 +78,15 @@ async def create_summary(
     conn = None
     
     try:
-        # Validate required fields
-        if not summary_data.emrId:
-            raise HTTPException(
-                status_code=400,
-                detail="emrId is required. Please provide an EMR identifier."
-            )
-        
-        if not summary_data.encounterId:
-            raise HTTPException(
-                status_code=400,
-                detail="encounterId is required. Please provide an encounter identifier (UUID)."
-            )
-        
+        # Pydantic SummaryRequest already enforces that at least one of emrId or
+        # encounterId is provided. We still explicitly ensure that note is present.
         if not summary_data.note:
             raise HTTPException(
                 status_code=400,
                 detail="note is required. Please provide summary note text."
             )
         
-        # Prepare summary data
+        # Prepare summary data - allow one of emr_id or encounter_id to be None.
         summary_dict = {
             'emr_id': summary_data.emrId,
             'encounter_id': summary_data.encounterId,

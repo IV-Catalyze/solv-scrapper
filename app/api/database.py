@@ -772,8 +772,8 @@ def save_summary(conn, summary_data: Dict[str, Any]) -> Dict[str, Any]:
     Args:
         conn: PostgreSQL database connection
         summary_data: Dictionary containing summary data with:
-            - emr_id: EMR identifier (required)
-            - encounter_id: Encounter identifier UUID (required)
+            - emr_id: EMR identifier (optional)
+            - encounter_id: Encounter identifier UUID (optional)
             - note: Summary note text (required)
         
     Returns:
@@ -789,10 +789,9 @@ def save_summary(conn, summary_data: Dict[str, Any]) -> Dict[str, Any]:
         encounter_id = summary_data.get('encounter_id')
         note = summary_data.get('note')
         
-        if not emr_id:
-            raise ValueError("emr_id is required for summary entries")
-        if not encounter_id:
-            raise ValueError("encounter_id is required for summary entries")
+        # Require at least one identifier, but not necessarily both
+        if not emr_id and not encounter_id:
+            raise ValueError("Either emr_id or encounter_id is required for summary entries")
         if not note:
             raise ValueError("note is required for summary entries")
         

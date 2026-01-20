@@ -387,35 +387,45 @@ class ExperityMapResponse(BaseModel):
 
 # Summary data submission models
 class SummaryRequest(BaseModel):
-    """Request model for creating or updating a summary record."""
-    emrId: str = Field(
-        ..., 
+    """Request model for creating or updating a summary record.
+
+    At least one of emrId or encounterId must be provided.
+    """
+    emrId: Optional[str] = Field(
+        None,
         description="EMR identifier for the patient",
         example="EMR12345",
-        alias="emr_id"
+        alias="emr_id",
     )
-    encounterId: str = Field(
-        ...,
+    encounterId: Optional[str] = Field(
+        None,
         description="Encounter identifier (UUID) for the encounter",
         example="550e8400-e29b-41d4-a716-446655440000",
-        alias="encounter_id"
+        alias="encounter_id",
     )
     note: str = Field(
-        ..., 
+        ...,
         description="Summary note text containing clinical information",
-        example="Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days."
+        example="Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.",
     )
-    
+
     class Config:
         populate_by_name = True
         json_schema_extra = {
             "example": {
                 "emrId": "EMR12345",
                 "encounterId": "550e8400-e29b-41d4-a716-446655440000",
-                "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days."
+                "note": "Patient is a 69 year old male presenting with fever and cough. Vital signs stable. Recommended follow-up in 3 days.",
             }
         }
-    
+
+    @model_validator(mode="after")
+    def validate_ids(self) -> "SummaryRequest":
+        """Ensure at least one of emrId or encounterId is provided."""
+        if not self.emrId and not self.encounterId:
+            raise ValueError("Either emrId or encounterId must be provided.")
+        return self
+
     @classmethod
     def model_json_schema(cls, **kwargs):
         """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
