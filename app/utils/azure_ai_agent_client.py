@@ -1247,7 +1247,76 @@ async def call_azure_ai_agent(queue_entry: Dict[str, Any]) -> Dict[str, Any]:
                                 f"'{complaint_description}': {new_id}"
                             )
                     
-                    logger.info(f"Post-processed {len(complaints)} complaints to ensure complaintId is valid UUID")
+                    # CRITICAL: Ensure all complaint IDs are unique within this response
+                    # Track assigned IDs to detect and fix duplicates
+                    assigned_ids = set()
+                    duplicate_fixes = 0
+                    
+                    for idx, complaint in enumerate(complaints):
+                        if not isinstance(complaint, dict):
+                            continue
+                        
+                        complaint_id = complaint.get("complaintId")
+                        if not complaint_id:
+                            # Should not happen after first pass, but handle gracefully
+                            logger.warning(
+                                f"Complaint[{idx}] missing complaintId after initial assignment. Generating new UUID."
+                            )
+                            new_id = str(uuid.uuid4())
+                            complaint["complaintId"] = new_id
+                            assigned_ids.add(new_id)
+                            continue
+                        
+                        complaint_description = complaint.get("description", "")
+                        
+                        # Check for duplicate
+                        if complaint_id in assigned_ids:
+                            # Duplicate detected - generate new unique ID
+                            logger.warning(
+                                f"Duplicate complaintId '{complaint_id}' detected for complaint[{idx}] "
+                                f"'{complaint_description}'. Generating new unique ID."
+                            )
+                            # Generate new UUID and ensure it's unique
+                            max_attempts = 10  # Prevent infinite loop
+                            attempts = 0
+                            new_id = None
+                            while attempts < max_attempts:
+                                candidate_id = str(uuid.uuid4())
+                                if candidate_id not in assigned_ids:
+                                    new_id = candidate_id
+                                    break
+                                attempts += 1
+                            
+                            if new_id:
+                                complaint["complaintId"] = new_id
+                                assigned_ids.add(new_id)
+                                duplicate_fixes += 1
+                                logger.info(
+                                    f"Fixed duplicate complaintId: assigned new unique ID '{new_id}' "
+                                    f"to complaint[{idx}] '{complaint_description}'"
+                                )
+                            else:
+                                # Fallback: use index-based UUID (extremely unlikely to collide)
+                                logger.error(
+                                    f"Failed to generate unique complaintId after {max_attempts} attempts "
+                                    f"for complaint[{idx}] '{complaint_description}'. Using fallback."
+                                )
+                                # This should never happen with UUID v4, but add fallback
+                                fallback_id = f"{complaint_id}-{idx}-{uuid.uuid4().hex[:8]}"
+                                complaint["complaintId"] = fallback_id
+                                assigned_ids.add(fallback_id)
+                                duplicate_fixes += 1
+                        else:
+                            assigned_ids.add(complaint_id)
+                    
+                    if duplicate_fixes > 0:
+                        logger.warning(
+                            f"Fixed {duplicate_fixes} duplicate complaintId(s) to ensure uniqueness"
+                        )
+                    else:
+                        logger.debug("All complaint IDs are unique")
+                    
+                    logger.info(f"Post-processed {len(complaints)} complaints to ensure complaintId is valid UUID and unique")
             else:
                 # Could not find experityActions structure - log warning
                 if original_emr_id is None:
