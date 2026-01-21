@@ -168,6 +168,13 @@
         .complaint-content.active {
             display: block;
         }
+        /* Ensure images are hidden when parent complaint-content is not active */
+        .complaint-content:not(.active) .screenshot-container img {
+            display: none !important;
+        }
+        .complaint-content:not(.active) .screenshot-container .no-image {
+            display: none !important;
+        }
         .validation-table {
             width: 100%;
             border-collapse: collapse;
@@ -908,6 +915,14 @@
             document.querySelectorAll('.complaint-content').forEach(content => {
                 content.classList.remove('active');
             });
+            
+            // Explicitly hide all images first
+            document.querySelectorAll('.screenshot-container img').forEach(img => {
+                img.style.display = 'none';
+            });
+            document.querySelectorAll('.screenshot-container .no-image').forEach(div => {
+                div.style.display = 'none';
+            });
 
             // Activate selected tab and content
             const selectedTab = document.querySelector(`[data-complaint-index="${index}"]`);
@@ -918,6 +933,15 @@
             }
             if (selectedContent) {
                 selectedContent.classList.add('active');
+                // Show the image for the active complaint
+                const activeImage = selectedContent.querySelector('.screenshot-container img');
+                const activeNoImage = selectedContent.querySelector('.screenshot-container .no-image');
+                if (activeImage) {
+                    activeImage.style.display = 'block';
+                }
+                if (activeNoImage) {
+                    activeNoImage.style.display = 'block';
+                }
             }
         }
 
