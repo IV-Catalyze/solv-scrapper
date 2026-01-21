@@ -849,6 +849,7 @@ async def manual_validation_page(
         
         has_icd_image = find_encounter_image(encounter_id, "icd") is not None
         has_historian_image = find_encounter_image(encounter_id, "historian") is not None
+        has_vitals_image = find_encounter_image(encounter_id, "vitals") is not None
 
         # Check if summary exists for this encounter
         has_summary = False
@@ -891,6 +892,8 @@ async def manual_validation_page(
                 "has_icd_image": has_icd_image,
 
                 "has_historian_image": has_historian_image,
+
+                "has_vitals_image": has_vitals_image,
 
                 "has_summary": has_summary,
 
@@ -1638,6 +1641,74 @@ async def get_historian_image(
 
             detail=f"Internal server error: {str(e)}"
 
+        )
+
+
+@router.get(
+    "/queue/validation/{encounter_id}/image/vitals",
+    tags=["Queue"],
+    summary="Get Vitals screenshot image",
+    include_in_schema=False,
+    responses={
+        200: {"description": "Image retrieved successfully"},
+        404: {"description": "Image not found"},
+        303: {"description": "Redirect to login page if not authenticated."},
+    },
+)
+async def get_vitals_image(
+    encounter_id: str,
+    request: Request,
+    current_user: dict = Depends(require_auth)
+):
+    """
+    Get the Vitals screenshot image for an encounter.
+    Uses session authentication for UI access.
+    """
+    try:
+        # Import helper functions from routes.py module to avoid circular imports
+        routes_module = _get_routes_module()
+        find_encounter_image = routes_module.find_encounter_image
+        get_image_bytes_from_blob = routes_module.get_image_bytes_from_blob
+        from app.api.routes.images import get_content_type_from_blob_name
+
+        # Find Vitals image path using encounter_id
+        vitals_image_path = find_encounter_image(encounter_id, "vitals")
+
+        if not vitals_image_path:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Vitals image not found for encounter_id: {encounter_id}"
+            )
+
+        # Get image bytes
+        image_bytes = get_image_bytes_from_blob(vitals_image_path)
+
+        if not image_bytes:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Failed to load image from: {vitals_image_path}"
+            )
+
+        # Determine content type from file extension
+        content_type = get_content_type_from_blob_name(vitals_image_path)
+
+        # Return image
+        from fastapi.responses import Response
+        return Response(
+            content=image_bytes,
+            media_type=content_type,
+            headers={
+                "Cache-Control": "public, max-age=3600",
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching Vitals image for encounter_id {encounter_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
         )
 
 

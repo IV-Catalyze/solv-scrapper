@@ -854,6 +854,13 @@
                         View Historian Screenshot
                     </button>
                     {% endif %}
+                    {% if has_vitals_image %}
+                    <button class="btn btn-secondary" 
+                            onclick="viewScreenshotFullscreen('/queue/validation/{{ encounter_id }}/image/vitals')"
+                            style="font-size: 14px; padding: 10px 20px;">
+                        View Vitals Screenshot
+                    </button>
+                    {% endif %}
                 </div>
             </div>
 
