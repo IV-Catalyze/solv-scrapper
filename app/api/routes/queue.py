@@ -1184,6 +1184,25 @@ async def map_queue_to_experity(
             logger.warning(f"Failed to pre-extract onset (continuing anyway): {str(onset_error)}")
             # Continue without pre-extraction if it fails
         
+        # Extract quality from complaints (always enabled - code-based mapping)
+        pre_extracted_qualities = {}
+        try:
+            from app.utils.experity_mapper.complaint.quality_mapper import extract_qualities_from_complaints
+            
+            # Extract chiefComplaints from encounter (reuse from previous extractions)
+            chief_complaints = raw_payload.get("chiefComplaints") or raw_payload.get("chief_complaints", [])
+            if isinstance(chief_complaints, list) and len(chief_complaints) > 0:
+                pre_extracted_qualities = extract_qualities_from_complaints(
+                    chief_complaints,
+                    encounter_id=encounter_id
+                )
+                logger.info(f"Pre-extracted {len(pre_extracted_qualities)} quality values before LLM processing")
+            else:
+                logger.debug("No chiefComplaints found, skipping quality extraction")
+        except Exception as quality_error:
+            logger.warning(f"Failed to pre-extract quality (continuing anyway): {str(quality_error)}")
+            # Continue without pre-extraction if it fails
+        
         # Extract vitals from encounter attributes (always enabled - code-based mapping)
         pre_extracted_vitals = {}
         try:
@@ -1304,6 +1323,25 @@ async def map_queue_to_experity(
                         logger.info("Merged pre-extracted onset values into LLM response")
                     except Exception as merge_error:
                         logger.warning(f"Failed to merge onset (continuing anyway): {str(merge_error)}")
+                        # Continue even if merge fails
+                
+                # Merge pre-extracted quality into LLM response (always enabled - code-based mapping)
+                if pre_extracted_qualities:
+                    try:
+                        from app.utils.experity_mapper import merge_quality_into_complaints
+                        
+                        # Get source complaints for better matching
+                        chief_complaints = raw_payload.get("chiefComplaints") or raw_payload.get("chief_complaints", [])
+                        
+                        experity_mapping = merge_quality_into_complaints(
+                            experity_mapping,
+                            pre_extracted_qualities,
+                            source_complaints=chief_complaints if isinstance(chief_complaints, list) else None,
+                            overwrite=True  # Always use deterministic extraction
+                        )
+                        logger.info("Merged pre-extracted quality values into LLM response")
+                    except Exception as merge_error:
+                        logger.warning(f"Failed to merge quality (continuing anyway): {str(merge_error)}")
                         # Continue even if merge fails
                 
                 # Merge pre-extracted vitals into LLM response (always enabled - code-based mapping)

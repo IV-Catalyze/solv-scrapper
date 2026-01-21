@@ -9,58 +9,9 @@ return empty array [].
 """
 
 import logging
-import re
 from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger(__name__)
-
-# Common quality keywords that can be extracted from description text
-# These match common quality values from NOTES_TEMPLATES
-QUALITY_KEYWORDS = {
-    # Pain qualities
-    "sharp": "Sharp",
-    "dull": "Dull",
-    "aching": "Aching",
-    "throbbing": "Throbbing",
-    "burning": "Burning",
-    "shooting": "Shooting",
-    "spasmodic": "Spasmodic",
-    "colicky": "Colicky",
-    "cramping": "Cramping",
-    "pressure": "Pressure",
-    "crushing": "Crushing",
-    "squeezing": "Squeezing",
-    "migratory": "Migratory",
-    
-    # Visual/Physical qualities
-    "red": "Red",
-    "redness": "Redness",
-    "raised": "Raised",
-    "pruritic": "Pruritic",
-    "itching": "Itching",
-    "weeping": "Weeping",
-    "spreading": "Spreading",
-    "shrinking": "Shrinking",
-    
-    # Trauma qualities
-    "bleeding": "Bleeding",
-    "cut skin": "Cut skin",
-    "puncture": "Puncture",
-    "draining pus": "Draining pus",
-    "draining clear fluid": "Draining clear fluid",
-    
-    # Respiratory qualities
-    "chest tightness": "Chest tightness",
-    "rapid breathing": "Rapid breathing",
-    "choking sensation": "Choking sensation",
-    "sputum": "Sputum",
-    "bloody sputum": "Bloody sputum",
-    
-    # Other qualities
-    "scratchy": "Scratchy",
-    "foreign body sensation": "Foreign body sensation",
-    "painful": "Painful",
-}
 
 
 def _normalize_quality_value(value: Any) -> Optional[str]:
@@ -91,56 +42,20 @@ def _normalize_quality_value(value: Any) -> Optional[str]:
     return normalized
 
 
-def _extract_quality_from_description(description: str) -> List[str]:
-    """
-    Extract quality keywords from complaint description text.
-    
-    Searches for quality keywords in the description and returns matching
-    quality values. Only returns qualities that are explicitly mentioned.
-    
-    Args:
-        description: Complaint description text
-        
-    Returns:
-        List of quality values found in description (empty if none found)
-    """
-    if not description or not isinstance(description, str):
-        return []
-    
-    description_lower = description.lower()
-    found_qualities = []
-    
-    # Search for quality keywords (longer phrases first to avoid partial matches)
-    # Sort by length (longest first) to match "chest tightness" before "tightness"
-    sorted_keywords = sorted(QUALITY_KEYWORDS.items(), key=lambda x: len(x[0]), reverse=True)
-    
-    for keyword, quality_value in sorted_keywords:
-        # Use word boundary matching to avoid partial matches
-        # e.g., "sharp" in "sharp pain" but not in "sharpen"
-        pattern = r'\b' + re.escape(keyword) + r'\b'
-        if re.search(pattern, description_lower, re.IGNORECASE):
-            if quality_value not in found_qualities:
-                found_qualities.append(quality_value)
-    
-    return found_qualities
-
-
 def extract_quality(complaint: Dict[str, Any]) -> List[str]:
     """
     Extract quality from complaint data.
     
-    Rules (from prompt):
+    Rules:
     - Extract from complaint.painQuality (if present)
     - Extract from complaint.quality (if present)
-    - Extract from complaint.description text (keyword matching)
-    - Match against template quality arrays (future enhancement)
     - **CRITICAL**: Return [] if no quality found (no fabrication)
     - Always return array (never string)
+    - **DO NOT extract from description text** - only use explicit fields
     
     Priority:
     1. painQuality field
     2. quality field
-    3. description text keywords
     
     Args:
         complaint: Complaint dictionary from chiefComplaints array
@@ -152,11 +67,11 @@ def extract_quality(complaint: Dict[str, Any]) -> List[str]:
         >>> extract_quality({"painQuality": "Sharp"})
         ["Sharp"]
         >>> extract_quality({"description": "sharp chest pain"})
-        ["Sharp"]
-        >>> extract_quality({"description": "chest pain"})
-        []
+        []  # No quality field, returns empty
         >>> extract_quality({"quality": ["Sharp", "Dull"]})
         ["Sharp", "Dull"]
+        >>> extract_quality({"description": "chest pain"})
+        []  # No explicit quality fields
     """
     if not isinstance(complaint, dict):
         logger.debug("Complaint is not a dict, returning empty quality array")
@@ -188,22 +103,9 @@ def extract_quality(complaint: Dict[str, Any]) -> List[str]:
                 found_qualities.append(normalized)
         logger.debug(f"Extracted quality from quality field: {found_qualities}")
     
-    # Priority 3: Extract from description text (keyword matching)
-    # Always check description to find additional quality values
-    description = complaint.get("description", "")
-    if description:
-        desc_qualities = _extract_quality_from_description(description)
-        if desc_qualities:
-            # Add qualities from description that aren't already found
-            for q in desc_qualities:
-                if q not in found_qualities:
-                    found_qualities.append(q)
-            if desc_qualities:
-                logger.debug(f"Extracted quality from description: {desc_qualities}")
-    
     # CRITICAL: If no quality found, return empty array (no fabrication)
     if not found_qualities:
-        logger.debug("No quality found in complaint, returning empty array (no fabrication)")
+        logger.debug("No quality found in complaint (no painQuality or quality field), returning empty array (no fabrication)")
         return []
     
     # Remove duplicates while preserving order
@@ -238,10 +140,11 @@ def extract_qualities_from_complaints(
     Examples:
         >>> complaints = [
         ...     {"id": "c1", "painQuality": "Sharp"},
-        ...     {"id": "c2", "description": "dull ache"}
+        ...     {"id": "c2", "quality": "Dull"},
+        ...     {"id": "c3", "description": "burning pain"}  # No quality field
         ... ]
         >>> extract_qualities_from_complaints(complaints)
-        {"c1": ["Sharp"], "c2": ["Dull", "Aching"]}
+        {"c1": ["Sharp"], "c2": ["Dull"], "c3": []}
     """
     quality_map = {}
     

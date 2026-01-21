@@ -4,7 +4,6 @@ import pytest
 from app.utils.experity_mapper.complaint.quality_mapper import (
     extract_quality,
     extract_qualities_from_complaints,
-    _extract_quality_from_description,
     _normalize_quality_value,
 )
 
@@ -27,34 +26,6 @@ class TestNormalizeQualityValue:
         assert _normalize_quality_value([]) is None
 
 
-class TestExtractQualityFromDescription:
-    """Test _extract_quality_from_description function."""
-    
-    def test_single_quality(self):
-        """Test extracting single quality from description."""
-        assert "Sharp" in _extract_quality_from_description("sharp chest pain")
-        assert "Dull" in _extract_quality_from_description("dull ache in leg")
-        assert "Pressure" in _extract_quality_from_description("chest pressure")
-    
-    def test_multiple_qualities(self):
-        """Test extracting multiple qualities."""
-        result = _extract_quality_from_description("sharp burning pain")
-        assert "Sharp" in result
-        assert "Burning" in result
-    
-    def test_no_quality(self):
-        """Test with no quality keywords."""
-        assert _extract_quality_from_description("chest pain") == []
-        assert _extract_quality_from_description("headache") == []
-        assert _extract_quality_from_description("") == []
-    
-    def test_word_boundaries(self):
-        """Test that partial matches are avoided."""
-        # "sharp" should not match "sharpen"
-        result = _extract_quality_from_description("sharpen the knife")
-        assert "Sharp" not in result or len(result) == 0
-
-
 class TestExtractQuality:
     """Test extract_quality function."""
     
@@ -74,19 +45,20 @@ class TestExtractQuality:
         assert extract_quality({"quality": "Sharp"}) == ["Sharp"]
         assert extract_quality({"quality": "dull"}) == ["Dull"]
     
-    def test_from_description(self):
-        """Test extraction from description text."""
-        assert "Sharp" in extract_quality({"description": "sharp chest pain"})
-        assert "Dull" in extract_quality({"description": "dull ache"})
-        assert "Pressure" in extract_quality({"description": "chest pressure"})
+    def test_from_description_returns_empty(self):
+        """Test that description is NOT used for extraction."""
+        # Description should be ignored - only explicit fields are used
+        assert extract_quality({"description": "sharp chest pain"}) == []
+        assert extract_quality({"description": "dull ache"}) == []
+        assert extract_quality({"description": "chest pressure"}) == []
     
     def test_priority_order(self):
-        """Test that painQuality is included along with description."""
+        """Test that painQuality and quality are both extracted."""
         result = extract_quality({
             "painQuality": "Sharp",
-            "description": "dull pain"
+            "quality": "Dull"
         })
-        # Should include both painQuality and description qualities
+        # Should include both painQuality and quality
         assert "Sharp" in result
         assert "Dull" in result
     
@@ -97,10 +69,10 @@ class TestExtractQuality:
         assert extract_quality({"description": "headache"}) == []
     
     def test_multiple_sources(self):
-        """Test combining quality from multiple sources."""
+        """Test combining quality from painQuality and quality field."""
         result = extract_quality({
-            "quality": ["Sharp"],
-            "description": "burning sensation"
+            "painQuality": "Sharp",
+            "quality": "Burning"
         })
         # Should include both
         assert "Sharp" in result
@@ -116,8 +88,7 @@ class TestExtractQuality:
         """Test that duplicates are removed."""
         result = extract_quality({
             "painQuality": "Sharp",
-            "quality": "Sharp",
-            "description": "sharp pain"
+            "quality": "Sharp"
         })
         assert result == ["Sharp"]  # Should only appear once
 
@@ -130,33 +101,33 @@ class TestExtractQualitiesFromComplaints:
         complaints = [
             {"id": "c1", "painQuality": "Sharp"},
             {"id": "c2", "quality": "Dull"},
-            {"id": "c3", "description": "burning pain"},
+            {"id": "c3", "description": "burning pain"},  # No quality field
         ]
         result = extract_qualities_from_complaints(complaints)
         assert result["c1"] == ["Sharp"]
         assert result["c2"] == ["Dull"]
-        assert "Burning" in result["c3"]
+        assert result["c3"] == []  # No quality field, returns empty
     
     def test_missing_ids(self):
         """Test with complaints missing IDs (should use index)."""
         complaints = [
             {"painQuality": "Sharp"},
-            {"description": "dull pain"},
+            {"quality": "Dull"},
         ]
         result = extract_qualities_from_complaints(complaints)
         assert result["0"] == ["Sharp"]
-        assert "Dull" in result["1"]
+        assert result["1"] == ["Dull"]
     
     def test_mixed_ids_and_indices(self):
         """Test with mix of IDs and missing IDs."""
         complaints = [
             {"id": "c1", "painQuality": "Sharp"},
-            {"description": "dull pain"},  # No ID, will use index
+            {"quality": "Dull"},  # No ID, will use index
             {"id": "c3", "quality": "Pressure"},
         ]
         result = extract_qualities_from_complaints(complaints)
         assert result["c1"] == ["Sharp"]
-        assert "Dull" in result["1"]
+        assert result["1"] == ["Dull"]
         assert result["c3"] == ["Pressure"]
     
     def test_no_quality_found(self):
