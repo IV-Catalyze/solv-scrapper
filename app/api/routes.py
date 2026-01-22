@@ -654,11 +654,32 @@ def find_encounter_image(encounter_id: str, image_type: str) -> Optional[str]:
 
 def get_image_bytes_from_blob(image_path: str) -> Optional[bytes]:
     """
-    Download image bytes from Azure Blob Storage.
+    Download image bytes from Azure Blob Storage with caching support.
+    
+    This function first checks the in-memory cache before downloading
+    from Azure Blob Storage. Downloaded images are automatically cached for
+    faster subsequent access.
+    
+    Backward compatible: Falls back to direct download if cache is unavailable.
     
     Returns:
         Image bytes, or None if error
     """
+    # Try cache first (backward compatible - continues if cache unavailable)
+    try:
+        from app.utils.image_cache import get_cached_image, cache_image
+        cached = get_cached_image(image_path)
+        if cached:
+            logger.debug(f"Image served from cache: {image_path}")
+            return cached
+    except ImportError:
+        # Cache module not available - continue with direct download
+        logger.debug("Image cache module not available, using direct download")
+    except Exception as e:
+        # Cache lookup failed - continue with direct download
+        logger.debug(f"Cache lookup failed: {e}, falling back to direct download")
+    
+    # Original download logic (unchanged for backward compatibility)
     if not AZURE_BLOB_AVAILABLE or not container_client:
         logger.warning("Azure Blob Storage not available, cannot download image")
         return None
@@ -675,6 +696,18 @@ def get_image_bytes_from_blob(image_path: str) -> Optional[bytes]:
         image_bytes = blob_data.readall()
         
         logger.info(f"Downloaded image from {image_path}, size: {len(image_bytes)} bytes")
+        
+        # Cache the downloaded image (backward compatible - continues if caching fails)
+        try:
+            from app.utils.image_cache import cache_image
+            cache_image(image_path, image_bytes)
+        except ImportError:
+            # Cache module not available - continue without caching
+            pass
+        except Exception as e:
+            # Cache failed - continue without caching
+            logger.debug(f"Failed to cache image: {e}")
+        
         return image_bytes
         
     except Exception as e:

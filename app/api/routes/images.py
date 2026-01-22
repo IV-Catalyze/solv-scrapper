@@ -1957,7 +1957,30 @@ async def view_image(
 
         
 
-        # Download blob content
+        # OPTIMIZATION: Check cache first for small images (< 5MB)
+        # This provides instant response for cached images
+        try:
+            from app.utils.image_cache import get_cached_image
+            cached = get_cached_image(sanitized_blob_name)
+            if cached and len(cached) < 5 * 1024 * 1024:  # Cache only if < 5MB
+                logger.debug(f"Serving cached image: {sanitized_blob_name}")
+                from fastapi.responses import Response
+                return Response(
+                    content=cached,
+                    media_type=content_type,
+                    headers={
+                        "Content-Disposition": f'inline; filename="{sanitized_blob_name.split("/")[-1]}"',
+                        "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+                    }
+                )
+        except ImportError:
+            # Cache module not available - continue with streaming
+            pass
+        except Exception as e:
+            # Cache lookup failed - continue with streaming
+            logger.debug(f"Cache lookup failed: {e}, falling back to streaming")
+
+        # Download blob content for streaming
 
         blob_data = blob_client.download_blob()
 
@@ -1969,9 +1992,8 @@ async def view_image(
 
             try:
 
-                # Stream the blob in chunks
-
-                chunk_size = 8192  # 8KB chunks
+                # OPTIMIZATION: Use larger chunks (64KB) for better performance
+                chunk_size = 64 * 1024  # 64KB chunks (was 8KB)
 
                 while True:
 
@@ -2004,6 +2026,7 @@ async def view_image(
                 "Content-Disposition": f'inline; filename="{sanitized_blob_name.split("/")[-1]}"',
 
                 "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+                "Accept-Ranges": "bytes",  # Enable range requests for better caching
 
             }
 
