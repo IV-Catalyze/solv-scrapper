@@ -413,6 +413,10 @@
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
+            background: #9ca3af !important;
+        }
+        .btn:disabled:hover {
+            background: #9ca3af !important;
         }
         .alert {
             padding: 12px 16px;
@@ -847,27 +851,30 @@
                     {% endif %}
                 </div>
                 <div style="margin-top: 16px; display: flex; gap: 12px; justify-content: center;">
-                    {% if has_icd_image %}
                     <button class="btn btn-secondary" 
-                            onclick="viewScreenshotFullscreen('/queue/validation/{{ encounter_id }}/image/icd')"
+                            {% if not has_icd_image %}disabled{% endif %}
+                            onclick="handleImageButtonClick({{ has_icd_image|lower }}, '/queue/validation/{{ encounter_id }}/image/icd')"
                             style="font-size: 14px; padding: 10px 20px;">
                         View ICD Screenshot
                     </button>
-                    {% endif %}
-                    {% if has_historian_image %}
                     <button class="btn btn-secondary" 
-                            onclick="viewScreenshotFullscreen('/queue/validation/{{ encounter_id }}/image/historian')"
+                            {% if not has_historian_image %}disabled{% endif %}
+                            onclick="handleImageButtonClick({{ has_historian_image|lower }}, '/queue/validation/{{ encounter_id }}/image/historian')"
                             style="font-size: 14px; padding: 10px 20px;">
                         View Historian Screenshot
                     </button>
-                    {% endif %}
-                    {% if has_vitals_image %}
                     <button class="btn btn-secondary" 
-                            onclick="viewScreenshotFullscreen('/queue/validation/{{ encounter_id }}/image/vitals')"
+                            {% if not has_vitals_image %}disabled{% endif %}
+                            onclick="handleImageButtonClick({{ has_vitals_image|lower }}, '/queue/validation/{{ encounter_id }}/image/vitals')"
                             style="font-size: 14px; padding: 10px 20px;">
                         View Vitals Screenshot
                     </button>
-                    {% endif %}
+                    <button class="btn btn-secondary" 
+                            {% if not has_summary_image %}disabled{% endif %}
+                            onclick="handleImageButtonClick({{ has_summary_image|lower }}, '/queue/validation/{{ encounter_id }}/image/summary')"
+                            style="font-size: 14px; padding: 10px 20px;">
+                        View Summary Screenshot
+                    </button>
                 </div>
             </div>
 
@@ -957,6 +964,16 @@
             setTimeout(() => {
                 alertDiv.remove();
             }, 5000);
+        }
+
+        function handleImageButtonClick(hasImage, imageUrl) {
+            // Check if image exists (handle both boolean and string 'true'/'false')
+            if (hasImage === true || hasImage === 'true' || hasImage === 'True') {
+                viewScreenshotFullscreen(imageUrl);
+            } else {
+                // Button is disabled, do nothing
+                return false;
+            }
         }
 
         function viewScreenshotFullscreen(imageUrl) {
