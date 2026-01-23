@@ -119,3 +119,191 @@ class TestExtractGuardian:
         }
         guardian = extract_guardian(encounter)
         assert guardian["present"] is True
+    
+    # New string-based format tests
+    def test_string_format_no(self):
+        """Test string format: guardianAssistedInterview = 'No' → relationship = 'Self'."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": "No",
+                "guardianAssistedInterviewBy": []
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is False
+        assert guardian["relationship"] == "Self"
+        assert guardian["guardianName"] is None
+        assert guardian["notes"] is None
+    
+    def test_string_format_no_case_insensitive(self):
+        """Test string format: case-insensitive 'no'."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": "no",
+                "guardianAssistedInterviewBy": []
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is False
+        assert guardian["relationship"] == "Self"
+    
+    def test_string_format_yes_empty_array(self):
+        """Test string format: 'Yes' with empty array → relationship = 'Other'."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": "Yes",
+                "guardianAssistedInterviewBy": []
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is True
+        assert guardian["relationship"] == "Other"
+        assert guardian["guardianName"] is None
+        assert guardian["notes"] is None
+    
+    def test_string_format_yes_mother(self):
+        """Test string format: 'Yes' with 'Mother' → relationship = 'Mother'."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": "Yes",
+                "guardianAssistedInterviewBy": ["Mother"]
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is True
+        assert guardian["relationship"] == "Mother"
+        assert guardian["guardianName"] is None
+        assert guardian["notes"] is None
+    
+    def test_string_format_yes_father(self):
+        """Test string format: 'Yes' with 'Father' → relationship = 'Father'."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": "Yes",
+                "guardianAssistedInterviewBy": ["Father"]
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is True
+        assert guardian["relationship"] == "Father"
+        assert guardian["guardianName"] is None
+        assert guardian["notes"] is None
+    
+    def test_string_format_yes_mother_case_insensitive(self):
+        """Test string format: case-insensitive 'mother'."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": "Yes",
+                "guardianAssistedInterviewBy": ["mother"]
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is True
+        assert guardian["relationship"] == "Mother"
+    
+    def test_string_format_yes_father_case_insensitive(self):
+        """Test string format: case-insensitive 'father'."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": "Yes",
+                "guardianAssistedInterviewBy": ["FATHER"]
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is True
+        assert guardian["relationship"] == "Father"
+    
+    def test_string_format_yes_other_value(self):
+        """Test string format: 'Yes' with other value → relationship = 'Other', guardianName = value."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": "Yes",
+                "guardianAssistedInterviewBy": ["Grandmother"]
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is True
+        assert guardian["relationship"] == "Other"
+        assert guardian["guardianName"] == "Grandmother"
+        assert guardian["notes"] is None
+    
+    def test_string_format_yes_other_value_uncle(self):
+        """Test string format: 'Yes' with 'Uncle' → relationship = 'Other', guardianName = 'Uncle'."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": "Yes",
+                "guardianAssistedInterviewBy": ["Uncle"]
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is True
+        assert guardian["relationship"] == "Other"
+        assert guardian["guardianName"] == "Uncle"
+    
+    def test_string_format_yes_multiple_values(self):
+        """Test string format: 'Yes' with multiple values → uses first value."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": "Yes",
+                "guardianAssistedInterviewBy": ["Mother", "Father"]
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is True
+        assert guardian["relationship"] == "Mother"  # First value
+        assert guardian["guardianName"] is None
+    
+    def test_string_format_yes_missing_array(self):
+        """Test string format: 'Yes' with missing guardianAssistedInterviewBy → treated as empty."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": "Yes"
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is True
+        assert guardian["relationship"] == "Other"
+        assert guardian["guardianName"] is None
+    
+    def test_string_format_yes_non_list_array(self):
+        """Test string format: 'Yes' with non-list guardianAssistedInterviewBy → treated as empty."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": "Yes",
+                "guardianAssistedInterviewBy": "not a list"
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is True
+        assert guardian["relationship"] == "Other"
+        assert guardian["guardianName"] is None
+    
+    def test_string_format_yes_whitespace_trimming(self):
+        """Test string format: whitespace trimming in values."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": "  Yes  ",
+                "guardianAssistedInterviewBy": ["  Mother  "]
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is True
+        assert guardian["relationship"] == "Mother"
+    
+    def test_backward_compatibility_object_format(self):
+        """Test that object format still works (backward compatibility)."""
+        encounter = {
+            "additionalQuestions": {
+                "guardianAssistedInterview": {
+                    "present": True,
+                    "guardianName": "John Doe",
+                    "relationship": "Father",
+                    "notes": "Test notes"
+                }
+            }
+        }
+        guardian = extract_guardian(encounter)
+        assert guardian["present"] is True
+        assert guardian["guardianName"] == "John Doe"
+        assert guardian["relationship"] == "Father"
+        assert guardian["notes"] == "Test notes"
