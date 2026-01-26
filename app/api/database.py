@@ -14,8 +14,8 @@ import json
 import uuid
 import logging
 import copy
-from typing import Optional, Dict, Any, List
-from datetime import datetime
+from typing import Optional, Dict, Any, List, Tuple
+from datetime import datetime, timezone
 import psycopg2
 from psycopg2.extras import RealDictCursor, Json
 from fastapi import HTTPException
@@ -969,6 +969,248 @@ def update_queue_status_and_experity_action(
         conn.commit()
         
     except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+
+
+def save_alert(conn, alert_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Save or create an alert record in the alerts table.
+    
+    Args:
+        conn: PostgreSQL database connection
+        alert_dict: Dictionary containing alert data with keys:
+            - source: str (required) - 'vm', 'server', 'uipath', or 'monitor'
+            - source_id: str (required) - Source identifier
+            - severity: str (required) - 'critical', 'warning', or 'info'
+            - message: str (required) - Alert message
+            - details: dict (optional) - Additional details as JSONB
+            - timestamp: str (optional) - ISO 8601 timestamp (defaults to now)
+    
+    Returns:
+        Dictionary with the saved alert data including alert_id and created_at
+    
+    Raises:
+        psycopg2.Error: If database operation fails
+        ValueError: If required fields are missing or invalid
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        # Validate required fields
+        required_fields = ['source', 'source_id', 'severity', 'message']
+        for field in required_fields:
+            if field not in alert_dict or not alert_dict[field]:
+                raise ValueError(f"Missing required field: {field}")
+        
+        # Validate source
+        valid_sources = ['vm', 'server', 'uipath', 'monitor']
+        if alert_dict['source'] not in valid_sources:
+            raise ValueError(f"Invalid source: {alert_dict['source']}. Must be one of: {', '.join(valid_sources)}")
+        
+        # Validate severity
+        valid_severities = ['critical', 'warning', 'info']
+        if alert_dict['severity'] not in valid_severities:
+            raise ValueError(f"Invalid severity: {alert_dict['severity']}. Must be one of: {', '.join(valid_severities)}")
+        
+        # Prepare data for insertion
+        source = alert_dict['source']
+        source_id = alert_dict['source_id']
+        severity = alert_dict['severity']
+        message = alert_dict['message']
+        details = alert_dict.get('details')
+        timestamp = alert_dict.get('timestamp')
+        
+        # Convert details to JSONB if provided
+        details_jsonb = Json(details) if details else None
+        
+        # Use provided timestamp or default to now
+        if timestamp:
+            # Parse timestamp string to datetime if needed
+            if isinstance(timestamp, str):
+                # Remove 'Z' suffix and parse
+                timestamp_clean = timestamp.replace('Z', '').replace('+00:00', '')
+                try:
+                    # Try parsing ISO format
+                    created_at_dt = datetime.fromisoformat(timestamp_clean)
+                    if created_at_dt.tzinfo is None:
+                        created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
+                    created_at = created_at_dt
+                except ValueError:
+                    # If parsing fails, use the string as-is and let PostgreSQL handle it
+                    created_at = timestamp
+            else:
+                created_at = timestamp
+        else:
+            created_at = datetime.now(timezone.utc)
+        
+        # Insert alert
+        query = """
+            INSERT INTO alerts (source, source_id, severity, message, details, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING alert_id, source, source_id, severity, message, details, 
+                      resolved, resolved_at, resolved_by, created_at, updated_at
+        """
+        
+        cursor.execute(query, (source, source_id, severity, message, details_jsonb, created_at))
+        result = cursor.fetchone()
+        conn.commit()
+        
+        # Format the result
+        alert_record = dict(result)
+        return alert_record
+        
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise e
+    except ValueError as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+
+
+def get_alerts(conn, filters: Optional[Dict[str, Any]] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Retrieve alerts with optional filtering and pagination.
+    
+    Args:
+        conn: PostgreSQL database connection
+        filters: Optional dictionary with filter keys:
+            - source: str - Filter by source
+            - source_id: str - Filter by source ID
+            - severity: str - Filter by severity
+            - resolved: bool - Filter by resolved status
+        limit: Maximum number of alerts to return (default: 50)
+        offset: Pagination offset (default: 0)
+    
+    Returns:
+        Tuple of (list of alert dictionaries, total count)
+    
+    Raises:
+        psycopg2.Error: If database operation fails
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        # Build WHERE clause
+        where_conditions = []
+        query_params = []
+        
+        if filters:
+            if 'source' in filters and filters['source']:
+                where_conditions.append("source = %s")
+                query_params.append(filters['source'])
+            
+            if 'source_id' in filters and filters['source_id']:
+                where_conditions.append("source_id = %s")
+                query_params.append(filters['source_id'])
+            
+            if 'severity' in filters and filters['severity']:
+                where_conditions.append("severity = %s")
+                query_params.append(filters['severity'])
+            
+            if 'resolved' in filters:
+                resolved = filters['resolved']
+                if isinstance(resolved, bool):
+                    where_conditions.append("resolved = %s")
+                    query_params.append(resolved)
+                elif isinstance(resolved, str):
+                    # Handle string "true"/"false"
+                    resolved_bool = resolved.lower() in ('true', '1', 'yes')
+                    where_conditions.append("resolved = %s")
+                    query_params.append(resolved_bool)
+        
+        where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+        
+        # Get total count
+        count_query = f"SELECT COUNT(*) as total FROM alerts {where_clause}"
+        cursor.execute(count_query, tuple(query_params))
+        total_result = cursor.fetchone()
+        total = total_result['total'] if total_result else 0
+        
+        # Get paginated results
+        query = f"""
+            SELECT alert_id, source, source_id, severity, message, details,
+                   resolved, resolved_at, resolved_by, created_at, updated_at
+            FROM alerts
+            {where_clause}
+            ORDER BY created_at DESC
+            LIMIT %s OFFSET %s
+        """
+        
+        query_params.extend([limit, offset])
+        cursor.execute(query, tuple(query_params))
+        results = cursor.fetchall()
+        
+        # Format results
+        alerts = [dict(row) for row in results]
+        
+        return alerts, total
+        
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+
+
+def resolve_alert(conn, alert_id: str, resolved_by: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Mark an alert as resolved.
+    
+    Args:
+        conn: PostgreSQL database connection
+        alert_id: Alert UUID to resolve
+        resolved_by: Optional identifier of who/what resolved the alert
+    
+    Returns:
+        Dictionary with the updated alert data
+    
+    Raises:
+        psycopg2.Error: If database operation fails
+        ValueError: If alert not found
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        # First check if alert exists
+        check_query = "SELECT alert_id FROM alerts WHERE alert_id = %s"
+        cursor.execute(check_query, (alert_id,))
+        existing = cursor.fetchone()
+        
+        if not existing:
+            raise ValueError(f"Alert not found: {alert_id}")
+        
+        # Update alert
+        update_query = """
+            UPDATE alerts
+            SET resolved = TRUE,
+                resolved_at = CURRENT_TIMESTAMP,
+                resolved_by = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE alert_id = %s
+            RETURNING alert_id, source, source_id, severity, message, details,
+                      resolved, resolved_at, resolved_by, created_at, updated_at
+        """
+        
+        cursor.execute(update_query, (resolved_by, alert_id))
+        result = cursor.fetchone()
+        conn.commit()
+        
+        if not result:
+            raise ValueError(f"Failed to resolve alert: {alert_id}")
+        
+        # Format the result
+        alert_record = dict(result)
+        return alert_record
+        
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise e
+    except ValueError as e:
         conn.rollback()
         raise e
     finally:

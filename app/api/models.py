@@ -548,3 +548,118 @@ class ImageUploadResponse(BaseModel):
     size: Optional[int] = None
     error: Optional[str] = None
 
+
+# Alert models
+class AlertRequest(BaseModel):
+    """Request model for creating an alert."""
+    source: str = Field(..., description="Source of the alert: vm, server, uipath, or monitor", example="vm")
+    sourceId: str = Field(..., description="Identifier of the source (e.g., VM ID, Server ID)", example="server1-vm1", alias="source_id")
+    severity: str = Field(..., description="Severity level: critical, warning, or info", example="critical")
+    message: str = Field(..., description="Alert message", example="UiPath process stopped unexpectedly")
+    details: Optional[Dict[str, Any]] = Field(None, description="Additional alert details as JSON object", example={"errorCode": "PROCESS_NOT_FOUND"})
+    timestamp: Optional[str] = Field(None, description="ISO 8601 timestamp (defaults to current time if not provided)", example="2025-01-22T10:30:00Z")
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "source": "vm",
+                "sourceId": "server1-vm1",
+                "severity": "critical",
+                "message": "UiPath process stopped unexpectedly",
+                "details": {
+                    "errorCode": "PROCESS_NOT_FOUND",
+                    "lastKnownStatus": "running",
+                    "timestamp": "2025-01-22T10:30:00Z"
+                }
+            }
+        }
+    
+    @field_validator('source')
+    @classmethod
+    def validate_source(cls, v):
+        valid_sources = ['vm', 'server', 'uipath', 'monitor']
+        if v not in valid_sources:
+            raise ValueError(f"source must be one of: {', '.join(valid_sources)}")
+        return v
+    
+    @field_validator('severity')
+    @classmethod
+    def validate_severity(cls, v):
+        valid_severities = ['critical', 'warning', 'info']
+        if v not in valid_severities:
+            raise ValueError(f"severity must be one of: {', '.join(valid_severities)}")
+        return v
+    
+    @classmethod
+    def model_json_schema(cls, **kwargs):
+        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
+        schema = super().model_json_schema(by_alias=False, **kwargs)
+        return schema
+
+
+class AlertResponse(BaseModel):
+    """Response model for alert creation."""
+    alertId: str = Field(..., description="Unique alert identifier (UUID)", example="550e8400-e29b-41d4-a716-446655440000", alias="alert_id")
+    success: bool = Field(..., description="Whether the alert was created successfully", example=True)
+    notificationSent: bool = Field(..., description="Whether notification was sent", example=True, alias="notification_sent")
+    createdAt: str = Field(..., description="ISO 8601 timestamp when alert was created", example="2025-01-22T10:30:00Z", alias="created_at")
+    
+    class Config:
+        populate_by_name = True
+    
+    @classmethod
+    def model_json_schema(cls, **kwargs):
+        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
+        schema = super().model_json_schema(by_alias=False, **kwargs)
+        return schema
+
+
+class AlertItem(BaseModel):
+    """Model for a single alert item in list responses."""
+    alertId: str = Field(..., description="Unique alert identifier (UUID)", example="550e8400-e29b-41d4-a716-446655440000", alias="alert_id")
+    source: str = Field(..., description="Source of the alert", example="vm")
+    sourceId: str = Field(..., description="Identifier of the source", example="server1-vm1", alias="source_id")
+    severity: str = Field(..., description="Severity level", example="critical")
+    message: str = Field(..., description="Alert message", example="UiPath process stopped unexpectedly")
+    details: Optional[Dict[str, Any]] = Field(None, description="Additional alert details")
+    resolved: bool = Field(..., description="Whether the alert is resolved", example=False)
+    resolvedAt: Optional[str] = Field(None, description="ISO 8601 timestamp when alert was resolved", example=None, alias="resolved_at")
+    createdAt: str = Field(..., description="ISO 8601 timestamp when alert was created", example="2025-01-22T10:30:00Z", alias="created_at")
+    
+    class Config:
+        populate_by_name = True
+    
+    @classmethod
+    def model_json_schema(cls, **kwargs):
+        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
+        schema = super().model_json_schema(by_alias=False, **kwargs)
+        return schema
+
+
+class AlertListResponse(BaseModel):
+    """Response model for alert list with pagination."""
+    alerts: List[AlertItem] = Field(..., description="List of alerts")
+    total: int = Field(..., description="Total number of alerts matching filters", example=15)
+    limit: int = Field(..., description="Number of alerts per page", example=50)
+    offset: int = Field(..., description="Pagination offset", example=0)
+    
+    class Config:
+        populate_by_name = True
+
+
+class AlertResolveResponse(BaseModel):
+    """Response model for alert resolution."""
+    alertId: str = Field(..., description="Unique alert identifier (UUID)", example="550e8400-e29b-41d4-a716-446655440000", alias="alert_id")
+    success: bool = Field(..., description="Whether the alert was resolved successfully", example=True)
+    resolvedAt: str = Field(..., description="ISO 8601 timestamp when alert was resolved", example="2025-01-22T10:35:00Z", alias="resolved_at")
+    
+    class Config:
+        populate_by_name = True
+    
+    @classmethod
+    def model_json_schema(cls, **kwargs):
+        """Override to use field names (camelCase) instead of aliases in OpenAPI schema."""
+        schema = super().model_json_schema(by_alias=False, **kwargs)
+        return schema
+

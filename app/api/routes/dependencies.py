@@ -64,6 +64,11 @@ from app.api.models import (
     VmHeartbeatResponse,
     VmHealthStatusResponse,
     ImageUploadResponse,
+    AlertRequest,
+    AlertResponse,
+    AlertItem,
+    AlertListResponse,
+    AlertResolveResponse,
 )
 
 # Import utilities
@@ -89,6 +94,9 @@ from app.api.database import (
     get_summary_by_encounter_id,
     create_queue_from_encounter,
     update_queue_status_and_experity_action,
+    save_alert,
+    get_alerts,
+    resolve_alert,
 )
 
 # Import services
@@ -169,6 +177,11 @@ __all__ = [
     "VmHeartbeatResponse",
     "VmHealthStatusResponse",
     "ImageUploadResponse",
+    "AlertRequest",
+    "AlertResponse",
+    "AlertItem",
+    "AlertListResponse",
+    "AlertResolveResponse",
     "normalize_status",
     "expand_status_shortcuts",
     "ensure_client_location_access",
@@ -186,6 +199,9 @@ __all__ = [
     "get_summary_by_encounter_id",
     "create_queue_from_encounter",
     "update_queue_status_and_experity_action",
+    "save_alert",
+    "get_alerts",
+    "resolve_alert",
     "build_patient_payload",
     "format_encounter_response",
     "format_queue_response",

@@ -16,6 +16,7 @@ from app.api.routes import queue
 from app.api.routes import queue_validation
 from app.api.routes import images
 from app.api.routes import validation
+from app.api.routes import alerts
 
 # Create main router
 main_router = APIRouter()
@@ -30,6 +31,7 @@ main_router.include_router(queue.router, tags=["Queue"])
 main_router.include_router(queue_validation.router, tags=["Queue"])
 main_router.include_router(images.router, tags=["Images"])
 main_router.include_router(validation.router, tags=["Validation"])
+main_router.include_router(alerts.router, tags=["Alerts"])
 
 # Export 'app' for backward compatibility with app.api.routes:app
 # This allows deployment to use the original path without changes
