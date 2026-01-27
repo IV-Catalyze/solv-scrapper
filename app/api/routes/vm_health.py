@@ -45,7 +45,7 @@ async def verify_vm_api_key_auth(request: Request) -> TokenData:
     Raises:
         HTTPException: If API key authentication fails
     """
-    return await verify_api_key_auth(request, "VM heartbeat endpoints", "VM_API_KEY")
+    return await verify_api_key_auth(request, "VM heartbeat endpoints", "API_KEY")
 
 
 @router.post(

@@ -92,7 +92,7 @@ async def verify_api_key_auth(
     Args:
         request: FastAPI request object
         endpoint_name: Name of the endpoint (for error messages)
-        env_key_name: Optional environment variable name to check (e.g., "VM_API_KEY", "ALERT_API_KEY")
+        env_key_name: Optional environment variable name to check (e.g., "API_KEY")
                       If not provided, falls back to "API_KEY"
         
     Returns:

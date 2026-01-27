@@ -51,7 +51,7 @@ async def verify_alert_api_key_auth(request: Request) -> TokenData:
     Raises:
         HTTPException: If API key authentication fails
     """
-    return await verify_api_key_auth(request, "alert endpoints", "ALERT_API_KEY")
+    return await verify_api_key_auth(request, "alert endpoints", "API_KEY")
 
 
 @router.post(
