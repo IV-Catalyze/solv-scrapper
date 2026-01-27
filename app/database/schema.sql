@@ -370,9 +370,11 @@ CREATE TRIGGER update_users_updated_at
 -- Create vm_health table for VM heartbeat tracking
 CREATE TABLE IF NOT EXISTS vm_health (
     vm_id VARCHAR(255) PRIMARY KEY,
+    server_id VARCHAR(255),
     last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(50) DEFAULT 'healthy' CHECK (status IN ('healthy', 'unhealthy', 'idle')),
     processing_queue_id UUID,
+    uipath_status VARCHAR(50),
     metadata JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -382,13 +384,17 @@ CREATE TABLE IF NOT EXISTS vm_health (
 CREATE INDEX IF NOT EXISTS idx_vm_health_last_heartbeat ON vm_health(last_heartbeat);
 CREATE INDEX IF NOT EXISTS idx_vm_health_status ON vm_health(status);
 CREATE INDEX IF NOT EXISTS idx_vm_health_processing_queue ON vm_health(processing_queue_id);
+CREATE INDEX IF NOT EXISTS idx_vm_health_server_id ON vm_health(server_id);
+CREATE INDEX IF NOT EXISTS idx_vm_health_uipath_status ON vm_health(uipath_status);
 
 -- Ensure new columns exist (for legacy tables)
 ALTER TABLE vm_health
     ADD COLUMN IF NOT EXISTS vm_id VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS server_id VARCHAR(255),
     ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'healthy',
     ADD COLUMN IF NOT EXISTS processing_queue_id UUID,
+    ADD COLUMN IF NOT EXISTS uipath_status VARCHAR(50),
     ADD COLUMN IF NOT EXISTS metadata JSONB,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;

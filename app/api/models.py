@@ -470,8 +470,14 @@ class VmHeartbeatRequest(BaseModel):
     vmId: str = Field(
         ..., 
         description="VM identifier",
-        example="vm-worker-1",
+        example="server1-vm1",
         alias="vm_id"
+    )
+    serverId: Optional[str] = Field(
+        None,
+        description="Server identifier",
+        example="server1",
+        alias="server_id"
     )
     status: str = Field(
         ..., 
@@ -484,14 +490,36 @@ class VmHeartbeatRequest(BaseModel):
         example="660e8400-e29b-41d4-a716-446655440000",
         alias="processing_queue_id"
     )
+    uiPathStatus: Optional[str] = Field(
+        None,
+        description="UiPath status: running, stopped, error, etc.",
+        example="running",
+        alias="uipath_status"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional metadata object with system metrics",
+        example={
+            "cpuUsage": 45.2,
+            "memoryUsage": 62.8,
+            "diskUsage": 30.1
+        }
+    )
     
     class Config:
         populate_by_name = True
         json_schema_extra = {
             "example": {
-                "vmId": "vm-worker-1",
+                "vmId": "server1-vm1",
+                "serverId": "server1",
                 "status": "healthy",
-                "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
+                "processingQueueId": "660e8400-e29b-41d4-a716-446655440000",
+                "uiPathStatus": "running",
+                "metadata": {
+                    "cpuUsage": 45.2,
+                    "memoryUsage": 62.8,
+                    "diskUsage": 30.1
+                }
             }
         }
         extra = "forbid"
@@ -500,18 +528,22 @@ class VmHeartbeatRequest(BaseModel):
 class VmHeartbeatResponse(BaseModel):
     """Response model for VM heartbeat."""
     success: bool = Field(..., description="Whether the heartbeat was processed successfully", example=True)
-    vmId: str = Field(..., description="VM identifier", example="vm-worker-1", alias="vm_id")
-    lastHeartbeat: str = Field(..., description="ISO 8601 timestamp of the last heartbeat", example="2025-01-21T10:30:00Z", alias="last_heartbeat")
+    vmId: str = Field(..., description="VM identifier", example="server1-vm1", alias="vm_id")
+    serverId: Optional[str] = Field(None, description="Server identifier", example="server1", alias="server_id")
+    lastHeartbeat: str = Field(..., description="ISO 8601 timestamp of the last heartbeat", example="2025-01-22T10:30:00Z", alias="last_heartbeat")
     status: str = Field(..., description="Current VM status", example="healthy")
+    uiPathStatus: Optional[str] = Field(None, description="UiPath status", example="running", alias="uipath_status")
     
     class Config:
         populate_by_name = True
         json_schema_extra = {
             "example": {
                 "success": True,
-                "vmId": "vm-worker-1",
-                "lastHeartbeat": "2025-01-21T10:30:00Z",
-                "status": "healthy"
+                "vmId": "server1-vm1",
+                "serverId": "server1",
+                "lastHeartbeat": "2025-01-22T10:30:00Z",
+                "status": "healthy",
+                "uiPathStatus": "running"
             }
         }
         extra = "allow"

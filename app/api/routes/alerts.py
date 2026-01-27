@@ -29,6 +29,7 @@ from app.api.routes.dependencies import (
     AlertListResponse,
     AlertResolveResponse,
 )
+from app.utils.auth import verify_api_key_auth
 
 router = APIRouter()
 
@@ -50,47 +51,7 @@ async def verify_alert_api_key_auth(request: Request) -> TokenData:
     Raises:
         HTTPException: If API key authentication fails
     """
-    api_key = request.headers.get("X-API-Key")
-    
-    if not api_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="X-API-Key header required for alert endpoints",
-            headers={"WWW-Authenticate": "API-Key"}
-        )
-    
-    # Verify against configured HMAC secrets (reuse existing secrets)
-    try:
-        from app.config.intellivisit_clients import INTELLIVISIT_CLIENTS
-        
-        for client_name, client_cfg in INTELLIVISIT_CLIENTS.items():
-            secret = client_cfg.get("hmac_secret_key")
-            if secret and api_key == secret:
-                # Return TokenData with client configuration
-                return TokenData(
-                    client_id=client_cfg.get("client_id", client_name),
-                    scopes=client_cfg.get("scopes", []),
-                    allowed_location_ids=client_cfg.get("allowed_location_ids"),
-                    environment=client_cfg.get("environment"),
-                )
-    except ImportError:
-        # Fallback: check environment variable if INTELLIVISIT_CLIENTS not available
-        pass
-    
-    # Fallback: check environment variable
-    env_api_key = os.getenv("ALERT_API_KEY") or os.getenv("API_KEY")
-    if env_api_key and api_key == env_api_key:
-        return TokenData(
-            client_id="api_key_client",
-            scopes=[],
-            environment=os.getenv("ENVIRONMENT", "production")
-        )
-    
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid API key",
-        headers={"WWW-Authenticate": "API-Key"}
-    )
+    return await verify_api_key_auth(request, "alert endpoints", "ALERT_API_KEY")
 
 
 @router.post(

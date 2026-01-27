@@ -23,15 +23,36 @@ from app.api.routes.dependencies import (
     save_vm_health,
     get_latest_vm_health,
 )
+from app.utils.auth import verify_api_key_auth
 
 router = APIRouter()
+
+
+async def verify_vm_api_key_auth(request: Request) -> TokenData:
+    """
+    Verify authentication for VM heartbeat endpoints using X-API-Key header.
+    
+    This is simpler than HMAC for VM monitoring systems that need to quickly
+    send heartbeats without complex signature generation. Uses the same secret
+    keys as HMAC authentication for consistency.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        TokenData object with client information
+        
+    Raises:
+        HTTPException: If API key authentication fails
+    """
+    return await verify_api_key_auth(request, "VM heartbeat endpoints", "VM_API_KEY")
 
 
 @router.post(
     "/vm/heartbeat",
     tags=["VM"],
     summary="Update VM heartbeat",
-    description="Receive and process VM heartbeat updates. Updates the VM health record with current status and processing queue ID.",
+    description="Receive and process VM heartbeat updates. Updates the VM health record with current status, server ID, UiPath status, and processing queue ID. Uses X-API-Key authentication.",
     response_model=VmHeartbeatResponse,
     status_code=200,
     responses={
@@ -41,39 +62,57 @@ router = APIRouter()
                 "application/json": {
                     "example": {
                         "success": True,
-                        "vmId": "vm-worker-1",
-                        "lastHeartbeat": "2025-01-21T10:30:00Z",
-                        "status": "healthy"
+                        "vmId": "server1-vm1",
+                        "serverId": "server1",
+                        "lastHeartbeat": "2025-01-22T10:30:00Z",
+                        "status": "healthy",
+                        "uiPathStatus": "running"
                     }
                 }
             }
         },
         400: {"description": "Invalid request data or invalid status value"},
-        401: {"description": "Authentication required"},
+        401: {"description": "X-API-Key header required or invalid"},
         500: {"description": "Server error"},
     },
 )
 async def vm_heartbeat(
     heartbeat_data: VmHeartbeatRequest,
-    current_client: TokenData = get_auth_dependency()
+    request: Request,
+    current_client: TokenData = Depends(verify_vm_api_key_auth)
 ) -> VmHeartbeatResponse:
     """
     Update VM heartbeat status.
     
+    **Authentication:**
+    - Use `X-API-Key` header with your HMAC secret key (same key used for other endpoints)
+    - Example: `X-API-Key: your-hmac-secret-key`
+    - This is simpler than HMAC signature authentication for VM monitoring systems
+    
     **Request Body:**
     - `vmId` (required): VM identifier
+    - `serverId` (optional): Server identifier
     - `status` (required): VM status: `healthy`, `unhealthy`, or `idle`
     - `processingQueueId` (optional): Queue ID that the VM is currently processing
+    - `uiPathStatus` (optional): UiPath status (e.g., "running", "stopped", "error")
+    - `metadata` (optional): Metadata object with system metrics (e.g., cpuUsage, memoryUsage, diskUsage)
     
     **Response:**
-    Returns the updated VM health record with `success`, `vmId`, `lastHeartbeat`, and `status`.
+    Returns the updated VM health record with `success`, `vmId`, `serverId`, `lastHeartbeat`, `status`, and `uiPathStatus`.
     
     **Example Request:**
     ```json
     {
-      "vmId": "vm-worker-1",
+      "vmId": "server1-vm1",
+      "serverId": "server1",
       "status": "healthy",
-      "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
+      "processingQueueId": "660e8400-e29b-41d4-a716-446655440000",
+      "uiPathStatus": "running",
+      "metadata": {
+        "cpuUsage": 45.2,
+        "memoryUsage": 62.8,
+        "diskUsage": 30.1
+      }
     }
     ```
     """
@@ -104,8 +143,11 @@ async def vm_heartbeat(
         # Prepare VM health data
         vm_health_dict = {
             'vm_id': heartbeat_data.vmId,
+            'server_id': heartbeat_data.serverId,
             'status': heartbeat_data.status,
             'processing_queue_id': heartbeat_data.processingQueueId,
+            'uipath_status': heartbeat_data.uiPathStatus,
+            'metadata': heartbeat_data.metadata,
         }
         
         # Get database connection
@@ -119,8 +161,10 @@ async def vm_heartbeat(
         response_data = {
             'success': True,
             'vmId': saved_vm_health['vm_id'],
+            'serverId': saved_vm_health.get('server_id'),
             'lastHeartbeat': saved_vm_health['last_heartbeat'],
             'status': saved_vm_health['status'],
+            'uiPathStatus': saved_vm_health.get('uipath_status'),
         }
         
         # Create response model and serialize with by_alias=False to output camelCase field names

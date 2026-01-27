@@ -473,8 +473,11 @@ def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
         conn: PostgreSQL database connection
         vm_data: Dictionary containing VM health data with:
             - vm_id: string (required) - VM identifier
+            - server_id: Optional string - Server identifier
             - status: string (required) - VM status: healthy, unhealthy, or idle
             - processing_queue_id: Optional UUID - Queue ID that the VM is processing
+            - uipath_status: Optional string - UiPath status
+            - metadata: Optional dict - Metadata object with system metrics
         
     Returns:
         Dictionary with the saved/updated VM health data
@@ -482,6 +485,7 @@ def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
     Raises:
         psycopg2.Error: If database operation fails
     """
+    import json
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
     try:
@@ -489,6 +493,9 @@ def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
         vm_id = vm_data.get('vm_id')
         status = vm_data.get('status')
         processing_queue_id = vm_data.get('processing_queue_id')
+        server_id = vm_data.get('server_id')
+        uipath_status = vm_data.get('uipath_status')
+        metadata = vm_data.get('metadata')
         
         # Validate required fields
         if not vm_id:
@@ -501,17 +508,26 @@ def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
         if status not in valid_statuses:
             raise ValueError(f"Invalid status: {status}. Must be one of: {', '.join(valid_statuses)}")
         
+        # Convert metadata dict to JSON string if provided
+        metadata_json = None
+        if metadata:
+            metadata_json = json.dumps(metadata)
+        
         # Use INSERT ... ON CONFLICT to handle duplicates (update on conflict)
         query = """
             INSERT INTO vm_health (
-                vm_id, last_heartbeat, status, processing_queue_id, updated_at
+                vm_id, server_id, last_heartbeat, status, processing_queue_id, 
+                uipath_status, metadata, updated_at
             )
-            VALUES (%s, CURRENT_TIMESTAMP, %s, %s, CURRENT_TIMESTAMP)
+            VALUES (%s, %s, CURRENT_TIMESTAMP, %s, %s, %s, %s::jsonb, CURRENT_TIMESTAMP)
             ON CONFLICT (vm_id) 
             DO UPDATE SET
+                server_id = EXCLUDED.server_id,
                 last_heartbeat = CURRENT_TIMESTAMP,
                 status = EXCLUDED.status,
                 processing_queue_id = EXCLUDED.processing_queue_id,
+                uipath_status = EXCLUDED.uipath_status,
+                metadata = EXCLUDED.metadata,
                 updated_at = CURRENT_TIMESTAMP
             RETURNING *
         """
@@ -520,8 +536,11 @@ def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
             query,
             (
                 vm_id,
+                server_id,
                 status,
                 processing_queue_id,
+                uipath_status,
+                metadata_json,
             )
         )
         
@@ -546,6 +565,11 @@ def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
         if formatted_result.get('updated_at'):
             if isinstance(formatted_result['updated_at'], datetime):
                 formatted_result['updated_at'] = formatted_result['updated_at'].isoformat() + 'Z'
+        
+        # Parse metadata JSONB if present
+        if formatted_result.get('metadata'):
+            if isinstance(formatted_result['metadata'], str):
+                formatted_result['metadata'] = json.loads(formatted_result['metadata'])
         
         return formatted_result
         
