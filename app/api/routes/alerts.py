@@ -5,10 +5,12 @@ This module contains all routes related to alert management and notifications.
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from fastapi.responses import JSONResponse
+from fastapi import status
 import psycopg2
 import uuid
 
@@ -31,11 +33,71 @@ from app.api.routes.dependencies import (
 router = APIRouter()
 
 
+async def verify_alert_api_key_auth(request: Request) -> TokenData:
+    """
+    Verify authentication for alert endpoints using X-API-Key header.
+    
+    This is simpler than HMAC for monitoring systems that need to quickly
+    submit alerts without complex signature generation. Uses the same secret
+    keys as HMAC authentication for consistency.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        TokenData object with client information
+        
+    Raises:
+        HTTPException: If API key authentication fails
+    """
+    api_key = request.headers.get("X-API-Key")
+    
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-API-Key header required for alert endpoints",
+            headers={"WWW-Authenticate": "API-Key"}
+        )
+    
+    # Verify against configured HMAC secrets (reuse existing secrets)
+    try:
+        from app.config.intellivisit_clients import INTELLIVISIT_CLIENTS
+        
+        for client_name, client_cfg in INTELLIVISIT_CLIENTS.items():
+            secret = client_cfg.get("hmac_secret_key")
+            if secret and api_key == secret:
+                # Return TokenData with client configuration
+                return TokenData(
+                    client_id=client_cfg.get("client_id", client_name),
+                    scopes=client_cfg.get("scopes", []),
+                    allowed_location_ids=client_cfg.get("allowed_location_ids"),
+                    environment=client_cfg.get("environment"),
+                )
+    except ImportError:
+        # Fallback: check environment variable if INTELLIVISIT_CLIENTS not available
+        pass
+    
+    # Fallback: check environment variable
+    env_api_key = os.getenv("ALERT_API_KEY") or os.getenv("API_KEY")
+    if env_api_key and api_key == env_api_key:
+        return TokenData(
+            client_id="api_key_client",
+            scopes=[],
+            environment=os.getenv("ENVIRONMENT", "production")
+        )
+    
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid API key",
+        headers={"WWW-Authenticate": "API-Key"}
+    )
+
+
 @router.post(
     "/alerts",
     tags=["Alerts"],
     summary="Submit an alert",
-    description="Submit an alert from VM, server, or monitoring system. Stores the alert in the database and optionally sends notifications.",
+    description="Submit an alert from VM, server, or monitoring system. Uses X-API-Key authentication. Stores the alert in the database and optionally sends notifications.",
     response_model=AlertResponse,
     status_code=200,
     responses={
@@ -53,16 +115,22 @@ router = APIRouter()
             }
         },
         400: {"description": "Invalid request data"},
-        401: {"description": "Authentication required"},
+        401: {"description": "X-API-Key header required or invalid"},
         500: {"description": "Server error"},
     },
 )
 async def create_alert(
     alert_data: AlertRequest,
-    current_client: TokenData = get_auth_dependency()
+    request: Request,
+    current_client: TokenData = Depends(verify_alert_api_key_auth)
 ) -> AlertResponse:
     """
     Submit an alert from VM, server, or monitoring system.
+    
+    **Authentication:**
+    - Use `X-API-Key` header with your HMAC secret key (same key used for other endpoints)
+    - Example: `X-API-Key: your-hmac-secret-key`
+    - This is simpler than HMAC signature authentication for monitoring systems
     
     **Request Body:**
     - `source` (required): Source of the alert - 'vm', 'server', 'uipath', or 'monitor'
@@ -76,18 +144,20 @@ async def create_alert(
     Returns the created alert with `alertId`, `success`, `notificationSent`, and `createdAt`.
     
     **Example Request:**
-    ```json
-    {
-      "source": "vm",
-      "sourceId": "server1-vm1",
-      "severity": "critical",
-      "message": "UiPath process stopped unexpectedly",
-      "details": {
-        "errorCode": "PROCESS_NOT_FOUND",
-        "lastKnownStatus": "running",
-        "timestamp": "2025-01-22T10:30:00Z"
-      }
-    }
+    ```bash
+    curl -X POST "https://app-97926.on-aptible.com/alerts" \\
+      -H "X-API-Key: your-hmac-secret-key" \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "source": "vm",
+        "sourceId": "server1-vm1",
+        "severity": "critical",
+        "message": "UiPath process stopped unexpectedly",
+        "details": {
+          "errorCode": "PROCESS_NOT_FOUND",
+          "lastKnownStatus": "running"
+        }
+      }'
     ```
     """
     conn = None
