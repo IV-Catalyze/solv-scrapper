@@ -68,6 +68,7 @@ The input can be in one of two formats:
   "chiefComplaints": [ /* complaints */ ],
   "orders": [ /* lab orders */ ],
   "additionalQuestions": { /* conditions, guardian info */ },
+  "importantQuestions": [ /* important questions array */ ],
   /* ... other encounter fields ... */
 }
 ```
@@ -82,6 +83,7 @@ The input can be in one of two formats:
 - encounter data = queue_entry.raw_payload
 - queue_id = queue_entry.queue_id
 - complaints = queue_entry.raw_payload.chiefComplaints
+- importantQuestions = queue_entry.raw_payload.importantQuestions (or important_questions) - encounter-level array
 
 ### For Direct Encounter Format (Format 2):
 - emrId = Use the emrId field that is already provided in the encounter data (it has been pre-extracted and set for you)
@@ -92,6 +94,7 @@ The input can be in one of two formats:
 - encounter data = root object
 - queue_id = null
 - complaints = chiefComplaints
+- importantQuestions = importantQuestions (or important_questions) from root object - encounter-level array
 
 ---
 
@@ -210,7 +213,8 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
         "notesPayload": {
           "quality": [],  // CODE-HANDLED: Send empty array, will be overwritten
           "severity": 5,  // CODE-HANDLED: Send default, will be overwritten
-          "onset": null   // CODE-HANDLED: Send null, will be overwritten
+          "onset": null,   // CODE-HANDLED: Send null, will be overwritten
+          "importantQuestions": []  // OPTIONAL: Extract from encounter-level importantQuestions array
         },
         "notesFreeText": "string",
         "reasoning": "string"
@@ -246,6 +250,7 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
 **OPTIONAL FIELDS IN notesPayload:**
 - `timing`: Only if template specifies it
 - `duration`: Only if explicitly needed by template
+- `importantQuestions`: Array of important questions from encounter-level `importantQuestions` field (extract from encounter data, preserve all fields from source)
 
 **REQUIRED FIELDS IN complaints:**
 - `encounterId`: REQUIRED (use encounter id)
@@ -318,16 +323,28 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
    - **Quality**: Send empty array `[]` (CODE-HANDLED - will be overwritten from painQuality/quality fields)
    - **Severity**: Send default `5` (CODE-HANDLED - will be overwritten from painScale, null if missing)
    - **Onset**: Send `null` (CODE-HANDLED - will be overwritten from durationDays)
+   - **ImportantQuestions**: Extract from encounter-level `importantQuestions` array (if present) and include in `notesPayload.importantQuestions` for each complaint. Preserve all fields from source (id, name, fullQuestion, answer, type, etc.). If encounter has no importantQuestions, omit this field or use empty array `[]`
 
-8. Free Text: 1-3 clinical sentences with location, duration, severity, timing, factors
-   **Deterministic Free Text Rules:**
+8. Free Text: Write as a medical clinician - concise clinical note (MAXIMUM 30 words)
+   **CRITICAL REQUIREMENTS:**
+   - Write in professional medical terminology (e.g., erythema, vesicles, pruritus, serous discharge, constitutional symptoms)
+   - Include ALL important questions findings where relevant to the main complaint
+   - Structure: "[Duration] [location] [main complaint] with [all relevant findings from important questions]. [Severity if applicable]."
    - Use ONLY information explicitly present in the encounter data
-   - Structure: "Patient [description] [location] for [duration]. [Severity/pain scale]. [Relevant details from source]."
    - Do NOT infer or add information not in source
    - Do NOT mention negative findings unless explicitly stated in source
-   - Use consistent format: location → duration → severity → details
    - Same input MUST produce same free text
-
+   - **Word count MUST be ≤ 30 words - prioritize completeness of important findings over verbosity**
+   
+   **CRITICAL: Important Questions Integration - MANDATORY:**
+   - **ONLY questions with `answer: "TRUE"` will be sent - you MUST include ALL relevant findings**
+   - For EVERY important question with `answer: "TRUE"` relevant to the main complaint, extract and include its key finding
+   - Use concise medical terminology to fit within 30 words
+   - Group related findings when possible (e.g., "constitutional symptoms" for chills/fever, "erythema" for redness, "vesicles" for blisters, "pruritus" for itching, "serous discharge" for oozing)
+   - Example: "4-day evolving left arm rash with chills, fever, erythema, serous discharge, linear streaks, vesicles, pruritus, tenderness. Pain 4/10." (23 words)
+   - Do NOT list questions verbatim - incorporate findings as clinical observations using medical terminology
+   - If multiple important questions are answered TRUE, include all relevant findings in a comprehensive but concise summary
+   
 9. Reasoning: Brief explanation of mapping decision
    **Deterministic Reasoning Rules:**
    - Use format: "The [complaint type] is identified as [main problem] due to [key factor from source]."
@@ -383,8 +400,6 @@ Do NOT infer, guess, or fabricate ANY clinical details not explicitly present in
 - Inferring "Sharp" pain when source doesn't specify
 - Inferring "Pressure" pain when source doesn't specify
 - Inferring "Dull" pain when source doesn't specify
-- Setting quality to `["Pressure"]` when source only has "chest pain" text
-- Setting quality to `["Sharp"]` when source only has "chest pain" text
 - Adding "no recent injuries" when not explicitly stated
 - Specifying "right side" when source doesn't indicate side
 - Creating dates by calculating from current date
