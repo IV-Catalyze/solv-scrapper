@@ -264,6 +264,9 @@ async def get_vm_health(
                 'lastHeartbeat': None,
                 'status': None,
                 'processingQueueId': None,
+                'serverId': None,
+                'uiPathStatus': None,
+                'metadata': None,
             }
             vm_response = VmHealthStatusResponse(**response_data)
             response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
@@ -279,6 +282,9 @@ async def get_vm_health(
                 'lastHeartbeat': None,
                 'status': vm_health.get('status'),
                 'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
+                'serverId': vm_health.get('server_id'),
+                'uiPathStatus': vm_health.get('uipath_status'),
+                'metadata': vm_health.get('metadata'),
             }
             vm_response = VmHealthStatusResponse(**response_data)
             response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
@@ -308,6 +314,9 @@ async def get_vm_health(
                     'lastHeartbeat': last_heartbeat_str,
                     'status': vm_health.get('status'),
                     'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
+                    'serverId': vm_health.get('server_id'),
+                    'uiPathStatus': vm_health.get('uipath_status'),
+                    'metadata': vm_health.get('metadata'),
                 }
                 vm_response = VmHealthStatusResponse(**response_data)
                 response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
@@ -320,6 +329,9 @@ async def get_vm_health(
                 'lastHeartbeat': None,
                 'status': vm_health.get('status'),
                 'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
+                'serverId': vm_health.get('server_id'),
+                'uiPathStatus': vm_health.get('uipath_status'),
+                'metadata': vm_health.get('metadata'),
             }
             vm_response = VmHealthStatusResponse(**response_data)
             response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
@@ -356,6 +368,9 @@ async def get_vm_health(
             'lastHeartbeat': last_heartbeat_str,
             'status': vm_health.get('status'),
             'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
+            'serverId': vm_health.get('server_id'),
+            'uiPathStatus': vm_health.get('uipath_status'),
+            'metadata': vm_health.get('metadata'),
         }
         
         # Create response model and serialize with by_alias=False to output camelCase field names

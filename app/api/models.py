@@ -556,6 +556,9 @@ class VmHealthStatusResponse(BaseModel):
     lastHeartbeat: Optional[str] = Field(None, description="ISO 8601 timestamp of the last heartbeat", example="2025-01-21T10:30:00Z", alias="last_heartbeat")
     status: Optional[str] = Field(None, description="Current VM status: healthy, unhealthy, or idle", example="healthy")
     processingQueueId: Optional[str] = Field(None, description="Queue ID that the VM is currently processing", example="660e8400-e29b-41d4-a716-446655440000", alias="processing_queue_id")
+    serverId: Optional[str] = Field(None, description="Server identifier that this VM is running on", example="server1", alias="server_id")
+    uiPathStatus: Optional[str] = Field(None, description="UiPath status for this VM (e.g., running, stopped, error)", example="running", alias="uipath_status")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Metadata object with system metrics (e.g., cpuUsage, memoryUsage, diskUsage)")
     
     class Config:
         populate_by_name = True
@@ -565,7 +568,14 @@ class VmHealthStatusResponse(BaseModel):
                 "vmId": "vm-worker-1",
                 "lastHeartbeat": "2025-01-21T10:30:00Z",
                 "status": "healthy",
-                "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
+                "processingQueueId": "660e8400-e29b-41d4-a716-446655440000",
+                "serverId": "server1",
+                "uiPathStatus": "running",
+                "metadata": {
+                    "cpuUsage": 45.2,
+                    "memoryUsage": 62.8,
+                    "diskUsage": 30.1
+                }
             }
         }
         extra = "allow"
