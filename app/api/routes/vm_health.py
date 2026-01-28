@@ -23,6 +23,7 @@ from app.api.routes.dependencies import (
     save_vm_health,
     get_latest_vm_health,
 )
+from app.api.database import get_vm_health_by_vm_id
 from app.utils.auth import verify_api_key_auth
 
 router = APIRouter()
@@ -202,11 +203,13 @@ async def vm_heartbeat(
 
 
 @router.get(
-    "/vm/health",
+    "/vm/health/{vmId}",
     tags=["VM"],
-    summary="Get VM health status",
+    summary="Get VM health status by VM ID",
     description=(
-        "Retrieve the current system health status based on the latest VM heartbeat. "
+        "Retrieve the health status for a specific VM based on its latest heartbeat. "
+        "System is considered 'up' if a heartbeat was received within the last 2 minutes "
+        "and the VM status is 'healthy' or 'idle'."
     ),
     response_model=VmHealthStatusResponse,
     status_code=200,
@@ -217,7 +220,7 @@ async def vm_heartbeat(
                 "application/json": {
                     "example": {
                         "systemStatus": "up",
-                        "vmId": "vm-worker-1",
+                        "vmId": "server1-vm1",
                         "lastHeartbeat": "2025-01-21T10:30:00Z",
                         "status": "healthy",
                         "processingQueueId": "660e8400-e29b-41d4-a716-446655440000",
@@ -237,6 +240,7 @@ async def vm_heartbeat(
     },
 )
 async def get_vm_health(
+    vmId: str,
     request: Request,
     current_user: dict = Depends(require_auth)
 ) -> VmHealthStatusResponse:
@@ -262,14 +266,14 @@ async def get_vm_health(
         # Get database connection
         conn = get_db_connection()
         
-        # Get the latest VM health record
-        vm_health = get_latest_vm_health(conn)
+        # Get the VM health record for the specified vmId
+        vm_health = get_vm_health_by_vm_id(conn, vmId)
         
         if not vm_health:
-            # No heartbeat exists - system is down
+            # No heartbeat exists for this VM - system is down for this VM
             response_data = {
                 'systemStatus': 'down',
-                'vmId': None,
+                'vmId': vmId,
                 'lastHeartbeat': None,
                 'status': None,
                 'processingQueueId': None,
