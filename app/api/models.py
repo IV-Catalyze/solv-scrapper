@@ -571,6 +571,69 @@ class VmHealthStatusResponse(BaseModel):
         extra = "allow"
 
 
+class ServerHeartbeatRequest(BaseModel):
+    """Request model for server heartbeat."""
+    serverId: str = Field(
+        ..., 
+        description="Server identifier",
+        example="server1",
+        alias="server_id"
+    )
+    status: str = Field(
+        ..., 
+        description="Server status: healthy, unhealthy, or down",
+        example="healthy",
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional metadata object with system metrics",
+        example={
+            "cpuUsage": 45.2,
+            "memoryUsage": 62.8,
+            "diskUsage": 30.1
+        }
+    )
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "serverId": "server1",
+                "status": "healthy",
+                "metadata": {
+                    "cpuUsage": 45.2,
+                    "memoryUsage": 62.8,
+                    "diskUsage": 30.1
+                }
+            }
+        }
+        extra = "forbid"
+
+
+class ServerHeartbeatResponse(BaseModel):
+    """Response model for server heartbeat."""
+    serverId: str = Field(..., description="Server identifier", example="server1", alias="server_id")
+    status: str = Field(..., description="Current server status", example="healthy")
+    lastHeartbeat: str = Field(..., description="ISO 8601 timestamp of the last heartbeat", example="2025-01-22T10:30:00Z", alias="last_heartbeat")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Server metadata with metrics")
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "serverId": "server1",
+                "status": "healthy",
+                "lastHeartbeat": "2025-01-22T10:30:00Z",
+                "metadata": {
+                    "cpuUsage": 45.2,
+                    "memoryUsage": 62.8,
+                    "diskUsage": 30.1
+                }
+            }
+        }
+        extra = "allow"
+
+
 class ImageUploadResponse(BaseModel):
     """Response model for image upload."""
     success: bool

@@ -580,6 +580,106 @@ def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
         cursor.close()
 
 
+def save_server_health(conn, server_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Save or update a server health record in the database.
+    
+    Args:
+        conn: PostgreSQL database connection
+        server_data: Dictionary containing server health data with:
+            - server_id: string (required) - Server identifier
+            - status: string (required) - Server status: healthy, unhealthy, or down
+            - metadata: Optional dict - Metadata object with system metrics
+        
+    Returns:
+        Dictionary with the saved/updated server health data
+        
+    Raises:
+        psycopg2.Error: If database operation fails
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        # Extract required fields
+        server_id = server_data.get('server_id')
+        status = server_data.get('status')
+        metadata = server_data.get('metadata')
+        
+        # Validate required fields
+        if not server_id:
+            raise ValueError("server_id is required")
+        if not status:
+            raise ValueError("status is required")
+        
+        # Validate status
+        valid_statuses = ['healthy', 'unhealthy', 'down']
+        if status not in valid_statuses:
+            raise ValueError(f"Invalid status: {status}. Must be one of: {', '.join(valid_statuses)}")
+        
+        # Convert metadata dict to JSON string if provided
+        metadata_json = None
+        if metadata:
+            metadata_json = json.dumps(metadata)
+        
+        # Use INSERT ... ON CONFLICT to handle duplicates (update on conflict)
+        query = """
+            INSERT INTO server_health (
+                server_id, last_heartbeat, status, metadata, updated_at
+            )
+            VALUES (%s, CURRENT_TIMESTAMP, %s, %s::jsonb, CURRENT_TIMESTAMP)
+            ON CONFLICT (server_id) 
+            DO UPDATE SET
+                last_heartbeat = CURRENT_TIMESTAMP,
+                status = EXCLUDED.status,
+                metadata = EXCLUDED.metadata,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+        """
+        
+        cursor.execute(
+            query,
+            (
+                server_id,
+                status,
+                metadata_json,
+            )
+        )
+        
+        result = cursor.fetchone()
+        conn.commit()
+        
+        if not result:
+            raise ValueError("Failed to save server health record")
+        
+        # Format the result
+        formatted_result = dict(result)
+        
+        # Convert timestamps to ISO format strings
+        if formatted_result.get('last_heartbeat'):
+            if isinstance(formatted_result['last_heartbeat'], datetime):
+                formatted_result['last_heartbeat'] = formatted_result['last_heartbeat'].isoformat() + 'Z'
+        
+        if formatted_result.get('created_at'):
+            if isinstance(formatted_result['created_at'], datetime):
+                formatted_result['created_at'] = formatted_result['created_at'].isoformat() + 'Z'
+        
+        if formatted_result.get('updated_at'):
+            if isinstance(formatted_result['updated_at'], datetime):
+                formatted_result['updated_at'] = formatted_result['updated_at'].isoformat() + 'Z'
+        
+        # Parse metadata JSONB if present
+        if formatted_result.get('metadata'):
+            if isinstance(formatted_result['metadata'], str):
+                formatted_result['metadata'] = json.loads(formatted_result['metadata'])
+        
+        return formatted_result
+        
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+
+
 def get_latest_vm_health(conn) -> Optional[Dict[str, Any]]:
     """Get the latest VM health record from the database.
     

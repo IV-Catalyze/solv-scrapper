@@ -12,6 +12,7 @@ from app.api.routes import patients
 from app.api.routes import encounters
 from app.api.routes import summaries
 from app.api.routes import vm_health
+from app.api.routes import server_health
 from app.api.routes import queue
 from app.api.routes import queue_validation
 from app.api.routes import images
@@ -27,6 +28,7 @@ main_router.include_router(patients.router, tags=["Patients"])
 main_router.include_router(encounters.router, tags=["Encounters"])
 main_router.include_router(summaries.router, tags=["Summaries"])
 main_router.include_router(vm_health.router, tags=["VM"])
+main_router.include_router(server_health.router, tags=["Server"])
 main_router.include_router(queue.router, tags=["Queue"])
 main_router.include_router(queue_validation.router, tags=["Queue"])
 main_router.include_router(images.router, tags=["Images"])

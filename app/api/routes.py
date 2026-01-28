@@ -402,6 +402,7 @@ from app.api.routes.patients import router as patients_router
 from app.api.routes.encounters import router as encounters_router
 from app.api.routes.summaries import router as summaries_router
 from app.api.routes.vm_health import router as vm_health_router
+from app.api.routes.server_health import router as server_health_router
 from app.api.routes.queue import router as queue_router
 from app.api.routes.queue_validation import router as queue_validation_router
 from app.api.routes.images import router as images_router
@@ -414,6 +415,7 @@ app.include_router(patients_router, tags=["Patients"])
 app.include_router(encounters_router, tags=["Encounters"])
 app.include_router(summaries_router, tags=["Summaries"])
 app.include_router(vm_health_router, tags=["VM"])
+app.include_router(server_health_router, tags=["Server"])
 app.include_router(queue_router, tags=["Queue"])
 app.include_router(queue_validation_router, tags=["Queue"])
 app.include_router(images_router, tags=["Images"])

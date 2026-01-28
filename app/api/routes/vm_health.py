@@ -383,4 +383,3 @@ async def get_vm_health(
     finally:
         if conn:
             conn.close()
-
