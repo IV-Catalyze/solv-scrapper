@@ -205,7 +205,9 @@ async def vm_heartbeat(
     "/vm/health",
     tags=["VM"],
     summary="Get VM health status",
-    description="Retrieve the current system health status based on the latest VM heartbeat. System is considered 'up' if a heartbeat was received within the last 2 minutes.",
+    description=(
+        "Retrieve the current system health status based on the latest VM heartbeat. "
+    ),
     response_model=VmHealthStatusResponse,
     status_code=200,
     responses={
@@ -218,7 +220,14 @@ async def vm_heartbeat(
                         "vmId": "vm-worker-1",
                         "lastHeartbeat": "2025-01-21T10:30:00Z",
                         "status": "healthy",
-                        "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
+                        "processingQueueId": "660e8400-e29b-41d4-a716-446655440000",
+                        "serverId": "server1",
+                        "uiPathStatus": "running",
+                        "metadata": {
+                            "cpuUsage": 45.2,
+                            "memoryUsage": 62.8,
+                            "diskUsage": 30.1
+                        }
                     }
                 }
             }
