@@ -27,6 +27,7 @@ from app.api.models import (
     DashboardVmInfo,
     DashboardStatistics,
 )
+from app.utils.resource_alerts import process_resource_alerts
 from app.api.database import (
     save_server_health,
     get_server_health_by_server_id,
@@ -155,6 +156,27 @@ async def server_heartbeat(
 
         # Save/update the server health record
         saved_server_health = save_server_health(conn, server_health_dict)
+
+        # Check resource thresholds and create/resolve alerts if needed
+        try:
+            metadata = heartbeat_data.metadata
+            if metadata:
+                alert_results = process_resource_alerts(
+                    conn,
+                    heartbeat_data.serverId,
+                    metadata
+                )
+                if alert_results['created'] > 0 or alert_results['resolved'] > 0:
+                    logger.info(
+                        f"Resource alerts processed for {heartbeat_data.serverId}: "
+                        f"created={alert_results['created']}, "
+                        f"resolved={alert_results['resolved']}"
+                    )
+        except Exception as e:
+            # Log but don't fail the heartbeat if alert processing fails
+            logger.warning(
+                f"Failed to process resource alerts for {heartbeat_data.serverId}: {str(e)}"
+            )
 
         # Format the response - pass data using field names (camelCase)
         # The model will accept both field names and aliases due to
