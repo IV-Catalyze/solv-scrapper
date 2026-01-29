@@ -776,6 +776,103 @@ def get_vm_health_by_vm_id(conn, vm_id: str) -> Optional[Dict[str, Any]]:
         cursor.close()
 
 
+def get_server_health_by_server_id(conn, server_id: str) -> Optional[Dict[str, Any]]:
+    """Get server health record for a specific server ID.
+    
+    Args:
+        conn: PostgreSQL database connection
+        server_id: Server identifier
+        
+    Returns:
+        Dictionary with the server health data for the given server_id, or None if not found.
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        query = """
+            SELECT *
+            FROM server_health
+            WHERE server_id = %s
+        """
+        cursor.execute(query, (server_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            return None
+        
+        formatted = dict(result)
+        
+        # Normalize timestamps to ISO strings
+        if formatted.get("last_heartbeat") and isinstance(formatted["last_heartbeat"], datetime):
+            formatted["last_heartbeat"] = formatted["last_heartbeat"].isoformat() + "Z"
+        if formatted.get("created_at") and isinstance(formatted["created_at"], datetime):
+            formatted["created_at"] = formatted["created_at"].isoformat() + "Z"
+        if formatted.get("updated_at") and isinstance(formatted["updated_at"], datetime):
+            formatted["updated_at"] = formatted["updated_at"].isoformat() + "Z"
+        
+        # Parse metadata JSONB if needed
+        if formatted.get("metadata") and isinstance(formatted["metadata"], str):
+            formatted["metadata"] = json.loads(formatted["metadata"])
+        
+        return formatted
+    finally:
+        cursor.close()
+
+
+def get_vms_by_server_id(conn, server_id: str) -> List[Dict[str, Any]]:
+    """Get all VM health records for a specific server ID.
+    
+    Args:
+        conn: PostgreSQL database connection
+        server_id: Server identifier
+        
+    Returns:
+        List of dictionaries with VM health data for the given server_id
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        query = """
+            SELECT 
+                vm_id,
+                server_id,
+                last_heartbeat,
+                status,
+                uipath_status,
+                processing_queue_id,
+                metadata,
+                created_at,
+                updated_at
+            FROM vm_health
+            WHERE server_id = %s
+            ORDER BY vm_id
+        """
+        cursor.execute(query, (server_id,))
+        results = cursor.fetchall()
+        
+        formatted_results = []
+        for result in results:
+            formatted = dict(result)
+            
+            # Normalize timestamps to ISO strings
+            if formatted.get("last_heartbeat") and isinstance(formatted["last_heartbeat"], datetime):
+                formatted["last_heartbeat"] = formatted["last_heartbeat"].isoformat() + "Z"
+            if formatted.get("created_at") and isinstance(formatted["created_at"], datetime):
+                formatted["created_at"] = formatted["created_at"].isoformat() + "Z"
+            if formatted.get("updated_at") and isinstance(formatted["updated_at"], datetime):
+                formatted["updated_at"] = formatted["updated_at"].isoformat() + "Z"
+            
+            # Parse metadata JSONB if needed
+            if formatted.get("metadata") and isinstance(formatted["metadata"], str):
+                formatted["metadata"] = json.loads(formatted["metadata"])
+            
+            formatted_results.append(formatted)
+        
+        return formatted_results
+    finally:
+        cursor.close()
+
+
 def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[str, Any]:
     """Create a queue entry from an encounter record.
     

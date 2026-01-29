@@ -644,6 +644,57 @@ class ServerHeartbeatResponse(BaseModel):
         extra = "allow"
 
 
+class VmInfo(BaseModel):
+    """VM information in server health response."""
+    vmId: str = Field(..., description="VM identifier", example="server1-vm1", alias="vm_id")
+    status: str = Field(..., description="VM status", example="healthy")
+    lastHeartbeat: str = Field(..., description="ISO 8601 timestamp of the last heartbeat", example="2025-01-22T10:30:00Z", alias="last_heartbeat")
+    uiPathStatus: Optional[str] = Field(None, description="UiPath status", example="running", alias="uipath_status")
+    processingQueueId: Optional[str] = Field(None, description="Processing queue ID", example="660e8400-e29b-41d4-a716-446655440000", alias="processing_queue_id")
+    
+    class Config:
+        populate_by_name = True
+        extra = "allow"
+
+
+class ServerHealthResponse(BaseModel):
+    """Response model for server health with VM details."""
+    serverId: str = Field(..., description="Server identifier", example="server1", alias="server_id")
+    status: str = Field(..., description="Current server status", example="healthy")
+    lastHeartbeat: str = Field(..., description="ISO 8601 timestamp of the last heartbeat", example="2025-01-22T10:30:00Z", alias="last_heartbeat")
+    cpuUsage: Optional[float] = Field(None, description="CPU usage percentage", example=45.2)
+    memoryUsage: Optional[float] = Field(None, description="Memory usage percentage", example=62.8)
+    diskUsage: Optional[float] = Field(None, description="Disk usage percentage", example=30.1)
+    vmCount: int = Field(..., description="Total number of VMs on this server", example=8)
+    healthyVmCount: int = Field(..., description="Number of healthy VMs", example=8)
+    vms: List[VmInfo] = Field(..., description="List of VMs on this server")
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "serverId": "server1",
+                "status": "healthy",
+                "lastHeartbeat": "2025-01-22T10:30:00Z",
+                "cpuUsage": 45.2,
+                "memoryUsage": 62.8,
+                "diskUsage": 30.1,
+                "vmCount": 8,
+                "healthyVmCount": 8,
+                "vms": [
+                    {
+                        "vmId": "server1-vm1",
+                        "status": "healthy",
+                        "lastHeartbeat": "2025-01-22T10:30:00Z",
+                        "uiPathStatus": "running",
+                        "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
+                    }
+                ]
+            }
+        }
+        extra = "allow"
+
+
 class ImageUploadResponse(BaseModel):
     """Response model for image upload."""
     success: bool
