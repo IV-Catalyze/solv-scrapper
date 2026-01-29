@@ -4,9 +4,10 @@ Server health routes for monitoring server status.
 This module contains routes related to server health and heartbeat tracking.
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from fastapi.responses import JSONResponse
 import psycopg2
 
@@ -14,17 +15,24 @@ from app.api.routes.dependencies import (
     logger,
     TokenData,
     get_db_connection,
+    require_auth,
 )
 from app.api.models import (
     ServerHeartbeatRequest,
     ServerHeartbeatResponse,
     ServerHealthResponse,
     VmInfo,
+    HealthDashboardResponse,
+    DashboardServerInfo,
+    DashboardVmInfo,
+    DashboardStatistics,
 )
 from app.api.database import (
     save_server_health,
     get_server_health_by_server_id,
     get_vms_by_server_id,
+    get_all_servers_health,
+    get_all_vms_health,
 )
 from app.utils.auth import verify_api_key_auth
 
@@ -342,6 +350,227 @@ async def get_server_health(
         if conn:
             conn.rollback()
         logger.error(f"Unexpected error retrieving server health for serverId {serverId}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.get(
+    "/health/dashboard",
+    tags=["Server"],
+    summary="Get comprehensive health dashboard",
+    description=(
+        "Retrieve comprehensive health status for all servers, VMs, and UiPath processes. "
+        "Supports filtering by serverId and status. Uses session-based authentication."
+    ),
+    response_model=HealthDashboardResponse,
+    status_code=200,
+    responses={
+        200: {
+            "description": "Health dashboard retrieved successfully",
+        },
+        400: {"description": "Invalid query parameters"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Server error"},
+    },
+)
+async def get_health_dashboard(
+    serverId: Optional[str] = Query(
+        None,
+        alias="serverId",
+        description="Filter by specific server identifier"
+    ),
+    status: Optional[str] = Query(
+        None,
+        alias="status",
+        description="Filter by status (healthy, unhealthy, idle, down)"
+    ),
+    current_user: dict = Depends(require_auth)
+) -> HealthDashboardResponse:
+    """
+    Get comprehensive health dashboard for all servers and VMs.
+    
+    **Authentication:**
+    - Session-based authentication required (same as UI endpoints)
+    
+    **Query Parameters:**
+    - `serverId` (optional): Filter by specific server identifier
+    - `status` (optional): Filter by status - 'healthy', 'unhealthy', 'idle', or 'down'
+      - For servers: healthy, unhealthy, down
+      - For VMs: healthy, unhealthy, idle
+    
+    **Response:**
+    Returns comprehensive health information including:
+    - Overall system status
+    - List of all servers with their VMs
+    - System-wide statistics
+    
+    **Example:**
+    ```
+    GET /health/dashboard
+    GET /health/dashboard?serverId=server1
+    GET /health/dashboard?status=healthy
+    GET /health/dashboard?serverId=server1&status=healthy
+    ```
+    """
+    conn = None
+    
+    try:
+        # Validate status parameter if provided
+        if status:
+            valid_statuses = ['healthy', 'unhealthy', 'idle', 'down']
+            if status not in valid_statuses:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid status: {status}. Must be one of: {', '.join(valid_statuses)}"
+                )
+        
+        # Get database connection
+        conn = get_db_connection()
+        
+        # Get all servers (with optional filtering)
+        server_status_filter = status if status in ['healthy', 'unhealthy', 'down'] else None
+        servers = get_all_servers_health(conn, server_id=serverId, status=server_status_filter)
+        
+        # Get all VMs (with optional filtering)
+        vm_status_filter = status if status in ['healthy', 'unhealthy', 'idle'] else None
+        all_vms = get_all_vms_health(conn, server_id=serverId, status=vm_status_filter)
+        
+        # Group VMs by server_id
+        vms_by_server: Dict[str, List[Dict[str, Any]]] = {}
+        for vm in all_vms:
+            vm_server_id = vm.get('server_id')
+            if vm_server_id:
+                if vm_server_id not in vms_by_server:
+                    vms_by_server[vm_server_id] = []
+                vms_by_server[vm_server_id].append(vm)
+        
+        # Build server list with VMs
+        server_list = []
+        for server in servers:
+            server_id = server.get('server_id')
+            
+            # Get VMs for this server
+            server_vms = vms_by_server.get(server_id, [])
+            
+            # Extract metadata fields
+            metadata = server.get('metadata') or {}
+            cpu_usage = metadata.get('cpuUsage') if isinstance(metadata, dict) else None
+            memory_usage = metadata.get('memoryUsage') if isinstance(metadata, dict) else None
+            disk_usage = metadata.get('diskUsage') if isinstance(metadata, dict) else None
+            
+            # Calculate VM counts for this server
+            vm_count = len(server_vms)
+            healthy_vm_count = sum(1 for vm in server_vms if vm.get('status') == 'healthy')
+            
+            # Format VM list
+            vm_list = []
+            for vm in server_vms:
+                vm_info = {
+                    'vmId': vm.get('vm_id'),
+                    'status': vm.get('status'),
+                    'lastHeartbeat': vm.get('last_heartbeat'),
+                    'uiPathStatus': vm.get('uipath_status'),
+                    'processingQueueId': str(vm['processing_queue_id']) if vm.get('processing_queue_id') else None,
+                    'metadata': vm.get('metadata'),
+                }
+                vm_list.append(DashboardVmInfo(**vm_info))
+            
+            # Build server info
+            server_info = {
+                'serverId': server.get('server_id'),
+                'status': server.get('status'),
+                'lastHeartbeat': server.get('last_heartbeat'),
+                'cpuUsage': cpu_usage,
+                'memoryUsage': memory_usage,
+                'diskUsage': disk_usage,
+                'vmCount': vm_count,
+                'healthyVmCount': healthy_vm_count,
+                'vms': vm_list,
+            }
+            server_list.append(DashboardServerInfo(**server_info))
+        
+        # Calculate statistics (use all data, not filtered)
+        all_servers_for_stats = get_all_servers_health(conn)
+        all_vms_for_stats = get_all_vms_health(conn)
+        
+        # Server statistics
+        total_servers = len(all_servers_for_stats)
+        healthy_servers = sum(1 for s in all_servers_for_stats if s.get('status') == 'healthy')
+        unhealthy_servers = sum(1 for s in all_servers_for_stats if s.get('status') == 'unhealthy')
+        down_servers = sum(1 for s in all_servers_for_stats if s.get('status') == 'down')
+        
+        # VM statistics
+        total_vms = len(all_vms_for_stats)
+        healthy_vms = sum(1 for v in all_vms_for_stats if v.get('status') == 'healthy')
+        unhealthy_vms = sum(1 for v in all_vms_for_stats if v.get('status') == 'unhealthy')
+        idle_vms = sum(1 for v in all_vms_for_stats if v.get('status') == 'idle')
+        vms_processing = sum(1 for v in all_vms_for_stats if v.get('processing_queue_id') is not None)
+        vms_with_uipath_running = sum(1 for v in all_vms_for_stats if v.get('uipath_status') == 'running')
+        vms_with_uipath_stopped = sum(1 for v in all_vms_for_stats if v.get('uipath_status') == 'stopped')
+        
+        # Determine overall status
+        # Priority: down > unhealthy > degraded > healthy
+        if down_servers > 0 or unhealthy_servers > 0:
+            overall_status = "unhealthy"
+        elif unhealthy_vms > 0:
+            overall_status = "degraded"
+        elif idle_vms > 0 and healthy_vms > 0:
+            overall_status = "healthy"  # Some VMs idle is normal
+        elif healthy_servers == total_servers and healthy_vms == total_vms:
+            overall_status = "healthy"
+        else:
+            overall_status = "healthy"  # Default to healthy
+        
+        # Build statistics
+        statistics = DashboardStatistics(
+            totalServers=total_servers,
+            healthyServers=healthy_servers,
+            unhealthyServers=unhealthy_servers,
+            downServers=down_servers,
+            totalVms=total_vms,
+            healthyVms=healthy_vms,
+            unhealthyVms=unhealthy_vms,
+            idleVms=idle_vms,
+            vmsProcessing=vms_processing,
+            vmsWithUiPathRunning=vms_with_uipath_running,
+            vmsWithUiPathStopped=vms_with_uipath_stopped,
+        )
+        
+        # Build response
+        response_data = {
+            'overallStatus': overall_status,
+            'lastUpdated': datetime.now(timezone.utc).isoformat() + 'Z',
+            'servers': server_list,
+            'statistics': statistics,
+        }
+        
+        dashboard_response = HealthDashboardResponse(**response_data)
+        response_dict = dashboard_response.model_dump(
+            exclude_none=True, exclude_unset=True, by_alias=False
+        )
+        
+        logger.info(f"Health dashboard retrieved: {total_servers} servers, {total_vms} VMs, status: {overall_status}")
+        return JSONResponse(content=response_dict, status_code=200)
+        
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Database error retrieving health dashboard: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Unexpected error retrieving health dashboard: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error: {str(e)}"

@@ -695,6 +695,87 @@ class ServerHealthResponse(BaseModel):
         extra = "allow"
 
 
+class DashboardVmInfo(BaseModel):
+    """VM information in dashboard response (includes metadata)."""
+    vmId: str = Field(..., description="VM identifier", example="server1-vm1", alias="vm_id")
+    status: str = Field(..., description="VM status", example="healthy")
+    lastHeartbeat: str = Field(..., description="ISO 8601 timestamp of the last heartbeat", example="2025-01-22T10:30:00Z", alias="last_heartbeat")
+    uiPathStatus: Optional[str] = Field(None, description="UiPath status", example="running", alias="uipath_status")
+    processingQueueId: Optional[str] = Field(None, description="Processing queue ID", example="660e8400-e29b-41d4-a716-446655440000", alias="processing_queue_id")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="VM metadata with metrics")
+    
+    class Config:
+        populate_by_name = True
+        extra = "allow"
+
+
+class DashboardServerInfo(BaseModel):
+    """Server information in dashboard response."""
+    serverId: str = Field(..., description="Server identifier", example="server1", alias="server_id")
+    status: str = Field(..., description="Current server status", example="healthy")
+    lastHeartbeat: str = Field(..., description="ISO 8601 timestamp of the last heartbeat", example="2025-01-22T10:30:00Z", alias="last_heartbeat")
+    cpuUsage: Optional[float] = Field(None, description="CPU usage percentage", example=45.2)
+    memoryUsage: Optional[float] = Field(None, description="Memory usage percentage", example=62.8)
+    diskUsage: Optional[float] = Field(None, description="Disk usage percentage", example=30.1)
+    vmCount: int = Field(..., description="Total number of VMs on this server", example=8)
+    healthyVmCount: int = Field(..., description="Number of healthy VMs", example=8)
+    vms: List[DashboardVmInfo] = Field(..., description="List of VMs on this server")
+    
+    class Config:
+        populate_by_name = True
+        extra = "allow"
+
+
+class DashboardStatistics(BaseModel):
+    """Statistics for the health dashboard."""
+    totalServers: int = Field(..., description="Total number of servers", example=4)
+    healthyServers: int = Field(..., description="Number of healthy servers", example=4)
+    unhealthyServers: int = Field(..., description="Number of unhealthy servers", example=0)
+    downServers: int = Field(..., description="Number of down servers", example=0)
+    totalVms: int = Field(..., description="Total number of VMs", example=32)
+    healthyVms: int = Field(..., description="Number of healthy VMs", example=30)
+    unhealthyVms: int = Field(..., description="Number of unhealthy VMs", example=1)
+    idleVms: int = Field(..., description="Number of idle VMs", example=1)
+    vmsProcessing: int = Field(..., description="Number of VMs currently processing", example=15)
+    vmsWithUiPathRunning: int = Field(..., description="Number of VMs with UiPath running", example=28)
+    vmsWithUiPathStopped: int = Field(..., description="Number of VMs with UiPath stopped", example=4)
+    
+    class Config:
+        populate_by_name = True
+
+
+class HealthDashboardResponse(BaseModel):
+    """Response model for health dashboard."""
+    overallStatus: str = Field(..., description="Overall system status", example="healthy")
+    lastUpdated: str = Field(..., description="ISO 8601 timestamp of last update", example="2025-01-22T10:30:00Z")
+    servers: List[DashboardServerInfo] = Field(..., description="List of servers with health details")
+    statistics: DashboardStatistics = Field(..., description="System-wide statistics")
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "overallStatus": "healthy",
+                "lastUpdated": "2025-01-22T10:30:00Z",
+                "servers": [],
+                "statistics": {
+                    "totalServers": 4,
+                    "healthyServers": 4,
+                    "unhealthyServers": 0,
+                    "downServers": 0,
+                    "totalVms": 32,
+                    "healthyVms": 30,
+                    "unhealthyVms": 1,
+                    "idleVms": 1,
+                    "vmsProcessing": 15,
+                    "vmsWithUiPathRunning": 28,
+                    "vmsWithUiPathStopped": 4
+                }
+            }
+        }
+        extra = "allow"
+
+
 class ImageUploadResponse(BaseModel):
     """Response model for image upload."""
     success: bool
