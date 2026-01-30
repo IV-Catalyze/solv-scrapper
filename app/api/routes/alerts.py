@@ -401,7 +401,7 @@ async def get_alerts_list(
     "/alerts/{alertId}/resolve",
     tags=["Alerts"],
     summary="Resolve an alert",
-    description="Mark an alert as resolved. Updates the alert with resolved status and timestamp.",
+    description="Mark an alert as resolved. Uses X-API-Key authentication. Updates the alert with resolved status and timestamp.",
     response_model=AlertResolveResponse,
     status_code=200,
     responses={
@@ -417,17 +417,23 @@ async def get_alerts_list(
                 }
             }
         },
-        401: {"description": "Authentication required"},
+        401: {"description": "X-API-Key header required or invalid"},
         404: {"description": "Alert not found"},
         500: {"description": "Server error"},
     },
 )
 async def resolve_alert_endpoint(
     alertId: str,
-    current_user: dict = Depends(require_auth)
+    request: Request,
+    current_client: TokenData = Depends(verify_alert_api_key_auth)
 ) -> AlertResolveResponse:
     """
     Mark an alert as resolved.
+    
+    **Authentication:**
+    - Use `X-API-Key` header with your HMAC secret key (same key used for other endpoints)
+    - Example: `X-API-Key: your-hmac-secret-key`
+    - This is simpler than HMAC signature authentication for monitoring systems
     
     **Path Parameters:**
     - `alertId` (required): Alert UUID to resolve
@@ -435,8 +441,11 @@ async def resolve_alert_endpoint(
     **Response:**
     Returns the resolved alert with `alertId`, `success`, and `resolvedAt`.
     
-    **Example:**
-    PATCH /alerts/550e8400-e29b-41d4-a716-446655440000/resolve
+    **Example Request:**
+    ```bash
+    curl -X PATCH "https://app-97926.on-aptible.com/alerts/550e8400-e29b-41d4-a716-446655440000/resolve" \\
+      -H "X-API-Key: your-hmac-secret-key"
+    ```
     """
     conn = None
     
