@@ -163,7 +163,8 @@ async def create_alert(
         conn = get_db_connection()
         
         # Check for duplicate alerts (prevent recursive/spam alerts)
-        # Only create alert if there's no recent unresolved alert with same source, source_id, severity, and message
+        # Only create alert if there's no recent unresolved alert with same source, source_id, and severity
+        # Note: We don't check exact message match because messages may contain timestamps or dynamic content
         cursor = conn.cursor()
         try:
             duplicate_check_query = """
@@ -172,7 +173,6 @@ async def create_alert(
                 WHERE source = %s
                   AND source_id = %s
                   AND severity = %s
-                  AND message = %s
                   AND resolved = FALSE
                   AND created_at > NOW() - INTERVAL '5 minutes'
                 ORDER BY created_at DESC
@@ -181,8 +181,7 @@ async def create_alert(
             cursor.execute(duplicate_check_query, (
                 alert_dict['source'],
                 alert_dict['source_id'],
-                alert_dict['severity'],
-                alert_dict['message']
+                alert_dict['severity']
             ))
             duplicate = cursor.fetchone()
             

@@ -150,7 +150,11 @@ Message: {message}
 Created At: {created_at}
 """
     
-    if details:
+    # Only show details if it's a test alert (has "test": true in details)
+    # Hide details in production to keep emails clean
+    is_test_alert = details and isinstance(details, dict) and details.get('test') is True
+    
+    if details and is_test_alert:
         text_body += f"\nDetails:\n{json.dumps(details, indent=2)}"
     
     # HTML body
@@ -187,7 +191,8 @@ Created At: {created_at}
         </table>
 """
     
-    if details:
+    # Only show details section if it's a test alert
+    if details and is_test_alert:
         details_json = json.dumps(details, indent=2)
         html_body += f"""
         <h3>Details:</h3>
