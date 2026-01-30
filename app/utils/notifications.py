@@ -150,12 +150,8 @@ Message: {message}
 Created At: {created_at}
 """
     
-    # Only show details if it's a test alert (has "test": true in details)
-    # Hide details in production to keep emails clean
-    is_test_alert = details and isinstance(details, dict) and details.get('test') is True
-    
-    if details and is_test_alert:
-        text_body += f"\nDetails:\n{json.dumps(details, indent=2)}"
+    # Don't show details in emails - keep emails clean and focused
+    # Details are stored in database and can be viewed via API/web UI if needed
     
     # HTML body
     html_body = f"""
@@ -190,14 +186,6 @@ Created At: {created_at}
             </tr>
         </table>
 """
-    
-    # Only show details section if it's a test alert
-    if details and is_test_alert:
-        details_json = json.dumps(details, indent=2)
-        html_body += f"""
-        <h3>Details:</h3>
-        <pre style="background-color: #f5f5f5; padding: 10px; border: 1px solid #ddd; overflow-x: auto;">{details_json}</pre>
-        """
     
     html_body += """
     </body>
