@@ -1606,3 +1606,172 @@ def resolve_alert(conn, alert_id: str, resolved_by: Optional[str] = None) -> Dic
         raise e
     finally:
         cursor.close()
+
+
+def save_experity_process_time(conn, process_time_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Save or create an Experity process time record.
+    
+    Args:
+        conn: PostgreSQL database connection
+        process_time_dict: Dictionary containing process time data with keys:
+            - process_name: str (required) - 'Encounter process time' or 'Experity process time'
+            - started_at: str (required) - ISO 8601 timestamp
+            - ended_at: str (required) - ISO 8601 timestamp
+    
+    Returns:
+        Dictionary with the saved process time data including process_time_id and created_at
+    
+    Raises:
+        psycopg2.Error: If database operation fails
+        ValueError: If required fields are missing or invalid
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        # Validate required fields
+        required_fields = ['process_name', 'started_at', 'ended_at']
+        for field in required_fields:
+            if field not in process_time_dict or not process_time_dict[field]:
+                raise ValueError(f"Missing required field: {field}")
+        
+        # Validate process_name
+        valid_names = ['Encounter process time', 'Experity process time']
+        if process_time_dict['process_name'] not in valid_names:
+            raise ValueError(f"Invalid process_name: {process_time_dict['process_name']}. Must be one of: {', '.join(valid_names)}")
+        
+        # Parse timestamps
+        started_at = process_time_dict['started_at']
+        if isinstance(started_at, str):
+            started_at_clean = started_at.replace('Z', '').replace('+00:00', '')
+            try:
+                started_at_dt = datetime.fromisoformat(started_at_clean)
+                if started_at_dt.tzinfo is None:
+                    started_at_dt = started_at_dt.replace(tzinfo=timezone.utc)
+                started_at = started_at_dt
+            except ValueError:
+                raise ValueError(f"Invalid started_at timestamp format: {started_at}")
+        
+        ended_at = process_time_dict['ended_at']
+        if isinstance(ended_at, str):
+            ended_at_clean = ended_at.replace('Z', '').replace('+00:00', '')
+            try:
+                ended_at_dt = datetime.fromisoformat(ended_at_clean)
+                if ended_at_dt.tzinfo is None:
+                    ended_at_dt = ended_at_dt.replace(tzinfo=timezone.utc)
+                ended_at = ended_at_dt
+            except ValueError:
+                raise ValueError(f"Invalid ended_at timestamp format: {ended_at}")
+        
+        # Insert process time record
+        query = """
+            INSERT INTO experity_process_time (process_name, started_at, ended_at)
+            VALUES (%s, %s, %s)
+            RETURNING process_time_id, process_name, started_at, ended_at, 
+                      duration_seconds, created_at, updated_at
+        """
+        
+        cursor.execute(query, (process_time_dict['process_name'], started_at, ended_at))
+        result = cursor.fetchone()
+        conn.commit()
+        
+        # Format the result
+        process_time_record = dict(result)
+        return process_time_record
+        
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise e
+    except ValueError as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+
+
+def get_experity_process_times(conn, filters: Optional[Dict[str, Any]] = None, limit: int = 50, offset: int = 0) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Retrieve Experity process time records with optional filtering and pagination.
+    
+    Args:
+        conn: PostgreSQL database connection
+        filters: Optional dictionary with filter keys:
+            - process_name: str - Filter by process name
+            - started_after: str - ISO 8601 timestamp (only records started after this)
+            - started_before: str - ISO 8601 timestamp (only records started before this)
+            - completed_only: bool - Only return records with ended_at set
+        limit: Maximum number of records to return (default: 50, max: 100)
+        offset: Number of records to skip (default: 0)
+    
+    Returns:
+        Tuple of (list of process time records, total count)
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        # Build WHERE clause
+        where_conditions = []
+        params = []
+        
+        if filters:
+            if 'process_name' in filters:
+                where_conditions.append("process_name = %s")
+                params.append(filters['process_name'])
+            
+            if 'started_after' in filters:
+                where_conditions.append("started_at >= %s")
+                started_after = filters['started_after']
+                if isinstance(started_after, str):
+                    started_at_clean = started_after.replace('Z', '').replace('+00:00', '')
+                    started_at_dt = datetime.fromisoformat(started_at_clean)
+                    if started_at_dt.tzinfo is None:
+                        started_at_dt = started_at_dt.replace(tzinfo=timezone.utc)
+                    params.append(started_at_dt)
+                else:
+                    params.append(started_after)
+            
+            if 'started_before' in filters:
+                where_conditions.append("started_at <= %s")
+                started_before = filters['started_before']
+                if isinstance(started_before, str):
+                    started_before_clean = started_before.replace('Z', '').replace('+00:00', '')
+                    started_before_dt = datetime.fromisoformat(started_before_clean)
+                    if started_before_dt.tzinfo is None:
+                        started_before_dt = started_before_dt.replace(tzinfo=timezone.utc)
+                    params.append(started_before_dt)
+                else:
+                    params.append(started_before)
+            
+            if filters.get('completed_only', False):
+                where_conditions.append("ended_at IS NOT NULL")
+        
+        where_clause = " AND ".join(where_conditions) if where_conditions else "1=1"
+        
+        # Get total count
+        count_query = f"SELECT COUNT(*) as total FROM experity_process_time WHERE {where_clause}"
+        cursor.execute(count_query, tuple(params))
+        total = cursor.fetchone()['total']
+        
+        # Get paginated results
+        query = f"""
+            SELECT process_time_id, process_name, started_at, ended_at, 
+                   duration_seconds, created_at, updated_at
+            FROM experity_process_time
+            WHERE {where_clause}
+            ORDER BY started_at DESC
+            LIMIT %s OFFSET %s
+        """
+        params.extend([limit, offset])
+        
+        cursor.execute(query, tuple(params))
+        results = cursor.fetchall()
+        
+        # Convert to list of dicts
+        process_times = [dict(row) for row in results]
+        
+        return process_times, total
+        
+    except psycopg2.Error as e:
+        raise e
+    finally:
+        cursor.close()

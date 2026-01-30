@@ -900,3 +900,81 @@ class AlertResolveResponse(BaseModel):
         schema = super().model_json_schema(by_alias=False, **kwargs)
         return schema
 
+
+class ExperityProcessTimeRequest(BaseModel):
+    """Request model for submitting Experity process time."""
+    processName: str = Field(
+        ..., 
+        description="Process name: 'Encounter process time' or 'Experity process time'",
+        example="Encounter process time",
+        alias="process_name"
+    )
+    startedAt: str = Field(
+        ..., 
+        description="ISO 8601 timestamp when the process started",
+        example="2025-01-22T10:30:00Z",
+        alias="started_at"
+    )
+    endedAt: str = Field(
+        ...,
+        description="ISO 8601 timestamp when the process ended",
+        example="2025-01-22T10:35:00Z",
+        alias="ended_at"
+    )
+    
+    @field_validator('processName')
+    @classmethod
+    def validate_process_name(cls, v):
+        valid_names = ['Encounter process time', 'Experity process time']
+        if v not in valid_names:
+            raise ValueError(f"processName must be one of: {', '.join(valid_names)}")
+        return v
+    
+    class Config:
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "processName": "Encounter process time",
+                "startedAt": "2025-01-22T10:30:00Z",
+                "endedAt": "2025-01-22T10:35:00Z"
+            }
+        }
+
+
+class ExperityProcessTimeResponse(BaseModel):
+    """Response model for Experity process time submission."""
+    processTimeId: str = Field(..., description="Unique process time identifier (UUID)", example="550e8400-e29b-41d4-a716-446655440000", alias="process_time_id")
+    success: bool = Field(..., description="Whether the process time was saved successfully", example=True)
+    processName: str = Field(..., description="Process name", example="Encounter process time", alias="process_name")
+    startedAt: str = Field(..., description="ISO 8601 timestamp when the process started", example="2025-01-22T10:30:00Z", alias="started_at")
+    endedAt: str = Field(..., description="ISO 8601 timestamp when the process ended", example="2025-01-22T10:35:00Z", alias="ended_at")
+    durationSeconds: Optional[int] = Field(None, description="Duration in seconds (calculated)", example=300, alias="duration_seconds")
+    createdAt: str = Field(..., description="ISO 8601 timestamp when record was created", example="2025-01-22T10:35:00Z", alias="created_at")
+    
+    class Config:
+        populate_by_name = True
+
+
+class ExperityProcessTimeItem(BaseModel):
+    """Model for a single process time item in list responses."""
+    processTimeId: str = Field(..., description="Unique process time identifier (UUID)", example="550e8400-e29b-41d4-a716-446655440000", alias="process_time_id")
+    processName: str = Field(..., description="Process name", example="Encounter process time", alias="process_name")
+    startedAt: str = Field(..., description="ISO 8601 timestamp when the process started", example="2025-01-22T10:30:00Z", alias="started_at")
+    endedAt: str = Field(..., description="ISO 8601 timestamp when the process ended", example="2025-01-22T10:35:00Z", alias="ended_at")
+    durationSeconds: Optional[int] = Field(None, description="Duration in seconds", example=300, alias="duration_seconds")
+    createdAt: str = Field(..., description="ISO 8601 timestamp when record was created", example="2025-01-22T10:35:00Z", alias="created_at")
+    
+    class Config:
+        populate_by_name = True
+
+
+class ExperityProcessTimeListResponse(BaseModel):
+    """Response model for list of process time records."""
+    processTimes: List[ExperityProcessTimeItem] = Field(..., description="List of process time records", alias="process_times")
+    total: int = Field(..., description="Total number of records matching filters")
+    limit: int = Field(..., description="Number of records returned")
+    offset: int = Field(..., description="Pagination offset")
+    
+    class Config:
+        populate_by_name = True
+

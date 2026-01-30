@@ -408,6 +408,7 @@ from app.api.routes.queue_validation import router as queue_validation_router
 from app.api.routes.images import router as images_router
 from app.api.routes.validation import router as validation_router
 from app.api.routes.alerts import router as alerts_router
+from app.api.routes.experity_process_time import router as experity_process_time_router
 
 # Include modularized routers
 app.include_router(ui_router)
@@ -421,6 +422,7 @@ app.include_router(queue_validation_router, tags=["Queue"])
 app.include_router(images_router, tags=["Images"])
 app.include_router(validation_router, tags=["Validation"])
 app.include_router(alerts_router, tags=["Alerts"])
+app.include_router(experity_process_time_router, tags=["Experity"])
 
 # Import from new modules
 from app.api.models import (
