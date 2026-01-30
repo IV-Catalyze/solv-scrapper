@@ -165,7 +165,8 @@ async def create_alert(
         # Check for duplicate alerts (prevent recursive/spam alerts)
         # Only create alert if there's no recent unresolved alert with same source, source_id, and severity
         # Note: We don't check exact message match because messages may contain timestamps or dynamic content
-        cursor = conn.cursor()
+        from psycopg2.extras import RealDictCursor
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
         try:
             duplicate_check_query = """
                 SELECT alert_id, created_at
@@ -198,7 +199,7 @@ async def create_alert(
                     FROM alerts
                     WHERE alert_id = %s
                 """
-                cursor.execute(existing_alert_query, (duplicate[0],))
+                cursor.execute(existing_alert_query, (duplicate['alert_id'],))
                 result = cursor.fetchone()
                 if result:
                     saved_alert = dict(result)
