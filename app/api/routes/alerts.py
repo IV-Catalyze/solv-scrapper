@@ -456,6 +456,18 @@ async def resolve_alert_endpoint(
         # Resolve the alert
         resolved_alert = resolve_alert(conn, alertId)
         
+        # Try to send resolution notification (non-blocking, don't fail if it fails)
+        notification_sent = False
+        try:
+            from app.utils.notifications import send_alert_resolution_notification
+            notification_sent = send_alert_resolution_notification(resolved_alert)
+        except ImportError:
+            logger.debug("Notification service not available, skipping resolution notification")
+            notification_sent = False
+        except Exception as e:
+            logger.warning(f"Failed to send resolution notification: {str(e)}")
+            notification_sent = False
+        
         # Format resolved_at timestamp
         resolved_at = resolved_alert.get('resolved_at')
         if isinstance(resolved_at, datetime):
