@@ -162,7 +162,71 @@ async def create_alert(
         # Get database connection
         conn = get_db_connection()
         
-        # Save the alert
+        # Check for duplicate alerts (prevent recursive/spam alerts)
+        # Only create alert if there's no recent unresolved alert with same source, source_id, severity, and message
+        cursor = conn.cursor()
+        try:
+            duplicate_check_query = """
+                SELECT alert_id, created_at
+                FROM alerts
+                WHERE source = %s
+                  AND source_id = %s
+                  AND severity = %s
+                  AND message = %s
+                  AND resolved = FALSE
+                  AND created_at > NOW() - INTERVAL '5 minutes'
+                ORDER BY created_at DESC
+                LIMIT 1
+            """
+            cursor.execute(duplicate_check_query, (
+                alert_dict['source'],
+                alert_dict['source_id'],
+                alert_dict['severity'],
+                alert_dict['message']
+            ))
+            duplicate = cursor.fetchone()
+            
+            if duplicate:
+                logger.info(
+                    f"Skipping duplicate alert: source={alert_dict['source']}, "
+                    f"source_id={alert_dict['source_id']}, severity={alert_dict['severity']}, "
+                    f"message={alert_dict['message'][:50]}..."
+                )
+                # Return the existing alert instead of creating a new one
+                existing_alert_query = """
+                    SELECT alert_id, source, source_id, severity, message, details,
+                           resolved, resolved_at, resolved_by, created_at, updated_at
+                    FROM alerts
+                    WHERE alert_id = %s
+                """
+                cursor.execute(existing_alert_query, (duplicate[0],))
+                result = cursor.fetchone()
+                if result:
+                    saved_alert = dict(result)
+                    # Format the response without sending another notification
+                    created_at = saved_alert.get('created_at')
+                    if isinstance(created_at, datetime):
+                        created_at_str = created_at.isoformat() + 'Z'
+                    elif isinstance(created_at, str):
+                        created_at_str = created_at
+                    else:
+                        created_at_str = datetime.now(timezone.utc).isoformat() + 'Z'
+                    
+                    response_data = {
+                        'alertId': str(saved_alert['alert_id']),
+                        'success': True,
+                        'notificationSent': False,  # No notification for duplicate
+                        'createdAt': created_at_str,
+                        'duplicate': True,  # Indicate this is a duplicate
+                    }
+                    
+                    alert_response = AlertResponse(**response_data)
+                    response_dict = alert_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+                    return JSONResponse(content=response_dict)
+        finally:
+            cursor.close()
+        
+        # Save the alert (no duplicate found)
         saved_alert = save_alert(conn, alert_dict)
         
         # Try to send notification (non-blocking, don't fail if it fails)
