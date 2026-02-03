@@ -278,7 +278,7 @@ async def get_server_health(
           "vmId": "server1-vm1",
           "status": "healthy",
           "lastHeartbeat": "2025-01-22T10:30:00Z",
-          "uiPathStatus": "running",
+          "workflowStatus": "running",
           "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
         }
       ]
@@ -331,7 +331,7 @@ async def get_server_health(
                 'vmId': vm.get('vm_id'),
                 'status': vm.get('status'),
                 'lastHeartbeat': vm.get('last_heartbeat'),
-                'uiPathStatus': vm.get('uipath_status'),
+                'workflowStatus': vm.get('workflow_status'),
                 'processingQueueId': str(vm['processing_queue_id']) if vm.get('processing_queue_id') else None,
             }
             vm_list.append(vm_info)
@@ -386,7 +386,7 @@ async def get_server_health(
     tags=["Server"],
     summary="Get comprehensive health dashboard",
     description=(
-        "Retrieve comprehensive health status for all servers, VMs, and UiPath processes. "
+        "Retrieve comprehensive health status for all servers, VMs, and AI Agent Workflow processes. "
         "Supports filtering by serverId and status. Uses session-based authentication."
     ),
     response_model=HealthDashboardResponse,
@@ -496,7 +496,7 @@ async def get_health_dashboard(
                     'vmId': vm.get('vm_id'),
                     'status': vm.get('status'),
                     'lastHeartbeat': vm.get('last_heartbeat'),
-                    'uiPathStatus': vm.get('uipath_status'),
+                    'workflowStatus': vm.get('workflow_status'),
                     'processingQueueId': str(vm['processing_queue_id']) if vm.get('processing_queue_id') else None,
                     'metadata': vm.get('metadata'),
                 }
@@ -532,8 +532,8 @@ async def get_health_dashboard(
         unhealthy_vms = sum(1 for v in all_vms_for_stats if v.get('status') == 'unhealthy')
         idle_vms = sum(1 for v in all_vms_for_stats if v.get('status') == 'idle')
         vms_processing = sum(1 for v in all_vms_for_stats if v.get('processing_queue_id') is not None)
-        vms_with_uipath_running = sum(1 for v in all_vms_for_stats if v.get('uipath_status') == 'running')
-        vms_with_uipath_stopped = sum(1 for v in all_vms_for_stats if v.get('uipath_status') == 'stopped')
+        vms_with_workflow_running = sum(1 for v in all_vms_for_stats if v.get('workflow_status') == 'running')
+        vms_with_workflow_stopped = sum(1 for v in all_vms_for_stats if v.get('workflow_status') == 'stopped')
         
         # Determine overall status
         # Priority: down > unhealthy > degraded > healthy
@@ -559,8 +559,8 @@ async def get_health_dashboard(
             unhealthyVms=unhealthy_vms,
             idleVms=idle_vms,
             vmsProcessing=vms_processing,
-            vmsWithUiPathRunning=vms_with_uipath_running,
-            vmsWithUiPathStopped=vms_with_uipath_stopped,
+            vmsWithWorkflowRunning=vms_with_workflow_running,
+            vmsWithWorkflowStopped=vms_with_workflow_stopped,
         )
         
         # Build response

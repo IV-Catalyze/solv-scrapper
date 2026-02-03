@@ -374,7 +374,7 @@ CREATE TABLE IF NOT EXISTS vm_health (
     last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(50) DEFAULT 'healthy' CHECK (status IN ('healthy', 'unhealthy', 'idle')),
     processing_queue_id UUID,
-    uipath_status VARCHAR(50),
+    workflow_status VARCHAR(50),
     metadata JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -385,7 +385,7 @@ CREATE INDEX IF NOT EXISTS idx_vm_health_last_heartbeat ON vm_health(last_heartb
 CREATE INDEX IF NOT EXISTS idx_vm_health_status ON vm_health(status);
 CREATE INDEX IF NOT EXISTS idx_vm_health_processing_queue ON vm_health(processing_queue_id);
 CREATE INDEX IF NOT EXISTS idx_vm_health_server_id ON vm_health(server_id);
-CREATE INDEX IF NOT EXISTS idx_vm_health_uipath_status ON vm_health(uipath_status);
+CREATE INDEX IF NOT EXISTS idx_vm_health_workflow_status ON vm_health(workflow_status);
 
 -- Ensure new columns exist (for legacy tables)
 ALTER TABLE vm_health
@@ -394,7 +394,7 @@ ALTER TABLE vm_health
     ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'healthy',
     ADD COLUMN IF NOT EXISTS processing_queue_id UUID,
-    ADD COLUMN IF NOT EXISTS uipath_status VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS workflow_status VARCHAR(50),
     ADD COLUMN IF NOT EXISTS metadata JSONB,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
@@ -501,7 +501,7 @@ CREATE TRIGGER update_queue_validations_updated_at
 -- Create alerts table for monitoring and alerting system
 CREATE TABLE IF NOT EXISTS alerts (
     alert_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    source VARCHAR(50) NOT NULL CHECK (source IN ('vm', 'server', 'uipath', 'monitor')),
+    source VARCHAR(50) NOT NULL CHECK (source IN ('vm', 'server', 'workflow', 'monitor')),
     source_id VARCHAR(255) NOT NULL,
     severity VARCHAR(20) NOT NULL CHECK (severity IN ('critical', 'warning', 'info')),
     message TEXT NOT NULL,
@@ -544,7 +544,7 @@ BEGIN
     ) THEN
         ALTER TABLE alerts 
         ADD CONSTRAINT alerts_source_check 
-        CHECK (source IN ('vm', 'server', 'uipath', 'monitor'));
+        CHECK (source IN ('vm', 'server', 'workflow', 'monitor'));
     END IF;
     
     IF NOT EXISTS (

@@ -850,3 +850,99 @@ async def emr_validation_ui(
     response.headers["Expires"] = "0"
     return response
 
+
+@router.get(
+    "/dashboard",
+    summary="Health Dashboard UI",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    responses={
+        200: {
+            "content": {"text/html": {"example": "<!-- Health Dashboard UI -->"}},
+            "description": "Health dashboard showing system status, servers, and VMs with auto-refresh.",
+        },
+        303: {"description": "Redirect to login page if not authenticated."},
+    },
+)
+async def health_dashboard_ui(
+    request: Request,
+    current_user: dict = Depends(require_auth),
+):
+    """
+    Render the Health Dashboard UI.
+    
+    This page provides a comprehensive view of:
+    - Overall system status (healthy, degraded, unhealthy)
+    - System-wide statistics (servers, VMs, processing status)
+    - Server details with expandable VM lists
+    - Real-time metrics (CPU, memory, disk usage)
+    - Auto-refreshes every 30 seconds
+    
+    Requires authentication - users must be logged in to access this page.
+    """
+    response = templates.TemplateResponse(
+        "health_dashboard.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "page_title": "Health Dashboard",
+            "page_subtitle": "System health monitoring",
+            "show_navigation": True,
+            "show_user_menu": True,
+            "current_page_id": "health-dashboard",
+        },
+    )
+    # Use no-cache instead of no-store to allow history navigation while preventing stale cache
+    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@router.get(
+    "/alerts/dashboard",
+    summary="Alerts Dashboard UI",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    responses={
+        200: {
+            "content": {"text/html": {"example": "<!-- Alerts Dashboard UI -->"}},
+            "description": "Alerts dashboard showing all system alerts with filtering and resolution capabilities.",
+        },
+        303: {"description": "Redirect to login page if not authenticated."},
+    },
+)
+async def alerts_dashboard_ui(
+    request: Request,
+    current_user: dict = Depends(require_auth),
+):
+    """
+    Render the Alerts Dashboard UI.
+    
+    This page provides a comprehensive view of:
+    - All system alerts (from vm, server, workflow, monitor sources)
+    - Filtering by resolved status, severity, and source
+    - Quick resolve actions for unresolved alerts
+    - Real-time alert status with auto-refresh
+    - Color-coded severity indicators
+    
+    Requires authentication - users must be logged in to access this page.
+    """
+    response = templates.TemplateResponse(
+        "alerts_list.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "page_title": "Alerts Dashboard",
+            "page_subtitle": "System alerts and notifications",
+            "show_navigation": True,
+            "show_user_menu": True,
+            "current_page_id": "alerts",
+        },
+    )
+    # Use no-cache instead of no-store to allow history navigation while preventing stale cache
+    response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+

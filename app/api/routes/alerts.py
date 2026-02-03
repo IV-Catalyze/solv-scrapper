@@ -94,7 +94,7 @@ async def create_alert(
     - This is simpler than HMAC signature authentication for monitoring systems
     
     **Request Body:**
-    - `source` (required): Source of the alert - 'vm', 'server', 'uipath', or 'monitor'
+    - `source` (required): Source of the alert - 'vm', 'server', 'workflow', or 'monitor'
     - `sourceId` (required): Identifier of the source (e.g., VM ID, Server ID)
     - `severity` (required): Severity level - 'critical', 'warning', or 'info'
     - `message` (required): Alert message
@@ -128,7 +128,7 @@ async def create_alert(
         if not alert_data.source:
             raise HTTPException(
                 status_code=400,
-                detail="source is required. Must be one of: vm, server, uipath, monitor"
+                detail="source is required. Must be one of: vm, server, workflow, monitor"
             )
         
         if not alert_data.sourceId:
@@ -339,7 +339,7 @@ async def create_alert(
     },
 )
 async def get_alerts_list(
-    source: Optional[str] = Query(None, description="Filter by source (vm, server, uipath, monitor)"),
+    source: Optional[str] = Query(None, description="Filter by source (vm, server, workflow, monitor)"),
     sourceId: Optional[str] = Query(None, description="Filter by specific source ID"),
     severity: Optional[str] = Query(None, description="Filter by severity (critical, warning, info)"),
     resolved: Optional[bool] = Query(False, description="Include resolved alerts (default: false, only unresolved)"),
@@ -351,7 +351,7 @@ async def get_alerts_list(
     Retrieve alerts with filtering and pagination.
     
     **Query Parameters:**
-    - `source` (optional): Filter by source - 'vm', 'server', 'uipath', or 'monitor'
+    - `source` (optional): Filter by source - 'vm', 'server', 'workflow', or 'monitor'
     - `sourceId` (optional): Filter by specific source ID
     - `severity` (optional): Filter by severity - 'critical', 'warning', or 'info'
     - `resolved` (optional): Include resolved alerts (default: false, only shows unresolved)
@@ -365,10 +365,10 @@ async def get_alerts_list(
     
     try:
         # Validate query parameters
-        if source and source not in ['vm', 'server', 'uipath', 'monitor']:
+        if source and source not in ['vm', 'server', 'workflow', 'monitor']:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid source: {source}. Must be one of: vm, server, uipath, monitor"
+                detail=f"Invalid source: {source}. Must be one of: vm, server, workflow, monitor"
             )
         
         if severity and severity not in ['critical', 'warning', 'info']:
@@ -510,6 +510,134 @@ async def resolve_alert_endpoint(
     curl -X PATCH "https://app-97926.on-aptible.com/alerts/550e8400-e29b-41d4-a716-446655440000/resolve" \\
       -H "X-API-Key: your-hmac-secret-key"
     ```
+    """
+    conn = None
+    
+    try:
+        # Validate UUID format
+        try:
+            uuid.UUID(alertId)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid alert ID format: {alertId}. Must be a valid UUID."
+            )
+        
+        # Get database connection
+        conn = get_db_connection()
+        
+        # Resolve the alert
+        resolved_alert = resolve_alert(conn, alertId)
+        
+        # Try to send resolution notification (non-blocking, don't fail if it fails)
+        notification_sent = False
+        try:
+            from app.utils.notifications import send_alert_resolution_notification
+            notification_sent = send_alert_resolution_notification(resolved_alert)
+        except ImportError:
+            logger.debug("Notification service not available, skipping resolution notification")
+            notification_sent = False
+        except Exception as e:
+            logger.warning(f"Failed to send resolution notification: {str(e)}")
+            notification_sent = False
+        
+        # Format resolved_at timestamp
+        resolved_at = resolved_alert.get('resolved_at')
+        if isinstance(resolved_at, datetime):
+            resolved_at_str = resolved_at.isoformat() + 'Z'
+        elif isinstance(resolved_at, str):
+            resolved_at_str = resolved_at
+        else:
+            resolved_at_str = datetime.now(timezone.utc).isoformat() + 'Z'
+        
+        # Format the response
+        response_data = {
+            'alertId': str(resolved_alert['alert_id']),
+            'success': True,
+            'resolvedAt': resolved_at_str,
+        }
+        
+        # Create response model and serialize
+        alert_resolve_response = AlertResolveResponse(**response_data)
+        response_dict = alert_resolve_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+        
+        return JSONResponse(content=response_dict)
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        if conn:
+            conn.rollback()
+        # Check if it's a "not found" error
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=404,
+                detail=str(e)
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.patch(
+    "/alerts/{alertId}/resolve-ui",
+    tags=["Alerts"],
+    summary="Resolve an alert (UI)",
+    description="Mark an alert as resolved from the UI. Uses session-based authentication. Updates the alert with resolved status and timestamp.",
+    response_model=AlertResolveResponse,
+    status_code=200,
+    responses={
+        200: {
+            "description": "Alert resolved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "alertId": "550e8400-e29b-41d4-a716-446655440000",
+                        "success": True,
+                        "resolvedAt": "2025-01-22T10:35:00Z"
+                    }
+                }
+            }
+        },
+        401: {"description": "Authentication required"},
+        404: {"description": "Alert not found"},
+        500: {"description": "Server error"},
+    },
+)
+async def resolve_alert_ui(
+    alertId: str,
+    current_user: dict = Depends(require_auth)
+) -> AlertResolveResponse:
+    """
+    Mark an alert as resolved from the UI.
+    
+    This endpoint is designed for use from the web UI and uses session-based
+    authentication. For API access, use the /alerts/{alertId}/resolve endpoint
+    with X-API-Key authentication.
+    
+    **Path Parameters:**
+    - `alertId` (required): Alert UUID to resolve
+    
+    **Response:**
+    Returns the resolved alert with `alertId`, `success`, and `resolvedAt`.
     """
     conn = None
     

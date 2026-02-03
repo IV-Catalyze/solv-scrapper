@@ -490,11 +490,11 @@ class VmHeartbeatRequest(BaseModel):
         example="660e8400-e29b-41d4-a716-446655440000",
         alias="processing_queue_id"
     )
-    uiPathStatus: Optional[str] = Field(
+    workflowStatus: Optional[str] = Field(
         None,
-        description="UiPath status: running, stopped, error, etc.",
+        description="AI Agent Workflow status: running, stopped, error, etc.",
         example="running",
-        alias="uipath_status"
+        alias="workflow_status"
     )
     metadata: Optional[Dict[str, Any]] = Field(
         None,
@@ -514,7 +514,7 @@ class VmHeartbeatRequest(BaseModel):
                 "serverId": "server1",
                 "status": "healthy",
                 "processingQueueId": "660e8400-e29b-41d4-a716-446655440000",
-                "uiPathStatus": "running",
+                "workflowStatus": "running",
                 "metadata": {
                     "cpuUsage": 45.2,
                     "memoryUsage": 62.8,
@@ -532,7 +532,7 @@ class VmHeartbeatResponse(BaseModel):
     serverId: Optional[str] = Field(None, description="Server identifier", example="server1", alias="server_id")
     lastHeartbeat: str = Field(..., description="ISO 8601 timestamp of the last heartbeat", example="2025-01-22T10:30:00Z", alias="last_heartbeat")
     status: str = Field(..., description="Current VM status", example="healthy")
-    uiPathStatus: Optional[str] = Field(None, description="UiPath status", example="running", alias="uipath_status")
+    workflowStatus: Optional[str] = Field(None, description="AI Agent Workflow status", example="running", alias="workflow_status")
     
     class Config:
         populate_by_name = True
@@ -543,7 +543,7 @@ class VmHeartbeatResponse(BaseModel):
                 "serverId": "server1",
                 "lastHeartbeat": "2025-01-22T10:30:00Z",
                 "status": "healthy",
-                "uiPathStatus": "running"
+                "workflowStatus": "running"
             }
         }
         extra = "allow"
@@ -557,7 +557,7 @@ class VmHealthStatusResponse(BaseModel):
     status: Optional[str] = Field(None, description="Current VM status: healthy, unhealthy, or idle", example="healthy")
     processingQueueId: Optional[str] = Field(None, description="Queue ID that the VM is currently processing", example="660e8400-e29b-41d4-a716-446655440000", alias="processing_queue_id")
     serverId: Optional[str] = Field(None, description="Server identifier that this VM is running on", example="server1", alias="server_id")
-    uiPathStatus: Optional[str] = Field(None, description="UiPath status for this VM (e.g., running, stopped, error)", example="running", alias="uipath_status")
+    workflowStatus: Optional[str] = Field(None, description="AI Agent Workflow status for this VM (e.g., running, stopped, error)", example="running", alias="workflow_status")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Metadata object with system metrics (e.g., cpuUsage, memoryUsage, diskUsage)")
     
     class Config:
@@ -570,7 +570,7 @@ class VmHealthStatusResponse(BaseModel):
                 "status": "healthy",
                 "processingQueueId": "660e8400-e29b-41d4-a716-446655440000",
                 "serverId": "server1",
-                "uiPathStatus": "running",
+                "workflowStatus": "running",
                 "metadata": {
                     "cpuUsage": 45.2,
                     "memoryUsage": 62.8,
@@ -649,7 +649,7 @@ class VmInfo(BaseModel):
     vmId: str = Field(..., description="VM identifier", example="server1-vm1", alias="vm_id")
     status: str = Field(..., description="VM status", example="healthy")
     lastHeartbeat: str = Field(..., description="ISO 8601 timestamp of the last heartbeat", example="2025-01-22T10:30:00Z", alias="last_heartbeat")
-    uiPathStatus: Optional[str] = Field(None, description="UiPath status", example="running", alias="uipath_status")
+    workflowStatus: Optional[str] = Field(None, description="AI Agent Workflow status", example="running", alias="workflow_status")
     processingQueueId: Optional[str] = Field(None, description="Processing queue ID", example="660e8400-e29b-41d4-a716-446655440000", alias="processing_queue_id")
     
     class Config:
@@ -686,7 +686,7 @@ class ServerHealthResponse(BaseModel):
                         "vmId": "server1-vm1",
                         "status": "healthy",
                         "lastHeartbeat": "2025-01-22T10:30:00Z",
-                        "uiPathStatus": "running",
+                        "workflowStatus": "running",
                         "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
                     }
                 ]
@@ -700,7 +700,7 @@ class DashboardVmInfo(BaseModel):
     vmId: str = Field(..., description="VM identifier", example="server1-vm1", alias="vm_id")
     status: str = Field(..., description="VM status", example="healthy")
     lastHeartbeat: str = Field(..., description="ISO 8601 timestamp of the last heartbeat", example="2025-01-22T10:30:00Z", alias="last_heartbeat")
-    uiPathStatus: Optional[str] = Field(None, description="UiPath status", example="running", alias="uipath_status")
+    workflowStatus: Optional[str] = Field(None, description="AI Agent Workflow status", example="running", alias="workflow_status")
     processingQueueId: Optional[str] = Field(None, description="Processing queue ID", example="660e8400-e29b-41d4-a716-446655440000", alias="processing_queue_id")
     metadata: Optional[Dict[str, Any]] = Field(None, description="VM metadata with metrics")
     
@@ -737,8 +737,8 @@ class DashboardStatistics(BaseModel):
     unhealthyVms: int = Field(..., description="Number of unhealthy VMs", example=1)
     idleVms: int = Field(..., description="Number of idle VMs", example=1)
     vmsProcessing: int = Field(..., description="Number of VMs currently processing", example=15)
-    vmsWithUiPathRunning: int = Field(..., description="Number of VMs with UiPath running", example=28)
-    vmsWithUiPathStopped: int = Field(..., description="Number of VMs with UiPath stopped", example=4)
+    vmsWithWorkflowRunning: int = Field(..., description="Number of VMs with AI Agent Workflow running", example=28)
+    vmsWithWorkflowStopped: int = Field(..., description="Number of VMs with AI Agent Workflow stopped", example=4)
     
     class Config:
         populate_by_name = True
@@ -768,8 +768,8 @@ class HealthDashboardResponse(BaseModel):
                     "unhealthyVms": 1,
                     "idleVms": 1,
                     "vmsProcessing": 15,
-                    "vmsWithUiPathRunning": 28,
-                    "vmsWithUiPathStopped": 4
+                    "vmsWithWorkflowRunning": 28,
+                    "vmsWithWorkflowStopped": 4
                 }
             }
         }
@@ -789,10 +789,10 @@ class ImageUploadResponse(BaseModel):
 # Alert models
 class AlertRequest(BaseModel):
     """Request model for creating an alert."""
-    source: str = Field(..., description="Source of the alert: vm, server, uipath, or monitor", example="vm")
+    source: str = Field(..., description="Source of the alert: vm, server, workflow, or monitor", example="vm")
     sourceId: str = Field(..., description="Identifier of the source (e.g., VM ID, Server ID)", example="server1-vm1", alias="source_id")
     severity: str = Field(..., description="Severity level: critical, warning, or info", example="critical")
-    message: str = Field(..., description="Alert message", example="UiPath process stopped unexpectedly")
+    message: str = Field(..., description="Alert message", example="AI Agent Workflow process stopped unexpectedly")
     details: Optional[Dict[str, Any]] = Field(None, description="Additional alert details as JSON object", example={"errorCode": "PROCESS_NOT_FOUND"})
     timestamp: Optional[str] = Field(None, description="ISO 8601 timestamp (defaults to current time if not provided)", example="2025-01-22T10:30:00Z")
     
@@ -815,7 +815,7 @@ class AlertRequest(BaseModel):
     @field_validator('source')
     @classmethod
     def validate_source(cls, v):
-        valid_sources = ['vm', 'server', 'uipath', 'monitor']
+        valid_sources = ['vm', 'server', 'workflow', 'monitor']
         if v not in valid_sources:
             raise ValueError(f"source must be one of: {', '.join(valid_sources)}")
         return v
@@ -858,7 +858,7 @@ class AlertItem(BaseModel):
     source: str = Field(..., description="Source of the alert", example="vm")
     sourceId: str = Field(..., description="Identifier of the source", example="server1-vm1", alias="source_id")
     severity: str = Field(..., description="Severity level", example="critical")
-    message: str = Field(..., description="Alert message", example="UiPath process stopped unexpectedly")
+    message: str = Field(..., description="Alert message", example="AI Agent Workflow process stopped unexpectedly")
     details: Optional[Dict[str, Any]] = Field(None, description="Additional alert details")
     resolved: bool = Field(..., description="Whether the alert is resolved", example=False)
     resolvedAt: Optional[str] = Field(None, description="ISO 8601 timestamp when alert was resolved", example=None, alias="resolved_at")

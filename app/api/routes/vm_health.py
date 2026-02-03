@@ -53,7 +53,7 @@ async def verify_vm_api_key_auth(request: Request) -> TokenData:
     "/vm/heartbeat",
     tags=["VM"],
     summary="Update VM heartbeat",
-    description="Receive and process VM heartbeat updates. Updates the VM health record with current status, server ID, UiPath status, and processing queue ID. Uses X-API-Key authentication.",
+    description="Receive and process VM heartbeat updates. Updates the VM health record with current status, server ID, AI Agent Workflow status, and processing queue ID. Uses X-API-Key authentication.",
     response_model=VmHeartbeatResponse,
     status_code=200,
     responses={
@@ -67,7 +67,7 @@ async def verify_vm_api_key_auth(request: Request) -> TokenData:
                         "serverId": "server1",
                         "lastHeartbeat": "2025-01-22T10:30:00Z",
                         "status": "healthy",
-                        "uiPathStatus": "running"
+                        "workflowStatus": "running"
                     }
                 }
             }
@@ -95,11 +95,11 @@ async def vm_heartbeat(
     - `serverId` (optional): Server identifier
     - `status` (required): VM status: `healthy`, `unhealthy`, or `idle`
     - `processingQueueId` (optional): Queue ID that the VM is currently processing
-    - `uiPathStatus` (optional): UiPath status (e.g., "running", "stopped", "error")
+    - `workflowStatus` (optional): AI Agent Workflow status (e.g., "running", "stopped", "error")
     - `metadata` (optional): Metadata object with system metrics (e.g., cpuUsage, memoryUsage, diskUsage)
     
     **Response:**
-    Returns the updated VM health record with `success`, `vmId`, `serverId`, `lastHeartbeat`, `status`, and `uiPathStatus`.
+    Returns the updated VM health record with `success`, `vmId`, `serverId`, `lastHeartbeat`, `status`, and `workflowStatus`.
     
     **Example Request:**
     ```json
@@ -108,7 +108,7 @@ async def vm_heartbeat(
       "serverId": "server1",
       "status": "healthy",
       "processingQueueId": "660e8400-e29b-41d4-a716-446655440000",
-      "uiPathStatus": "running",
+      "workflowStatus": "running",
       "metadata": {
         "cpuUsage": 45.2,
         "memoryUsage": 62.8,
@@ -147,7 +147,7 @@ async def vm_heartbeat(
             'server_id': heartbeat_data.serverId,
             'status': heartbeat_data.status,
             'processing_queue_id': heartbeat_data.processingQueueId,
-            'uipath_status': heartbeat_data.uiPathStatus,
+            'workflow_status': heartbeat_data.workflowStatus,
             'metadata': heartbeat_data.metadata,
         }
         
@@ -165,7 +165,7 @@ async def vm_heartbeat(
             'serverId': saved_vm_health.get('server_id'),
             'lastHeartbeat': saved_vm_health['last_heartbeat'],
             'status': saved_vm_health['status'],
-            'uiPathStatus': saved_vm_health.get('uipath_status'),
+            'workflowStatus': saved_vm_health.get('workflow_status'),
         }
         
         # Create response model and serialize with by_alias=False to output camelCase field names
@@ -225,7 +225,7 @@ async def vm_heartbeat(
                         "status": "healthy",
                         "processingQueueId": "660e8400-e29b-41d4-a716-446655440000",
                         "serverId": "server1",
-                        "uiPathStatus": "running",
+                        "workflowStatus": "running",
                         "metadata": {
                             "cpuUsage": 45.2,
                             "memoryUsage": 62.8,
@@ -278,7 +278,7 @@ async def get_vm_health(
                 'status': None,
                 'processingQueueId': None,
                 'serverId': None,
-                'uiPathStatus': None,
+                'workflowStatus': None,
                 'metadata': None,
             }
             vm_response = VmHealthStatusResponse(**response_data)
@@ -296,7 +296,7 @@ async def get_vm_health(
                 'status': vm_health.get('status'),
                 'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
                 'serverId': vm_health.get('server_id'),
-                'uiPathStatus': vm_health.get('uipath_status'),
+                'workflowStatus': vm_health.get('workflow_status'),
                 'metadata': vm_health.get('metadata'),
             }
             vm_response = VmHealthStatusResponse(**response_data)
@@ -328,7 +328,7 @@ async def get_vm_health(
                     'status': vm_health.get('status'),
                     'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
                     'serverId': vm_health.get('server_id'),
-                    'uiPathStatus': vm_health.get('uipath_status'),
+                    'workflowStatus': vm_health.get('workflow_status'),
                     'metadata': vm_health.get('metadata'),
                 }
                 vm_response = VmHealthStatusResponse(**response_data)
@@ -343,7 +343,7 @@ async def get_vm_health(
                 'status': vm_health.get('status'),
                 'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
                 'serverId': vm_health.get('server_id'),
-                'uiPathStatus': vm_health.get('uipath_status'),
+                'workflowStatus': vm_health.get('workflow_status'),
                 'metadata': vm_health.get('metadata'),
             }
             vm_response = VmHealthStatusResponse(**response_data)
@@ -382,7 +382,7 @@ async def get_vm_health(
             'status': vm_health.get('status'),
             'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
             'serverId': vm_health.get('server_id'),
-            'uiPathStatus': vm_health.get('uipath_status'),
+            'workflowStatus': vm_health.get('workflow_status'),
             'metadata': vm_health.get('metadata'),
         }
         

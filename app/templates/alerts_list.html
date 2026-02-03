@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alerts Dashboard</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="/static/css/common.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: calc(100vh - 40px);
+        }
+
+        .page-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px 32px;
+        }
+
+        /* Summary Stats Banner */
+        .summary-banner {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 24px 32px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 24px;
+        }
+
+        .summary-stat {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .summary-stat-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .summary-stat-value {
+            font-size: 32px;
+            font-weight: 700;
+        }
+
+        /* Filters Section */
+        .filters-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .filter-group label {
+            font-size: 14px;
+            font-weight: 500;
+            color: #495057;
+        }
+
+        .filter-select,
+        .filter-button {
+            padding: 8px 16px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .filter-select:hover,
+        .filter-button:hover {
+            border-color: #667eea;
+            box-shadow: 0 2px 4px rgba(102, 126, 234, 0.1);
+        }
+
+        .filter-select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .filter-button {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .filter-button:hover {
+            background: #5568d3;
+        }
+
+        .filter-button.secondary {
+            background: white;
+            color: #495057;
+        }
+
+        .filter-button.secondary:hover {
+            background: #f8f9fa;
+        }
+
+        /* Alerts Table */
+        .alerts-table-container {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #e9ecef;
+        }
+
+        .alerts-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .alerts-table thead {
+            background: #f8f9fa;
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        .alerts-table th {
+            padding: 16px;
+            text-align: left;
+            font-size: 14px;
+            font-weight: 600;
+            color: #495057;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .alerts-table td {
+            padding: 16px;
+            border-bottom: 1px solid #e9ecef;
+            font-size: 14px;
+            color: #212529;
+        }
+
+        .alerts-table tbody tr {
+            transition: background 0.2s;
+        }
+
+        .alerts-table tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        .alerts-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Severity Badge */
+        .severity-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .severity-badge.critical {
+            background: #fee;
+            color: #dc3545;
+            border: 1px solid #fcc;
+        }
+
+        .severity-badge.warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .severity-badge.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-badge.resolved {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-badge.unresolved {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-badge-icon {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        /* Source Badge */
+        .source-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 500;
+            background: #e9ecef;
+            color: #495057;
+            text-transform: uppercase;
+        }
+
+        /* Message Cell */
+        .message-cell {
+            max-width: 400px;
+        }
+
+        .message-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .message-expanded {
+            white-space: normal;
+            word-wrap: break-word;
+        }
+
+        .expand-toggle {
+            color: #667eea;
+            cursor: pointer;
+            font-size: 12px;
+            margin-left: 8px;
+            text-decoration: underline;
+        }
+
+        .expand-toggle:hover {
+            color: #5568d3;
+        }
+
+        /* Actions Cell */
+        .actions-cell {
+            display: flex;
+            gap: 8px;
+        }
+
+        .action-button {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .action-button.resolve {
+            background: #28a745;
+            color: white;
+        }
+
+        .action-button.resolve:hover {
+            background: #218838;
+        }
+
+        .action-button.resolve:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .action-button.view-details {
+            background: #667eea;
+            color: white;
+        }
+
+        .action-button.view-details:hover {
+            background: #5568d3;
+        }
+
+        /* Details Section */
+        .alert-details {
+            display: none;
+            padding: 16px;
+            background: #f8f9fa;
+            border-top: 1px solid #dee2e6;
+        }
+
+        .alert-details.expanded {
+            display: block;
+        }
+
+        .alert-details-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+        }
+
+        .detail-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .detail-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .detail-value {
+            font-size: 14px;
+            color: #212529;
+            word-break: break-word;
+        }
+
+        .detail-value pre {
+            background: white;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+            font-size: 12px;
+            overflow-x: auto;
+            margin: 0;
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 24px;
+            padding: 16px;
+            background: #f8f9fa;
+            border-radius: 12px;
+        }
+
+        .pagination-info {
+            font-size: 14px;
+            color: #6c757d;
+        }
+
+        .pagination-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .pagination-button {
+            padding: 8px 16px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            background: white;
+            color: #495057;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .pagination-button:hover:not(:disabled) {
+            border-color: #667eea;
+            color: #667eea;
+        }
+
+        .pagination-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Loading State */
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e9ecef;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+
+        .empty-state h3 {
+            font-size: 20px;
+            margin-bottom: 8px;
+            color: #495057;
+        }
+
+        /* Error State */
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            border: 1px solid #f5c6cb;
+        }
+
+        /* Time Display */
+        .time-display {
+            color: #6c757d;
+            font-size: 13px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .alerts-table {
+                font-size: 12px;
+            }
+
+            .alerts-table th,
+            .alerts-table td {
+                padding: 12px 8px;
+            }
+
+            .filters-section {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .filter-group {
+                width: 100%;
+            }
+
+            .filter-select {
+                width: 100%;
+            }
+
+            .summary-banner {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        {% include 'includes/nav_header.html' %}
+
+        <div class="page-content">
+            <!-- Loading State -->
+            <div id="loadingState" class="loading">
+                <div class="loading-spinner"></div>
+                <p>Loading alerts...</p>
+            </div>
+
+            <!-- Error State -->
+            <div id="errorState" class="error-message" style="display: none;"></div>
+
+            <!-- Alerts Content -->
+            <div id="alertsContent" style="display: none;">
+                <!-- Summary Stats -->
+                <div class="summary-banner">
+                    <div class="summary-stat">
+                        <div class="summary-stat-label">Total Alerts</div>
+                        <div class="summary-stat-value" id="totalAlerts">0</div>
+                    </div>
+                    <div class="summary-stat">
+                        <div class="summary-stat-label">Unresolved</div>
+                        <div class="summary-stat-value" id="unresolvedAlerts">0</div>
+                    </div>
+                    <div class="summary-stat">
+                        <div class="summary-stat-label">Critical</div>
+                        <div class="summary-stat-value" id="criticalAlerts">0</div>
+                    </div>
+                    <div class="summary-stat">
+                        <div class="summary-stat-label">Warning</div>
+                        <div class="summary-stat-value" id="warningAlerts">0</div>
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div class="filters-section">
+                    <div class="filter-group">
+                        <label for="filterResolved">Status:</label>
+                        <select id="filterResolved" class="filter-select">
+                            <option value="all">All</option>
+                            <option value="unresolved" selected>Unresolved</option>
+                            <option value="resolved">Resolved</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="filterSeverity">Severity:</label>
+                        <select id="filterSeverity" class="filter-select">
+                            <option value="all">All</option>
+                            <option value="critical">Critical</option>
+                            <option value="warning">Warning</option>
+                            <option value="info">Info</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="filterSource">Source:</label>
+                        <select id="filterSource" class="filter-select">
+                            <option value="all">All</option>
+                            <option value="vm">VM</option>
+                            <option value="server">Server</option>
+                            <option value="workflow">AI Agent Workflow</option>
+                            <option value="monitor">Monitor</option>
+                        </select>
+                    </div>
+                    <button id="applyFilters" class="filter-button">Apply Filters</button>
+                    <button id="clearFilters" class="filter-button secondary">Clear</button>
+                </div>
+
+                <!-- Alerts Table -->
+                <div class="alerts-table-container">
+                    <table class="alerts-table">
+                        <thead>
+                            <tr>
+                                <th>Severity</th>
+                                <th>Status</th>
+                                <th>Source</th>
+                                <th>Source ID</th>
+                                <th>Message</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="alertsTableBody">
+                            <!-- Alerts will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                <div class="pagination">
+                    <div class="pagination-info">
+                        Showing <span id="paginationStart">0</span> - <span id="paginationEnd">0</span> of <span id="paginationTotal">0</span> alerts
+                    </div>
+                    <div class="pagination-controls">
+                        <button id="prevPage" class="pagination-button" disabled>Previous</button>
+                        <button id="nextPage" class="pagination-button" disabled>Next</button>
+                    </div>
+                </div>
+
+                <!-- Empty State -->
+                <div id="emptyState" class="empty-state" style="display: none;">
+                    <div class="empty-state-icon">🔔</div>
+                    <h3>No alerts found</h3>
+                    <p>No alerts match your current filters.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/alerts-dashboard.js"></script>
+</body>
+</html>

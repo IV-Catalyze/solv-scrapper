@@ -476,7 +476,7 @@ def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
             - server_id: Optional string - Server identifier
             - status: string (required) - VM status: healthy, unhealthy, or idle
             - processing_queue_id: Optional UUID - Queue ID that the VM is processing
-            - uipath_status: Optional string - UiPath status
+            - workflow_status: Optional string - AI Agent Workflow status
             - metadata: Optional dict - Metadata object with system metrics
         
     Returns:
@@ -494,7 +494,7 @@ def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
         status = vm_data.get('status')
         processing_queue_id = vm_data.get('processing_queue_id')
         server_id = vm_data.get('server_id')
-        uipath_status = vm_data.get('uipath_status')
+        workflow_status = vm_data.get('workflow_status')
         metadata = vm_data.get('metadata')
         
         # Validate required fields
@@ -517,7 +517,7 @@ def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
         query = """
             INSERT INTO vm_health (
                 vm_id, server_id, last_heartbeat, status, processing_queue_id, 
-                uipath_status, metadata, updated_at
+                workflow_status, metadata, updated_at
             )
             VALUES (%s, %s, CURRENT_TIMESTAMP, %s, %s, %s, %s::jsonb, CURRENT_TIMESTAMP)
             ON CONFLICT (vm_id) 
@@ -526,7 +526,7 @@ def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
                 last_heartbeat = CURRENT_TIMESTAMP,
                 status = EXCLUDED.status,
                 processing_queue_id = EXCLUDED.processing_queue_id,
-                uipath_status = EXCLUDED.uipath_status,
+                workflow_status = EXCLUDED.workflow_status,
                 metadata = EXCLUDED.metadata,
                 updated_at = CURRENT_TIMESTAMP
             RETURNING *
@@ -539,7 +539,7 @@ def save_vm_health(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
                 server_id,
                 status,
                 processing_queue_id,
-                uipath_status,
+                workflow_status,
                 metadata_json,
             )
         )
@@ -838,7 +838,7 @@ def get_vms_by_server_id(conn, server_id: str) -> List[Dict[str, Any]]:
                 server_id,
                 last_heartbeat,
                 status,
-                uipath_status,
+                workflow_status,
                 processing_queue_id,
                 metadata,
                 created_at,
@@ -954,7 +954,7 @@ def get_all_vms_health(
                 server_id,
                 last_heartbeat,
                 status,
-                uipath_status,
+                workflow_status,
                 processing_queue_id,
                 metadata,
                 created_at,
@@ -1100,7 +1100,7 @@ def create_queue_from_encounter(conn, encounter_data: Dict[str, Any]) -> Dict[st
         chief_complaints = []
     
     # CRITICAL: Ensure chiefComplaints is always present in raw_payload for queue entry
-    # This ensures UiPath and other consumers can always access chiefComplaints
+    # This ensures AI Agent Workflow and other consumers can always access chiefComplaints
     # Use camelCase (chiefComplaints) as the standard format
     if 'chiefComplaints' not in raw_payload and 'chief_complaints' not in raw_payload:
         logger.warning(
@@ -1373,7 +1373,7 @@ def save_alert(conn, alert_dict: Dict[str, Any]) -> Dict[str, Any]:
     Args:
         conn: PostgreSQL database connection
         alert_dict: Dictionary containing alert data with keys:
-            - source: str (required) - 'vm', 'server', 'uipath', or 'monitor'
+            - source: str (required) - 'vm', 'server', 'workflow', or 'monitor'
             - source_id: str (required) - Source identifier
             - severity: str (required) - 'critical', 'warning', or 'info'
             - message: str (required) - Alert message
@@ -1397,7 +1397,7 @@ def save_alert(conn, alert_dict: Dict[str, Any]) -> Dict[str, Any]:
                 raise ValueError(f"Missing required field: {field}")
         
         # Validate source
-        valid_sources = ['vm', 'server', 'uipath', 'monitor']
+        valid_sources = ['vm', 'server', 'workflow', 'monitor']
         if alert_dict['source'] not in valid_sources:
             raise ValueError(f"Invalid source: {alert_dict['source']}. Must be one of: {', '.join(valid_sources)}")
         
