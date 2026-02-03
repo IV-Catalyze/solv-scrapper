@@ -113,7 +113,7 @@ async def create_alert(
         "source": "vm",
         "sourceId": "server1-vm1",
         "severity": "critical",
-        "message": "UiPath process stopped unexpectedly",
+        "message": "AI Agent Workflow process stopped unexpectedly",
         "details": {
           "errorCode": "PROCESS_NOT_FOUND",
           "lastKnownStatus": "running"
@@ -318,7 +318,7 @@ async def create_alert(
                                 "source": "vm",
                                 "sourceId": "server1-vm1",
                                 "severity": "critical",
-                                "message": "UiPath process stopped unexpectedly",
+                                "message": "AI Agent Workflow process stopped unexpectedly",
                                 "details": {
                                     "errorCode": "PROCESS_NOT_FOUND"
                                 },
