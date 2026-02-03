@@ -203,6 +203,216 @@ async def vm_heartbeat(
 
 
 @router.get(
+    "/vm/health",
+    tags=["VM"],
+    summary="Get latest VM health status",
+    description=(
+        "Retrieve the current system health status based on the latest VM heartbeat. "
+        "System is considered 'up' if a heartbeat was received within the last 2 minutes "
+        "and the VM status is 'healthy' or 'idle'."
+    ),
+    response_model=VmHealthStatusResponse,
+    status_code=200,
+    responses={
+        200: {
+            "description": "VM health status retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "systemStatus": "up",
+                        "vmId": "server1-vm1",
+                        "lastHeartbeat": "2025-01-21T10:30:00Z",
+                        "status": "healthy",
+                        "processingQueueId": "660e8400-e29b-41d4-a716-446655440000",
+                        "serverId": "server1",
+                        "workflowStatus": "running",
+                        "metadata": {
+                            "cpuUsage": 45.2,
+                            "memoryUsage": 62.8,
+                            "diskUsage": 30.1
+                        }
+                    }
+                }
+            }
+        },
+        401: {"description": "Authentication required"},
+        500: {"description": "Server error"},
+    },
+)
+async def get_latest_vm_health_status(
+    request: Request,
+    current_user: dict = Depends(require_auth)
+) -> VmHealthStatusResponse:
+    """
+    Get the current VM health status based on the latest heartbeat.
+    
+    Returns the latest VM heartbeat information and determines if the system is up or down.
+    System is considered 'up' if:
+    - A heartbeat exists and was received within the last 2 minutes (120 seconds)
+    - The VM status is 'healthy' or 'idle'
+    
+    System is considered 'down' if:
+    - No heartbeat exists
+    - The last heartbeat is older than 2 minutes
+    - The VM status is 'unhealthy'
+    
+    **Response:**
+    Returns a status object with `systemStatus` ('up' or 'down'), `vmId`, `lastHeartbeat`, `status`, and optional `processingQueueId`.
+    """
+    conn = None
+    
+    try:
+        # Get database connection
+        conn = get_db_connection()
+        
+        # Get the latest VM health record
+        vm_health = get_latest_vm_health(conn)
+        
+        if not vm_health:
+            # No heartbeat exists - system is down
+            response_data = {
+                'systemStatus': 'down',
+                'vmId': None,
+                'lastHeartbeat': None,
+                'status': None,
+                'processingQueueId': None,
+                'serverId': None,
+                'workflowStatus': None,
+                'metadata': None,
+            }
+            vm_response = VmHealthStatusResponse(**response_data)
+            response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+            return JSONResponse(content=response_dict)
+        
+        # Parse the last heartbeat timestamp
+        last_heartbeat = vm_health.get('last_heartbeat')
+        if not last_heartbeat:
+            # No heartbeat timestamp - system is down
+            response_data = {
+                'systemStatus': 'down',
+                'vmId': vm_health.get('vm_id'),
+                'lastHeartbeat': None,
+                'status': vm_health.get('status'),
+                'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
+                'serverId': vm_health.get('server_id'),
+                'workflowStatus': vm_health.get('workflow_status'),
+                'metadata': vm_health.get('metadata'),
+            }
+            vm_response = VmHealthStatusResponse(**response_data)
+            response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+            return JSONResponse(content=response_dict)
+        
+        # Parse timestamp - it might be a datetime object or a string
+        last_heartbeat_dt = None
+        last_heartbeat_str = None
+        
+        if isinstance(last_heartbeat, datetime):
+            last_heartbeat_dt = last_heartbeat
+            last_heartbeat_str = last_heartbeat.isoformat() + 'Z'
+        elif isinstance(last_heartbeat, str):
+            last_heartbeat_str = last_heartbeat
+            try:
+                # Replace 'Z' with '+00:00' for UTC timezone if present
+                timestamp_str = last_heartbeat_str.replace('Z', '+00:00')
+                last_heartbeat_dt = datetime.fromisoformat(timestamp_str)
+                # If no timezone info, assume UTC
+                if last_heartbeat_dt.tzinfo is None:
+                    last_heartbeat_dt = last_heartbeat_dt.replace(tzinfo=timezone.utc)
+            except (ValueError, AttributeError) as e:
+                # Invalid timestamp format - consider system down
+                response_data = {
+                    'systemStatus': 'down',
+                    'vmId': vm_health.get('vm_id'),
+                    'lastHeartbeat': last_heartbeat_str,
+                    'status': vm_health.get('status'),
+                    'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
+                    'serverId': vm_health.get('server_id'),
+                    'workflowStatus': vm_health.get('workflow_status'),
+                    'metadata': vm_health.get('metadata'),
+                }
+                vm_response = VmHealthStatusResponse(**response_data)
+                response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+                return JSONResponse(content=response_dict)
+        else:
+            # Unknown type - consider system down
+            response_data = {
+                'systemStatus': 'down',
+                'vmId': vm_health.get('vm_id'),
+                'lastHeartbeat': None,
+                'status': vm_health.get('status'),
+                'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
+                'serverId': vm_health.get('server_id'),
+                'workflowStatus': vm_health.get('workflow_status'),
+                'metadata': vm_health.get('metadata'),
+            }
+            vm_response = VmHealthStatusResponse(**response_data)
+            response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+            return JSONResponse(content=response_dict)
+        
+        # Calculate time difference (2 minutes = 120 seconds)
+        current_time = datetime.now(timezone.utc)
+        # If last_heartbeat_dt doesn't have timezone, assume UTC
+        if last_heartbeat_dt.tzinfo is None:
+            last_heartbeat_dt = last_heartbeat_dt.replace(tzinfo=timezone.utc)
+        time_diff = (current_time - last_heartbeat_dt).total_seconds()
+        timeout_threshold = 120  # 2 minutes
+        
+        vm_status = vm_health.get('status', '').lower()
+        
+        # Determine system status
+        if time_diff > timeout_threshold:
+            # Heartbeat is too old - system is down
+            system_status = 'down'
+        elif vm_status == 'unhealthy':
+            # VM status is unhealthy - system is down
+            system_status = 'down'
+        elif vm_status in ('healthy', 'idle'):
+            # Recent heartbeat and healthy/idle status - system is up
+            system_status = 'up'
+        else:
+            # Unknown status - consider down
+            system_status = 'down'
+        
+        # Format the response
+        response_data = {
+            'systemStatus': system_status,
+            'vmId': vm_health.get('vm_id'),
+            'lastHeartbeat': last_heartbeat_str,
+            'status': vm_health.get('status'),
+            'processingQueueId': str(vm_health['processing_queue_id']) if vm_health.get('processing_queue_id') else None,
+            'serverId': vm_health.get('server_id'),
+            'workflowStatus': vm_health.get('workflow_status'),
+            'metadata': vm_health.get('metadata'),
+        }
+        
+        # Create response model and serialize with by_alias=False to output camelCase field names
+        vm_response = VmHealthStatusResponse(**response_data)
+        response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+        
+        return JSONResponse(content=response_dict)
+        
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.get(
     "/vm/health/{vmId}",
     tags=["VM"],
     summary="Get VM health status by VM ID",
