@@ -357,6 +357,7 @@ async def queue_list_ui(
         
         # Query queue table with LEFT JOIN to patients table to get patient names
         # Patient names are stored in patients table, not in encounter payload
+        # Also LEFT JOIN encounters table to get original encounter_payload as fallback for createdBy
         # Note: We don't join queue_validations here to avoid errors if table doesn't exist
         # Validation existence is checked when the user clicks "View Verification"
         query = """
@@ -376,10 +377,17 @@ async def queue_list_ui(
                 ) as patient_name,
                 COALESCE(
                     q.raw_payload->>'createdBy',
-                    q.raw_payload->>'created_by'
+                    q.raw_payload->>'created_by',
+                    e.encounter_payload->>'createdBy',
+                    e.encounter_payload->>'created_by',
+                    e.encounter_payload->'createdByUser'->>'email',
+                    e.encounter_payload->'createdByUser'->>'name',
+                    e.encounter_payload->'createdByUser'->>'id',
+                    e.encounter_payload->'createdByUser'->>'username'
                 ) as created_by
             FROM queue q
             LEFT JOIN patients p ON q.emr_id = p.emr_id
+            LEFT JOIN encounters e ON q.encounter_id = e.encounter_id
         """
         params: List[Any] = []
         
@@ -417,10 +425,17 @@ async def queue_list_ui(
                 ) as patient_name,
                 COALESCE(
                     q.raw_payload->>'createdBy',
-                    q.raw_payload->>'created_by'
+                    q.raw_payload->>'created_by',
+                    e.encounter_payload->>'createdBy',
+                    e.encounter_payload->>'created_by',
+                    e.encounter_payload->'createdByUser'->>'email',
+                    e.encounter_payload->'createdByUser'->>'name',
+                    e.encounter_payload->'createdByUser'->>'id',
+                    e.encounter_payload->'createdByUser'->>'username'
                 ) as created_by
             FROM queue q
             LEFT JOIN patients p ON q.emr_id = p.emr_id
+            LEFT JOIN encounters e ON q.encounter_id = e.encounter_id
             {where_clause}
             ORDER BY q.created_at DESC
             LIMIT %s OFFSET %s

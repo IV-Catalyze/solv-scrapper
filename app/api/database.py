@@ -254,6 +254,24 @@ def remove_excluded_fields(encounter_payload: Dict[str, Any]) -> Dict[str, Any]:
         'predictedDiagnoses',
     ]
     
+    # Extract createdBy from createdByUser if createdBy doesn't exist
+    # This ensures we preserve the creator information even if it's nested in createdByUser
+    if 'createdBy' not in cleaned_payload and 'created_by' not in cleaned_payload:
+        created_by_user = encounter_payload.get('createdByUser') or encounter_payload.get('created_by_user')
+        if created_by_user:
+            if isinstance(created_by_user, dict):
+                # Extract email, name, or id from createdByUser object
+                created_by = (
+                    created_by_user.get('email') or 
+                    created_by_user.get('name') or 
+                    created_by_user.get('id') or
+                    created_by_user.get('username')
+                )
+                if created_by:
+                    cleaned_payload['createdBy'] = str(created_by)
+            elif isinstance(created_by_user, str):
+                cleaned_payload['createdBy'] = created_by_user
+    
     # Remove top-level excluded fields
     for field in excluded_top_level_fields:
         cleaned_payload.pop(field, None)
