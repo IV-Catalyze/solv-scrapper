@@ -118,15 +118,29 @@ def resolve_alert(alert_id: str):
         response = requests.patch(url, headers=headers, timeout=30)
         
         print_info(f"Response Status: {response.status_code}")
+        print_info(f"Content-Type: {response.headers.get('Content-Type', 'N/A')}")
+        
+        # Check if response is HTML (login page) or JSON
+        content_type = response.headers.get('Content-Type', '')
+        if 'html' in content_type.lower():
+            print_error("Received HTML response (login page) - endpoint may not be deployed yet")
+            print_info("The code changes need to be deployed to production first")
+            print_info("Response preview: " + response.text[:200])
+            return False
         
         if response.status_code == 200:
-            result = response.json()
-            print_success("Alert resolved successfully!")
-            print_info(f"Alert ID: {result.get('alertId', 'N/A')}")
-            print_success(f"Resolved At: {result.get('resolvedAt', 'N/A')}")
-            print_success("✓ Resolution email should have been sent!")
-            print_info("Check your email at kleyessa@catalyzelabs.com for the resolution email")
-            return True
+            try:
+                result = response.json()
+                print_success("Alert resolved successfully!")
+                print_info(f"Alert ID: {result.get('alertId', 'N/A')}")
+                print_success(f"Resolved At: {result.get('resolvedAt', 'N/A')}")
+                print_success("✓ Resolution email should have been sent!")
+                print_info("Check your email at kleyessa@catalyzelabs.com for the resolution email")
+                return True
+            except Exception as e:
+                print_error(f"Failed to parse JSON response: {str(e)}")
+                print_error(f"Response text: {response.text[:500]}")
+                return False
         else:
             print_error(f"Failed to resolve alert. Status: {response.status_code}")
             print_error(f"Response: {response.text[:500]}")

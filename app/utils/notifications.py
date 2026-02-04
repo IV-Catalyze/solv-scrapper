@@ -121,16 +121,16 @@ def _format_alert_creation_email(alert_data: Dict[str, Any]) -> Tuple[str, str, 
         Tuple of (subject, plain_text_body, html_body)
     """
     alert_id = str(alert_data.get('alert_id', 'Unknown'))
-    source = alert_data.get('source', 'Unknown')
-    source_id = alert_data.get('source_id', 'Unknown')
-    severity = alert_data.get('severity', 'Unknown')
-    message = alert_data.get('message', 'No message')
-    details = alert_data.get('details', {})
+        source = alert_data.get('source', 'Unknown')
+        source_id = alert_data.get('source_id', 'Unknown')
+        severity = alert_data.get('severity', 'Unknown')
+        message = alert_data.get('message', 'No message')
+        details = alert_data.get('details', {})
     created_at = _format_datetime(alert_data.get('created_at', 'Unknown'))
-    
-    # Format email subject
-    subject = f"[{severity.upper()}] Alert from {source}: {source_id}"
-    
+        
+        # Format email subject
+        subject = f"[{severity.upper()}] Alert from {source}: {source_id}"
+        
     # Severity color mapping
     severity_colors = {
         'critical': '#FF0000',
@@ -149,7 +149,7 @@ Severity: {severity.upper()}
 Message: {message}
 Created At: {created_at}
 """
-    
+        
     # Don't show details in emails - keep emails clean and focused
     # Details are stored in database and can be viewed via API/web UI if needed
     
@@ -323,9 +323,9 @@ def _send_email(subject: str, text_body: str, html_body: str) -> bool:
             # Use TLS (port 587)
             server = smtplib.SMTP(ALERT_EMAIL_SMTP_HOST, ALERT_EMAIL_SMTP_PORT)
             if ALERT_EMAIL_USE_TLS:
-                server.starttls()
+            server.starttls()
         
-        server.login(ALERT_EMAIL_SMTP_USER, ALERT_EMAIL_SMTP_PASSWORD)
+            server.login(ALERT_EMAIL_SMTP_USER, ALERT_EMAIL_SMTP_PASSWORD)
         server.sendmail(ALERT_EMAIL_FROM, recipients, msg.as_string())
         server.quit()
         

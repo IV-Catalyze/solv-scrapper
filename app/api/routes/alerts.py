@@ -303,7 +303,7 @@ async def create_alert(
     "/alerts",
     tags=["Alerts"],
     summary="Retrieve alerts",
-    description="Retrieve alerts with filtering and pagination. Supports filtering by source, sourceId, severity, and resolved status.",
+    description="Retrieve alerts with filtering and pagination. Supports filtering by source, sourceId, severity, and resolved status. Uses X-API-Key authentication.",
     response_model=AlertListResponse,
     status_code=200,
     responses={
@@ -334,21 +334,26 @@ async def create_alert(
                 }
             }
         },
-        401: {"description": "Authentication required"},
+        401: {"description": "X-API-Key header required or invalid"},
         500: {"description": "Server error"},
     },
 )
 async def get_alerts_list(
+    request: Request,
     source: Optional[str] = Query(None, description="Filter by source (vm, server, workflow, monitor)"),
     sourceId: Optional[str] = Query(None, description="Filter by specific source ID"),
     severity: Optional[str] = Query(None, description="Filter by severity (critical, warning, info)"),
     resolved: Optional[bool] = Query(False, description="Include resolved alerts (default: false, only unresolved)"),
     limit: int = Query(50, ge=1, le=100, description="Number of alerts to return (max 100)"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
-    current_user: dict = Depends(require_auth)
+    current_client: TokenData = Depends(verify_alert_api_key_auth)
 ) -> AlertListResponse:
     """
     Retrieve alerts with filtering and pagination.
+    
+    **Authentication:**
+    - Use `X-API-Key` header with your HMAC secret key (same key used for other endpoints)
+    - Example: `X-API-Key: your-hmac-secret-key`
     
     **Query Parameters:**
     - `source` (optional): Filter by source - 'vm', 'server', 'workflow', or 'monitor'
@@ -360,6 +365,12 @@ async def get_alerts_list(
     
     **Response:**
     Returns a list of alerts with `alerts`, `total`, `limit`, and `offset`.
+    
+    **Example Request:**
+    ```bash
+    curl -X GET "https://app-97926.on-aptible.com/alerts?source=vm&severity=critical" \\
+      -H "X-API-Key: your-hmac-secret-key"
+    ```
     """
     conn = None
     
