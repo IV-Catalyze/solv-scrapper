@@ -336,6 +336,8 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
    - Use ONLY information explicitly present in the encounter data
    - Do NOT infer or add information not in source
    - Do NOT mention negative findings unless explicitly stated in source
+   - If there are no positive symptom descriptors and painScale is 0 or null, do NOT describe absence of symptoms or pain in free text (no "No symptoms reported", "No pain", or similar)
+   - In those cases, do not mention severity in free text at all; free text should focus only on the concern or be left as an empty string ""
    - Same input MUST produce same free text
    - **Word count MUST be ≤ 30 words - prioritize completeness of important findings over verbosity**
    
