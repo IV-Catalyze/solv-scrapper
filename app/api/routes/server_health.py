@@ -382,6 +382,218 @@ async def get_server_health(
 
 
 @router.get(
+    "/server/health",
+    tags=["Server"],
+    summary="List all server health statuses with VM details",
+    description=(
+        "Retrieve health status for all servers including all associated VMs. "
+        "Returns server metrics, VM counts, and detailed VM information for each server. "
+        "Supports optional filtering by status. Uses X-API-Key authentication."
+    ),
+    response_model=List[ServerHealthResponse],
+    status_code=200,
+    responses={
+        200: {
+            "description": "Server health statuses retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "serverId": "server1",
+                            "status": "healthy",
+                            "lastHeartbeat": "2025-01-22T10:30:00Z",
+                            "cpuUsage": 45.2,
+                            "memoryUsage": 62.8,
+                            "diskUsage": 30.1,
+                            "vmCount": 8,
+                            "healthyVmCount": 8,
+                            "vms": [
+                                {
+                                    "vmId": "server1-vm1",
+                                    "status": "healthy",
+                                    "lastHeartbeat": "2025-01-22T10:30:00Z",
+                                    "workflowStatus": "running",
+                                    "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        },
+        400: {"description": "Invalid query parameters"},
+        401: {"description": "X-API-Key header required or invalid"},
+        500: {"description": "Server error"},
+    },
+)
+async def list_server_health(
+    status: Optional[str] = Query(
+        None,
+        alias="status",
+        description="Filter by server status (healthy, unhealthy, down)"
+    ),
+    current_client: TokenData = Depends(verify_server_api_key_auth),
+) -> List[ServerHealthResponse]:
+    """
+    Get health status for all servers with VM details.
+    
+    **Authentication:**
+    - Use `X-API-Key` header with your HMAC secret key (same key used for other endpoints)
+    - Example: `X-API-Key: your-hmac-secret-key`
+    
+    **Query Parameters:**
+    - `status` (optional): Filter by server status - 'healthy', 'unhealthy', or 'down'
+    
+    **Response:**
+    Returns a list of server health information. Each server includes:
+    - Server status and last heartbeat
+    - Resource metrics (CPU, memory, disk usage) extracted from metadata
+    - VM counts (total and healthy)
+    - List of all VMs on the server with their status
+    
+    **Example:**
+    ```
+    GET /server/health
+    GET /server/health?status=healthy
+    GET /server/health?status=unhealthy
+    ```
+    
+    **Example Response:**
+    ```json
+    [
+      {
+        "serverId": "server1",
+        "status": "healthy",
+        "lastHeartbeat": "2025-01-22T10:30:00Z",
+        "cpuUsage": 45.2,
+        "memoryUsage": 62.8,
+        "diskUsage": 30.1,
+        "vmCount": 8,
+        "healthyVmCount": 8,
+        "vms": [
+          {
+            "vmId": "server1-vm1",
+            "status": "healthy",
+            "lastHeartbeat": "2025-01-22T10:30:00Z",
+            "workflowStatus": "running",
+            "processingQueueId": "660e8400-e29b-41d4-a716-446655440000"
+          }
+        ]
+      }
+    ]
+    ```
+    """
+    conn = None
+    
+    try:
+        # Validate status parameter if provided
+        if status:
+            valid_statuses = ['healthy', 'unhealthy', 'down']
+            if status not in valid_statuses:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid status: {status}. Must be one of: {', '.join(valid_statuses)}"
+                )
+        
+        # Get database connection
+        conn = get_db_connection()
+        
+        # Get all servers (with optional filtering by status)
+        servers = get_all_servers_health(conn, status=status)
+        
+        # Build response list
+        server_list = []
+        for server in servers:
+            server_id = server.get('server_id')
+            
+            # Get all VMs for this server
+            vms = get_vms_by_server_id(conn, server_id)
+            
+            # Extract metadata fields (cpuUsage, memoryUsage, diskUsage)
+            metadata = server.get('metadata') or {}
+            cpu_usage = metadata.get('cpuUsage') if isinstance(metadata, dict) else None
+            memory_usage = metadata.get('memoryUsage') if isinstance(metadata, dict) else None
+            disk_usage = metadata.get('diskUsage') if isinstance(metadata, dict) else None
+            
+            # Calculate VM counts
+            vm_count = len(vms)
+            healthy_vm_count = sum(1 for vm in vms if vm.get('status') == 'healthy')
+            
+            # Format VM list
+            vm_list: List[VmInfo] = []
+            for vm in vms:
+                last_heartbeat = vm.get('last_heartbeat')
+                if isinstance(last_heartbeat, datetime):
+                    last_heartbeat_str = last_heartbeat.isoformat() + 'Z'
+                else:
+                    last_heartbeat_str = last_heartbeat
+                
+                vm_info = {
+                    'vmId': vm.get('vm_id'),
+                    'status': vm.get('status'),
+                    'lastHeartbeat': last_heartbeat_str,
+                    'workflowStatus': vm.get('workflow_status'),
+                    'processingQueueId': str(vm['processing_queue_id']) if vm.get('processing_queue_id') else None,
+                }
+                vm_list.append(VmInfo(**vm_info))
+            
+            # Format server last heartbeat
+            server_last_heartbeat = server.get('last_heartbeat')
+            if isinstance(server_last_heartbeat, datetime):
+                server_last_heartbeat_str = server_last_heartbeat.isoformat() + 'Z'
+            else:
+                server_last_heartbeat_str = server_last_heartbeat
+            
+            # Build response data
+            response_data = {
+                'serverId': server.get('server_id'),
+                'status': server.get('status'),
+                'lastHeartbeat': server_last_heartbeat_str,
+                'cpuUsage': cpu_usage,
+                'memoryUsage': memory_usage,
+                'diskUsage': disk_usage,
+                'vmCount': vm_count,
+                'healthyVmCount': healthy_vm_count,
+                'vms': vm_list,
+            }
+            
+            # Create response model
+            server_response = ServerHealthResponse(**response_data)
+            server_list.append(server_response)
+        
+        # Convert to list of dicts with camelCase keys
+        response_list = [
+            server.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+            for server in server_list
+        ]
+        
+        logger.info(f"Successfully retrieved health for {len(server_list)} server(s)")
+        return JSONResponse(content=response_list, status_code=200)
+        
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Database error retrieving server health list: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Unexpected error retrieving server health list: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.get(
     "/health/dashboard",
     tags=["Server"],
     summary="Get comprehensive health dashboard",
