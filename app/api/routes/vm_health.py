@@ -6,8 +6,8 @@ This module contains all routes related to VM health and heartbeat tracking.
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any
-from fastapi import APIRouter, HTTPException, Request, Depends
+from typing import Dict, Any, Optional, List
+from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from fastapi.responses import JSONResponse
 import psycopg2
 
@@ -23,7 +23,7 @@ from app.api.routes.dependencies import (
     save_vm_health,
     get_latest_vm_health,
 )
-from app.api.database import get_vm_health_by_vm_id
+from app.api.database import get_vm_health_by_vm_id, get_all_vms_health
 from app.utils.auth import verify_api_key_auth
 
 router = APIRouter()
@@ -614,6 +614,220 @@ async def get_vm_health(
     except Exception as e:
         if conn:
             conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.get(
+    "/vm/health/list",
+    tags=["VM"],
+    summary="List all VM health statuses",
+    description=(
+        "Retrieve health status for all VMs. "
+        "Returns VM metrics, status, workflow information, and processing queue details for each VM. "
+        "Supports optional filtering by status and serverId. Uses X-API-Key authentication."
+    ),
+    response_model=List[VmHealthStatusResponse],
+    status_code=200,
+    responses={
+        200: {
+            "description": "VM health statuses retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "systemStatus": "up",
+                            "vmId": "server1-vm1",
+                            "lastHeartbeat": "2025-01-22T10:30:00Z",
+                            "status": "healthy",
+                            "processingQueueId": "660e8400-e29b-41d4-a716-446655440000",
+                            "serverId": "server1",
+                            "workflowStatus": "running",
+                            "metadata": {
+                                "cpuUsage": 45.2,
+                                "memoryUsage": 62.8,
+                                "diskUsage": 30.1
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        400: {"description": "Invalid query parameters"},
+        401: {"description": "X-API-Key header required or invalid"},
+        500: {"description": "Server error"},
+    },
+)
+async def list_vm_health(
+    status: Optional[str] = Query(
+        None,
+        alias="status",
+        description="Filter by VM status (healthy, unhealthy, idle)"
+    ),
+    serverId: Optional[str] = Query(
+        None,
+        alias="serverId",
+        description="Filter by server identifier"
+    ),
+    current_client: TokenData = Depends(verify_vm_api_key_auth),
+) -> List[VmHealthStatusResponse]:
+    """
+    Get health status for all VMs.
+    
+    **Authentication:**
+    - Use `X-API-Key` header with your HMAC secret key (same key used for other endpoints)
+    - Example: `X-API-Key: your-hmac-secret-key`
+    
+    **Query Parameters:**
+    - `status` (optional): Filter by VM status - 'healthy', 'unhealthy', or 'idle'
+    - `serverId` (optional): Filter by server identifier
+    
+    **Response:**
+    Returns a list of VM health information. Each VM includes:
+    - VM ID, server ID, status, and last heartbeat
+    - System status (up/down) calculated based on heartbeat recency and status
+    - Workflow status and processing queue ID
+    - Metadata with resource metrics (CPU, memory, disk usage)
+    
+    **Example:**
+    ```
+    GET /vm/health/list
+    GET /vm/health/list?status=healthy
+    GET /vm/health/list?serverId=server1
+    GET /vm/health/list?status=healthy&serverId=server1
+    ```
+    
+    **Example Response:**
+    ```json
+    [
+      {
+        "systemStatus": "up",
+        "vmId": "server1-vm1",
+        "lastHeartbeat": "2025-01-22T10:30:00Z",
+        "status": "healthy",
+        "processingQueueId": "660e8400-e29b-41d4-a716-446655440000",
+        "serverId": "server1",
+        "workflowStatus": "running",
+        "metadata": {
+          "cpuUsage": 45.2,
+          "memoryUsage": 62.8,
+          "diskUsage": 30.1
+        }
+      }
+    ]
+    ```
+    """
+    conn = None
+    
+    try:
+        # Validate status parameter if provided
+        if status:
+            valid_statuses = ['healthy', 'unhealthy', 'idle']
+            if status not in valid_statuses:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid status: {status}. Must be one of: {', '.join(valid_statuses)}"
+                )
+        
+        # Get database connection
+        conn = get_db_connection()
+        
+        # Get all VMs (with optional filtering)
+        vms = get_all_vms_health(conn, server_id=serverId, status=status)
+        
+        # Build response list
+        vm_list = []
+        current_time = datetime.now(timezone.utc)
+        timeout_threshold = 120  # 2 minutes
+        
+        for vm in vms:
+            # Parse the last heartbeat timestamp
+            last_heartbeat = vm.get('last_heartbeat')
+            last_heartbeat_str = None
+            last_heartbeat_dt = None
+            
+            if last_heartbeat:
+                if isinstance(last_heartbeat, datetime):
+                    last_heartbeat_dt = last_heartbeat
+                    last_heartbeat_str = last_heartbeat.isoformat() + 'Z'
+                elif isinstance(last_heartbeat, str):
+                    last_heartbeat_str = last_heartbeat
+                    try:
+                        # Replace 'Z' with '+00:00' for UTC timezone if present
+                        timestamp_str = last_heartbeat_str.replace('Z', '+00:00')
+                        last_heartbeat_dt = datetime.fromisoformat(timestamp_str)
+                        # If no timezone info, assume UTC
+                        if last_heartbeat_dt.tzinfo is None:
+                            last_heartbeat_dt = last_heartbeat_dt.replace(tzinfo=timezone.utc)
+                    except (ValueError, AttributeError):
+                        last_heartbeat_dt = None
+            
+            # Calculate system status
+            system_status = 'down'
+            if last_heartbeat_dt:
+                # If last_heartbeat_dt doesn't have timezone, assume UTC
+                if last_heartbeat_dt.tzinfo is None:
+                    last_heartbeat_dt = last_heartbeat_dt.replace(tzinfo=timezone.utc)
+                time_diff = (current_time - last_heartbeat_dt).total_seconds()
+                
+                vm_status = vm.get('status', '').lower()
+                
+                if time_diff > timeout_threshold:
+                    system_status = 'down'
+                elif vm_status == 'unhealthy':
+                    system_status = 'down'
+                elif vm_status in ('healthy', 'idle'):
+                    system_status = 'up'
+                else:
+                    system_status = 'down'
+            elif vm.get('status'):
+                # No heartbeat but has status - consider down
+                system_status = 'down'
+            
+            # Build response data
+            response_data = {
+                'systemStatus': system_status,
+                'vmId': vm.get('vm_id'),
+                'lastHeartbeat': last_heartbeat_str,
+                'status': vm.get('status'),
+                'processingQueueId': str(vm['processing_queue_id']) if vm.get('processing_queue_id') else None,
+                'serverId': vm.get('server_id'),
+                'workflowStatus': vm.get('workflow_status'),
+                'metadata': vm.get('metadata'),
+            }
+            
+            # Create response model
+            vm_response = VmHealthStatusResponse(**response_data)
+            vm_list.append(vm_response)
+        
+        # Convert to list of dicts with camelCase keys
+        response_list = [
+            vm.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+            for vm in vm_list
+        ]
+        
+        logger.info(f"Successfully retrieved health for {len(vm_list)} VM(s)")
+        return JSONResponse(content=response_list, status_code=200)
+        
+    except HTTPException:
+        raise
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Database error retrieving VM health list: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Unexpected error retrieving VM health list: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error: {str(e)}"
