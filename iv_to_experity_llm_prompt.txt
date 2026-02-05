@@ -262,7 +262,7 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
 - `bodyMapSide`: REQUIRED ("front" or "back")
 - `ui.bodyMapClick`: REQUIRED (x, y coordinates)
 - `ui.bodyPartId`: REQUIRED (from mapping table, or null if not found)
-- `mainProblem`: REQUIRED (from problemSets)
+- `mainProblem`: REQUIRED (from problemSets if keyword match found, otherwise use complaint description)
 - `experityTemplate`: REQUIRED (template key)
 - `notesTemplateKey`: REQUIRED (same as experityTemplate)
 - `notesPayload`: REQUIRED (object with quality, severity, onset)
@@ -315,7 +315,10 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
 
 4. Body Part ID: From mapping table, omit if not found
 
-5. Main Problem: Match keywords (cut=Laceration, burn=Burn, cough=Cough, etc) from problemSets[problemSet]
+5. Main Problem: 
+   - First, attempt to match keywords from the complaint description to problems in problemSets[problemSet] (e.g., cut=Laceration, burn=Burn, cough=Cough)
+   - **CRITICAL: If no keyword match is found in the problem set, use the complaint description field itself as the mainProblem value**
+   - **DO NOT infer, guess, or fabricate a "closest match" - only use exact keyword matches from the problem set, or fall back to the original complaint description**
 
 6. Template: Match body area + problem (Head+Burn=HEAD_TEMPLATE_C, Chest+Cough=CHEST_TEMPLATE_B, etc)
 
