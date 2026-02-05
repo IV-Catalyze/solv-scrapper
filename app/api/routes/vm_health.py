@@ -23,7 +23,7 @@ from app.api.routes.dependencies import (
     save_vm_health,
     get_latest_vm_health,
 )
-from app.api.database import get_vm_health_by_vm_id, get_all_vms_health
+from app.api.database import get_vm_health_by_vm_id, get_all_vms_health, update_vm_health_partial
 from app.utils.auth import verify_api_key_auth
 
 router = APIRouter()
@@ -383,6 +383,157 @@ async def vm_heartbeat(
         }
         
         # Create response model and serialize with by_alias=False to output camelCase field names
+        vm_response = VmHeartbeatResponse(**response_data)
+        response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
+        
+        return JSONResponse(content=response_dict)
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.patch(
+    "/vm/health/{vmId}",
+    tags=["VM"],
+    summary="Partially update VM health",
+    description=(
+        "Partially update a VM health record. Only provided fields will be updated. "
+        "The VM must exist (returns 404 if not found). "
+        "Uses X-API-Key authentication."
+    ),
+    response_model=VmHeartbeatResponse,
+    status_code=200,
+    responses={
+        200: {
+            "description": "VM health updated successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "vmId": "server1-vm1",
+                        "serverId": "server1",
+                        "lastHeartbeat": "2025-01-22T10:30:00Z",
+                        "status": "healthy",
+                        "workflowStatus": "running"
+                    }
+                }
+            }
+        },
+        400: {"description": "Invalid request data or invalid status value"},
+        401: {"description": "X-API-Key header required or invalid"},
+        404: {"description": "VM not found"},
+        500: {"description": "Server error"},
+    },
+)
+async def patch_vm_health(
+    vmId: str,
+    update_data: Dict[str, Any],
+    request: Request,
+    current_client: TokenData = Depends(verify_vm_api_key_auth)
+) -> VmHeartbeatResponse:
+    """
+    Partially update VM heartbeat status.
+    
+    **Authentication:**
+    - Use `X-API-Key` header with your HMAC secret key
+    - Example: `X-API-Key: your-hmac-secret-key`
+    
+    **Request Body (all fields optional):**
+    - `serverId` (optional): Server identifier
+    - `status` (optional): VM status: `healthy`, `unhealthy`, or `idle`
+    - `processingQueueId` (optional): Queue ID that the VM is currently processing
+    - `workflowStatus` (optional): AI Agent Workflow status (e.g., "running", "stopped", "error")
+    - `metadata` (optional): Metadata object with system metrics (e.g., cpuUsage, memoryUsage, diskUsage)
+    
+    **Response:**
+    Returns the updated VM health record with `success`, `vmId`, `serverId`, `lastHeartbeat`, `status`, and `workflowStatus`.
+    
+    **Note:** The VM must already exist. This endpoint will not create new records.
+    
+    **Example Request:**
+    ```json
+    {
+      "status": "healthy",
+      "workflowStatus": "running",
+      "metadata": {
+        "cpuUsage": 45.2,
+        "memoryUsage": 62.8,
+        "diskUsage": 30.1
+      }
+    }
+    ```
+    """
+    conn = None
+    
+    try:
+        # Check if VM exists
+        conn = get_db_connection()
+        existing_vm = get_vm_health_by_vm_id(conn, vmId)
+        
+        if not existing_vm:
+            raise HTTPException(
+                status_code=404,
+                detail=f"VM with ID '{vmId}' not found."
+            )
+        
+        # Validate status if provided
+        if "status" in update_data and update_data["status"]:
+            valid_statuses = ['healthy', 'unhealthy', 'idle']
+            if update_data["status"] not in valid_statuses:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid status: {update_data['status']}. Must be one of: {', '.join(valid_statuses)}"
+                )
+        
+        # Prepare update data - only include fields that are provided
+        vm_health_dict = {
+            'vm_id': vmId,
+        }
+        
+        # Use provided values or keep existing ones
+        vm_health_dict['server_id'] = update_data.get('serverId') if 'serverId' in update_data else existing_vm.get('server_id')
+        vm_health_dict['status'] = update_data.get('status') if 'status' in update_data else existing_vm.get('status')
+        vm_health_dict['processing_queue_id'] = update_data.get('processingQueueId') if 'processingQueueId' in update_data else existing_vm.get('processing_queue_id')
+        vm_health_dict['workflow_status'] = update_data.get('workflowStatus') if 'workflowStatus' in update_data else existing_vm.get('workflow_status')
+        vm_health_dict['metadata'] = update_data.get('metadata') if 'metadata' in update_data else existing_vm.get('metadata')
+        
+        # Update the VM health record (partial update)
+        saved_vm_health = update_vm_health_partial(conn, vm_health_dict)
+        
+        # Format the response
+        response_data = {
+            'success': True,
+            'vmId': saved_vm_health['vm_id'],
+            'serverId': saved_vm_health.get('server_id'),
+            'lastHeartbeat': saved_vm_health['last_heartbeat'],
+            'status': saved_vm_health['status'],
+            'workflowStatus': saved_vm_health.get('workflow_status'),
+        }
+        
         vm_response = VmHeartbeatResponse(**response_data)
         response_dict = vm_response.model_dump(exclude_none=True, exclude_unset=True, by_alias=False)
         

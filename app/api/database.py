@@ -1793,3 +1793,194 @@ def get_experity_process_times(conn, filters: Optional[Dict[str, Any]] = None, l
         raise e
     finally:
         cursor.close()
+
+
+def update_server_health_partial(conn, server_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Partially update a server health record (only updates provided fields).
+    
+    Args:
+        conn: PostgreSQL database connection
+        server_data: Dictionary containing server health data with:
+            - server_id: string (required) - Server identifier
+            - status: Optional string - Server status
+            - metadata: Optional dict - Metadata object with system metrics
+        
+    Returns:
+        Dictionary with the updated server health data
+        
+    Raises:
+        psycopg2.Error: If database operation fails
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        server_id = server_data.get('server_id')
+        if not server_id:
+            raise ValueError("server_id is required")
+        
+        # Build dynamic UPDATE query based on provided fields
+        update_fields = []
+        update_values = []
+        
+        if 'status' in server_data and server_data['status']:
+            update_fields.append("status = %s")
+            update_values.append(server_data['status'])
+        
+        if 'metadata' in server_data:
+            metadata_json = None
+            if server_data['metadata']:
+                metadata_json = json.dumps(server_data['metadata'])
+            update_fields.append("metadata = %s::jsonb")
+            update_values.append(metadata_json)
+        
+        # Always update last_heartbeat and updated_at
+        update_fields.append("last_heartbeat = CURRENT_TIMESTAMP")
+        update_fields.append("updated_at = CURRENT_TIMESTAMP")
+        
+        if not update_fields:
+            # No fields to update, just return existing record
+            return get_server_health_by_server_id(conn, server_id)
+        
+        query = f"""
+            UPDATE server_health
+            SET {', '.join(update_fields)}
+            WHERE server_id = %s
+            RETURNING *
+        """
+        
+        update_values.append(server_id)
+        cursor.execute(query, tuple(update_values))
+        
+        result = cursor.fetchone()
+        conn.commit()
+        
+        if not result:
+            raise ValueError(f"Server with ID '{server_id}' not found")
+        
+        # Format the result
+        formatted_result = dict(result)
+        
+        # Convert timestamps
+        if formatted_result.get('last_heartbeat') and isinstance(formatted_result['last_heartbeat'], datetime):
+            formatted_result['last_heartbeat'] = formatted_result['last_heartbeat'].isoformat() + 'Z'
+        
+        if formatted_result.get('created_at') and isinstance(formatted_result['created_at'], datetime):
+            formatted_result['created_at'] = formatted_result['created_at'].isoformat() + 'Z'
+        
+        if formatted_result.get('updated_at') and isinstance(formatted_result['updated_at'], datetime):
+            formatted_result['updated_at'] = formatted_result['updated_at'].isoformat() + 'Z'
+        
+        # Parse metadata JSONB
+        if formatted_result.get('metadata') and isinstance(formatted_result['metadata'], str):
+            formatted_result['metadata'] = json.loads(formatted_result['metadata'])
+        
+        return formatted_result
+        
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+
+
+def update_vm_health_partial(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Partially update a VM health record (only updates provided fields).
+    
+    Args:
+        conn: PostgreSQL database connection
+        vm_data: Dictionary containing VM health data with:
+            - vm_id: string (required) - VM identifier
+            - server_id: Optional string - Server identifier
+            - status: Optional string - VM status
+            - processing_queue_id: Optional UUID - Queue ID
+            - workflow_status: Optional string - Workflow status
+            - metadata: Optional dict - Metadata object
+        
+    Returns:
+        Dictionary with the updated VM health data
+        
+    Raises:
+        psycopg2.Error: If database operation fails
+    """
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        vm_id = vm_data.get('vm_id')
+        if not vm_id:
+            raise ValueError("vm_id is required")
+        
+        # Build dynamic UPDATE query based on provided fields
+        update_fields = []
+        update_values = []
+        
+        if 'server_id' in vm_data:
+            update_fields.append("server_id = %s")
+            update_values.append(vm_data['server_id'])
+        
+        if 'status' in vm_data and vm_data['status']:
+            update_fields.append("status = %s")
+            update_values.append(vm_data['status'])
+        
+        if 'processing_queue_id' in vm_data:
+            update_fields.append("processing_queue_id = %s")
+            update_values.append(vm_data['processing_queue_id'])
+        
+        if 'workflow_status' in vm_data:
+            update_fields.append("workflow_status = %s")
+            update_values.append(vm_data['workflow_status'])
+        
+        if 'metadata' in vm_data:
+            metadata_json = None
+            if vm_data['metadata']:
+                metadata_json = json.dumps(vm_data['metadata'])
+            update_fields.append("metadata = %s::jsonb")
+            update_values.append(metadata_json)
+        
+        # Always update last_heartbeat and updated_at
+        update_fields.append("last_heartbeat = CURRENT_TIMESTAMP")
+        update_fields.append("updated_at = CURRENT_TIMESTAMP")
+        
+        if not update_fields:
+            # No fields to update, just return existing record
+            return get_vm_health_by_vm_id(conn, vm_id)
+        
+        query = f"""
+            UPDATE vm_health
+            SET {', '.join(update_fields)}
+            WHERE vm_id = %s
+            RETURNING *
+        """
+        
+        update_values.append(vm_id)
+        cursor.execute(query, tuple(update_values))
+        
+        result = cursor.fetchone()
+        conn.commit()
+        
+        if not result:
+            raise ValueError(f"VM with ID '{vm_id}' not found")
+        
+        # Format the result
+        formatted_result = dict(result)
+        
+        # Convert timestamps
+        if formatted_result.get('last_heartbeat') and isinstance(formatted_result['last_heartbeat'], datetime):
+            formatted_result['last_heartbeat'] = formatted_result['last_heartbeat'].isoformat() + 'Z'
+        
+        if formatted_result.get('created_at') and isinstance(formatted_result['created_at'], datetime):
+            formatted_result['created_at'] = formatted_result['created_at'].isoformat() + 'Z'
+        
+        if formatted_result.get('updated_at') and isinstance(formatted_result['updated_at'], datetime):
+            formatted_result['updated_at'] = formatted_result['updated_at'].isoformat() + 'Z'
+        
+        # Parse metadata JSONB
+        if formatted_result.get('metadata') and isinstance(formatted_result['metadata'], str):
+            formatted_result['metadata'] = json.loads(formatted_result['metadata'])
+        
+        return formatted_result
+        
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()

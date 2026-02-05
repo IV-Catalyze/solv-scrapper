@@ -34,6 +34,7 @@ from app.api.database import (
     get_vms_by_server_id,
     get_all_servers_health,
     get_all_vms_health,
+    update_server_health_partial,
 )
 from app.utils.auth import verify_api_key_auth
 
@@ -196,6 +197,169 @@ async def server_heartbeat(
         )
 
         return JSONResponse(content=response_dict, status_code=201)
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    except psycopg2.Error as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Database error: {str(e)}"
+        )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.patch(
+    "/server/health/{serverId}",
+    tags=["Server"],
+    summary="Partially update server health",
+    description=(
+        "Partially update a server health record. Only provided fields will be updated. "
+        "The server must exist (returns 404 if not found). "
+        "Uses X-API-Key authentication."
+    ),
+    response_model=ServerHeartbeatResponse,
+    status_code=200,
+    responses={
+        200: {
+            "description": "Server health updated successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "serverId": "server1",
+                        "status": "healthy",
+                        "lastHeartbeat": "2025-01-22T10:30:00Z",
+                        "metadata": {
+                            "cpuUsage": 45.2,
+                            "memoryUsage": 62.8,
+                            "diskUsage": 30.1,
+                        },
+                    }
+                }
+            }
+        },
+        400: {"description": "Invalid request data or invalid status value"},
+        401: {"description": "X-API-Key header required or invalid"},
+        404: {"description": "Server not found"},
+        500: {"description": "Server error"},
+    },
+)
+async def patch_server_health(
+    serverId: str,
+    update_data: Dict[str, Any],
+    request: Request,
+    current_client: TokenData = Depends(verify_server_api_key_auth),
+) -> ServerHeartbeatResponse:
+    """
+    Partially update server heartbeat status with resource metrics.
+
+    **Authentication:**
+    - Use `X-API-Key` header with your HMAC secret key
+    - Example: `X-API-Key: your-hmac-secret-key`
+
+    **Request Body (all fields optional):**
+    - `status` (optional): Server status: `healthy`, `unhealthy`, or `down`
+    - `metadata` (optional): Metadata object with system metrics
+      (e.g., cpuUsage, memoryUsage, diskUsage)
+
+    **Response:**
+    Returns the updated server health record with `serverId`, `status`,
+    `lastHeartbeat`, and `metadata`.
+
+    **Note:** The server must already exist. This endpoint will not create new records.
+    """
+    conn = None
+
+    try:
+        # Check if server exists
+        conn = get_db_connection()
+        existing_server = get_server_health_by_server_id(conn, serverId)
+        
+        if not existing_server:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Server with ID '{serverId}' not found."
+            )
+
+        # Validate status if provided
+        if "status" in update_data and update_data["status"]:
+            valid_statuses = ["healthy", "unhealthy", "down"]
+            if update_data["status"] not in valid_statuses:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Invalid status: {update_data['status']}. "
+                        f"Must be one of: {', '.join(valid_statuses)}"
+                    ),
+                )
+
+        # Prepare update data - only include fields that are provided
+        server_health_dict: Dict[str, Any] = {
+            "server_id": serverId,
+        }
+        
+        if "status" in update_data:
+            server_health_dict["status"] = update_data["status"]
+        else:
+            # Keep existing status if not provided
+            server_health_dict["status"] = existing_server["status"]
+        
+        if "metadata" in update_data:
+            server_health_dict["metadata"] = update_data["metadata"]
+        else:
+            # Keep existing metadata if not provided
+            server_health_dict["metadata"] = existing_server.get("metadata")
+
+        # Update the server health record (partial update)
+        saved_server_health = update_server_health_partial(conn, server_health_dict)
+
+        # Check resource thresholds and create/resolve alerts if needed
+        try:
+            metadata = server_health_dict.get("metadata")
+            if metadata:
+                alert_results = process_resource_alerts(
+                    conn,
+                    serverId,
+                    metadata
+                )
+                if alert_results['created'] > 0 or alert_results['resolved'] > 0:
+                    logger.info(
+                        f"Resource alerts processed for {serverId}: "
+                        f"created={alert_results['created']}, "
+                        f"resolved={alert_results['resolved']}"
+                    )
+        except Exception as e:
+            # Log but don't fail the update if alert processing fails
+            logger.warning(
+                f"Failed to process resource alerts for {serverId}: {str(e)}"
+            )
+
+        # Format the response
+        response_data: Dict[str, Any] = {
+            "serverId": saved_server_health["server_id"],
+            "status": saved_server_health["status"],
+            "lastHeartbeat": saved_server_health["last_heartbeat"],
+            "metadata": saved_server_health.get("metadata"),
+        }
+
+        server_response = ServerHeartbeatResponse(**response_data)
+        response_dict = server_response.model_dump(
+            exclude_none=True, exclude_unset=True, by_alias=False
+        )
+
+        return JSONResponse(content=response_dict, status_code=200)
 
     except HTTPException:
         raise
