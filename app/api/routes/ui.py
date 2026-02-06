@@ -505,14 +505,8 @@ async def queue_list_ui(
             else:
                 patient_name = None
             
-            # Get created_by from record, handling NULL and empty strings
+            # Get created_by from record (same as validation page - no processing)
             created_by = record.get('created_by')
-            if created_by is not None:
-                created_by = str(created_by).strip()
-                if not created_by:
-                    created_by = None
-            else:
-                created_by = None
             
             # Format created_at
             created_at = record.get('created_at')
