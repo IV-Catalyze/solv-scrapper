@@ -378,6 +378,10 @@ async def queue_list_ui(
                 COALESCE(
                     q.raw_payload->>'createdBy',
                     q.raw_payload->>'created_by',
+                    q.raw_payload->'createdByUser'->>'email',
+                    q.raw_payload->'createdByUser'->>'name',
+                    q.raw_payload->'createdByUser'->>'id',
+                    q.raw_payload->'createdByUser'->>'username',
                     e.encounter_payload->>'createdBy',
                     e.encounter_payload->>'created_by',
                     e.encounter_payload->'createdByUser'->>'email',
@@ -426,6 +430,10 @@ async def queue_list_ui(
                 COALESCE(
                     q.raw_payload->>'createdBy',
                     q.raw_payload->>'created_by',
+                    q.raw_payload->'createdByUser'->>'email',
+                    q.raw_payload->'createdByUser'->>'name',
+                    q.raw_payload->'createdByUser'->>'id',
+                    q.raw_payload->'createdByUser'->>'username',
                     e.encounter_payload->>'createdBy',
                     e.encounter_payload->>'created_by',
                     e.encounter_payload->'createdByUser'->>'email',

@@ -216,7 +216,7 @@ def remove_excluded_fields(encounter_payload: Dict[str, Any]) -> Dict[str, Any]:
     cleaned_payload = copy.deepcopy(encounter_payload)
     
     # List of top-level fields to remove
-    # Note: 'createdBy' and 'createdById' are kept to display in queue list
+    # Note: 'createdBy', 'createdById', and 'createdByUser' are kept to display in queue list
     excluded_top_level_fields = [
         'source',
         'meta',
@@ -248,7 +248,6 @@ def remove_excluded_fields(encounter_payload: Dict[str, Any]) -> Dict[str, Any]:
         'originCsnFailureCount',
         'originCsnFailureMessage',
         'originCsnJobId',
-        'createdByUser',
         'accessLogs',
         'creationLog',
         'predictedDiagnoses',

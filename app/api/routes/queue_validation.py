@@ -465,22 +465,6 @@ async def manual_validation_page(
                 raw_payload = {}
         elif raw_payload is None:
             raw_payload = {}
-        
-        # Fallback: If encounter_created_by is None/empty, try extracting from raw_payload
-        if not encounter_created_by and isinstance(raw_payload, dict):
-            created_by_user = raw_payload.get('createdByUser', {}) or {}
-            encounter_created_by = (
-                raw_payload.get('createdBy') or 
-                raw_payload.get('created_by') or
-                created_by_user.get('email') or
-                created_by_user.get('name') or
-                created_by_user.get('id') or
-                created_by_user.get('username')
-            )
-        
-        # Ensure it's a string if not None, and handle empty strings
-        if encounter_created_by is not None:
-            encounter_created_by = str(encounter_created_by).strip() or None
 
         # Create a filtered copy of raw_payload for display (remove predictedDiagnoses)
         raw_payload_for_display = copy.deepcopy(raw_payload)
@@ -706,6 +690,26 @@ async def manual_validation_page(
                     screenshot_field_validations = manual_validation.get('screenshot_field_validations', {})
                     existing_comments = manual_validation.get('comments', {})
                     validated_by = manual_validation.get('validated_by')
+                    
+                    # Ensure comments structure is properly formatted
+                    # Expected: { "field_validations": [...], "screenshot_field_validations": [...] }
+                    if not isinstance(existing_comments, dict):
+                        existing_comments = {}
+                    
+                    # Convert old format to new format if needed
+                    # Old format might be: {"field_name": "comment"} or {"field_name": [comment]}
+                    # New format: {"field_validations": [{"user": "...", "comment": "...", "timestamp": "..."}]}
+                    if 'field_validations' not in existing_comments:
+                        existing_comments['field_validations'] = []
+                    if 'screenshot_field_validations' not in existing_comments:
+                        existing_comments['screenshot_field_validations'] = []
+                    
+                    # Ensure both are lists
+                    if not isinstance(existing_comments['field_validations'], list):
+                        existing_comments['field_validations'] = []
+                    if not isinstance(existing_comments['screenshot_field_validations'], list):
+                        existing_comments['screenshot_field_validations'] = []
+                    
                     existing_validations[complaint_id_from_db] = {
                         'field_validations': field_validations,
                         'screenshot_field_validations': screenshot_field_validations,
@@ -1206,6 +1210,30 @@ async def save_manual_validation(
                     manual_validation_result["screenshot_overall_status"] = screenshot_overall_status
 
             # Add comments (always save, even if empty, to ensure consistency across complaints)
+            # Comments structure: {
+            #   "field_validations": [
+            #     {"user": "...", "comment": "...", "timestamp": "..."},
+            #     ...
+            #   ],
+            #   "screenshot_field_validations": [
+            #     {"user": "...", "comment": "...", "timestamp": "..."},
+            #     ...
+            #   ]
+            # }
+            # Ensure comments are in the correct format
+            if not isinstance(comments, dict):
+                comments = {}
+            if 'field_validations' not in comments:
+                comments['field_validations'] = []
+            if 'screenshot_field_validations' not in comments:
+                comments['screenshot_field_validations'] = []
+            
+            # Ensure both are lists
+            if not isinstance(comments['field_validations'], list):
+                comments['field_validations'] = []
+            if not isinstance(comments['screenshot_field_validations'], list):
+                comments['screenshot_field_validations'] = []
+            
             manual_validation_result["manual_validation"]["comments"] = comments
 
             
