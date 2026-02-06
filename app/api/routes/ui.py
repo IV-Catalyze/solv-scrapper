@@ -507,7 +507,7 @@ async def queue_list_ui(
             
             # Get created_by from record, handling NULL and empty strings
             created_by = record.get('created_by')
-            if created_by:
+            if created_by is not None:
                 created_by = str(created_by).strip()
                 if not created_by:
                     created_by = None
