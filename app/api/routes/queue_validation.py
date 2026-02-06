@@ -621,6 +621,7 @@ async def manual_validation_page(
         existing_validations = {}
 
         validation_dates = {}  # Store validation dates per complaint
+        validation_creators = {}  # Store validation creators per complaint
 
         try:
 
@@ -673,6 +674,7 @@ async def manual_validation_page(
                     field_validations = manual_validation.get('field_validations', {})
                     screenshot_field_validations = manual_validation.get('screenshot_field_validations', {})
                     existing_comments = manual_validation.get('comments', {})
+                    validated_by = manual_validation.get('validated_by')
                     existing_validations[complaint_id_from_db] = {
                         'field_validations': field_validations,
                         'screenshot_field_validations': screenshot_field_validations,
@@ -688,6 +690,10 @@ async def manual_validation_page(
                     if last_validation_date:
 
                         validation_dates[complaint_id_from_db] = last_validation_date
+                    
+                    # Store validation creator
+                    if validated_by:
+                        validation_creators[complaint_id_from_db] = validated_by
 
         except Exception as e:
 
@@ -802,6 +808,9 @@ async def manual_validation_page(
 
                     last_validation_date_str = str(last_validation_date)
 
+            # Get validation creator for this complaint (if any)
+            validated_by = validation_creators.get(complaint_id_str)
+
             
 
             complaints_data.append({
@@ -820,7 +829,8 @@ async def manual_validation_page(
 
                 "has_existing_validation": has_existing_validation,
 
-                "last_validation_date": last_validation_date_str  # Use formatted string
+                "last_validation_date": last_validation_date_str,  # Use formatted string
+                "validated_by": validated_by  # Creator of the validation
 
             })
 

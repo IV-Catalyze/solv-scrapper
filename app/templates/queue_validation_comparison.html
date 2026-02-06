@@ -637,6 +637,11 @@
             <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
                 Last validated: {{ complaints[0].last_validation_date }}
             </div>
+            {% if complaints[0].validated_by %}
+            <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
+                Created by: {{ complaints[0].validated_by }}
+            </div>
+            {% endif %}
             {% endif %}
             </div>
             <div class="header-right">
@@ -654,7 +659,7 @@
                 <span class="complaint-tab-name">Complaint {{ loop.index }}</span>
                 <span class="complaint-tab-id">{{ complaint.complaint_id }}</span>
                 {% if complaint.last_validation_date %}
-                <span class="complaint-tab-date" title="Last validated: {{ complaint.last_validation_date }}">
+                <span class="complaint-tab-date" title="Last validated: {{ complaint.last_validation_date }}{% if complaint.validated_by %} by {{ complaint.validated_by }}{% endif %}">
                     Last validated: {{ complaint.last_validation_date }}
                 </span>
                 {% endif %}
