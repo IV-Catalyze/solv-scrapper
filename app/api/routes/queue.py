@@ -1665,6 +1665,11 @@ async def map_queue_to_experity(
         if emr_id:
             response_data["emrId"] = emr_id
 
+        # Add startedAt from encounter if present
+        started_at = raw_payload.get("startedAt") or raw_payload.get("started_at")
+        if started_at:
+            response_data["startedAt"] = started_at
+
         # If the Azure response included its own queueId, prefer that when our local
         # value is missing. This keeps the response consistent without changing the
         # existing contract.
