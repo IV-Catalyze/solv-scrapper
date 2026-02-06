@@ -1033,7 +1033,7 @@
                                 <pre>{{ raw_payload|tojson(indent=2) }}</pre>
                             </div>
                         </details>
-                        <div style="margin-top: 12px;">
+                        <div style="margin-top: 12px; display: none;">
                             <label for="encounter_json_comment_{{ complaint.complaint_id }}" style="display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">Comment:</label>
                             <textarea 
                                 id="encounter_json_comment_{{ complaint.complaint_id }}" 
@@ -1052,7 +1052,7 @@
                                 <pre>{{ experity_actions|tojson(indent=2) }}</pre>
                             </div>
                         </details>
-                        <div style="margin-top: 12px;">
+                        <div style="margin-top: 12px; display: none;">
                             <label for="experity_json_comment_{{ complaint.complaint_id }}" style="display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">Comment:</label>
                             <textarea 
                                 id="experity_json_comment_{{ complaint.complaint_id }}" 
