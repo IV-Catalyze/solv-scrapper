@@ -672,9 +672,11 @@ async def manual_validation_page(
 
                     field_validations = manual_validation.get('field_validations', {})
                     screenshot_field_validations = manual_validation.get('screenshot_field_validations', {})
+                    existing_comments = manual_validation.get('comments', {})
                     existing_validations[complaint_id_from_db] = {
                         'field_validations': field_validations,
-                        'screenshot_field_validations': screenshot_field_validations
+                        'screenshot_field_validations': screenshot_field_validations,
+                        'existing_comments': existing_comments
                     }
 
                     
@@ -775,6 +777,7 @@ async def manual_validation_page(
             existing_validation_data = existing_validations.get(complaint_id_str, {})
             existing_validation = existing_validation_data.get('field_validations', {}) if isinstance(existing_validation_data, dict) else existing_validation_data
             screenshot_existing_validation = existing_validation_data.get('screenshot_field_validations', {}) if isinstance(existing_validation_data, dict) else {}
+            existing_comments = existing_validation_data.get('existing_comments', {}) if isinstance(existing_validation_data, dict) else {}
             has_existing_validation = bool(existing_validation) or bool(screenshot_existing_validation)
 
             
@@ -813,6 +816,7 @@ async def manual_validation_page(
 
                 "existing_validation": existing_validation,
                 "screenshot_existing_validation": screenshot_existing_validation,
+                "existing_comments": existing_comments,
 
                 "has_existing_validation": has_existing_validation,
 
@@ -973,6 +977,8 @@ async def save_manual_validation(
 
         screenshot_field_validations = body.get('screenshot_field_validations', {})
 
+        comments = body.get('comments', {})
+
         
 
         if not complaint_id:
@@ -1120,6 +1126,9 @@ async def save_manual_validation(
                 }
                 if screenshot_overall_status:
                     manual_validation_result["screenshot_overall_status"] = screenshot_overall_status
+
+            # Add comments (always save, even if empty, to ensure consistency across complaints)
+            manual_validation_result["manual_validation"]["comments"] = comments
 
             
 

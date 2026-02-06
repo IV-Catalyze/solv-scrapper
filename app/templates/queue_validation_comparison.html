@@ -1011,20 +1011,42 @@
                 <!-- JSON Viewers -->
                 <div style="margin-top: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                     {% if raw_payload %}
-                    <details>
-                        <summary style="cursor: pointer; font-size: 12px; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px; background: #f3f4f6; border-radius: 6px;">View Full Encounter JSON</summary>
-                        <div class="json-viewer" style="margin-top: 12px;">
-                            <pre>{{ raw_payload|tojson(indent=2) }}</pre>
+                    <div>
+                        <details>
+                            <summary style="cursor: pointer; font-size: 12px; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px; background: #f3f4f6; border-radius: 6px;">View Full Encounter JSON</summary>
+                            <div class="json-viewer" style="margin-top: 12px;">
+                                <pre>{{ raw_payload|tojson(indent=2) }}</pre>
+                            </div>
+                        </details>
+                        <div style="margin-top: 12px;">
+                            <label for="encounter_json_comment_{{ complaint.complaint_id }}" style="display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">Comment:</label>
+                            <textarea 
+                                id="encounter_json_comment_{{ complaint.complaint_id }}" 
+                                name="encounter_json_comment_{{ complaint.complaint_id }}"
+                                rows="3" 
+                                style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; font-family: inherit; resize: vertical;"
+                                placeholder="Add a comment about the Encounter JSON...">{% if complaint.existing_comments and complaint.existing_comments.encounter_json_comment %}{{ complaint.existing_comments.encounter_json_comment }}{% endif %}</textarea>
                         </div>
-                    </details>
+                    </div>
                     {% endif %}
                     {% if experity_actions %}
-                    <details>
-                        <summary style="cursor: pointer; font-size: 12px; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px; background: #f3f4f6; border-radius: 6px;">View Full Experity JSON</summary>
-                        <div class="json-viewer" style="margin-top: 12px;">
-                            <pre>{{ experity_actions|tojson(indent=2) }}</pre>
+                    <div>
+                        <details>
+                            <summary style="cursor: pointer; font-size: 12px; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px; background: #f3f4f6; border-radius: 6px;">View Full Experity JSON</summary>
+                            <div class="json-viewer" style="margin-top: 12px;">
+                                <pre>{{ experity_actions|tojson(indent=2) }}</pre>
+                            </div>
+                        </details>
+                        <div style="margin-top: 12px;">
+                            <label for="experity_json_comment_{{ complaint.complaint_id }}" style="display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px;">Comment:</label>
+                            <textarea 
+                                id="experity_json_comment_{{ complaint.complaint_id }}" 
+                                name="experity_json_comment_{{ complaint.complaint_id }}"
+                                rows="3" 
+                                style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; font-family: inherit; resize: vertical;"
+                                placeholder="Add a comment about the Experity JSON...">{% if complaint.existing_comments and complaint.existing_comments.experity_json_comment %}{{ complaint.existing_comments.experity_json_comment }}{% endif %}</textarea>
                         </div>
-                    </details>
+                    </div>
                     {% endif %}
                 </div>
             </div>
@@ -1285,6 +1307,18 @@
                 return;
             }
 
+            // Collect comments
+            const comments = {};
+            const encounterCommentEl = document.getElementById(`encounter_json_comment_${complaintId}`);
+            const experityCommentEl = document.getElementById(`experity_json_comment_${complaintId}`);
+            
+            if (encounterCommentEl) {
+                comments.encounter_json_comment = encounterCommentEl.value.trim();
+            }
+            if (experityCommentEl) {
+                comments.experity_json_comment = experityCommentEl.value.trim();
+            }
+
             // Get the save button
             const saveBtn = document.getElementById(`saveBtn_${complaintId}`);
             if (!saveBtn) {
@@ -1310,7 +1344,8 @@
                     body: JSON.stringify({
                         complaint_id: complaintId,
                         field_validations: fieldValidations,
-                        screenshot_field_validations: screenshotFieldValidations
+                        screenshot_field_validations: screenshotFieldValidations,
+                        comments: comments
                     })
                 });
 
