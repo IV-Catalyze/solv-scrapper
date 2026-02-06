@@ -531,7 +531,7 @@ async def queue_list_ui(
             # Check if this queue entry has validations
             has_validation = queue_id in has_validation_set
             
-            queue_entries.append({
+            queue_entry_dict = {
                 'queue_id': queue_id,
                 'encounter_id': encounter_id,
                 'emr_id': str(record.get('emr_id')) if record.get('emr_id') else None,
@@ -542,7 +542,12 @@ async def queue_list_ui(
                 'encounter_payload': encounter_payload,
                 'has_validation': has_validation,
                 # has_screenshots and screenshot_error removed - checked on-demand when user clicks Verify
-            })
+            }
+            queue_entries.append(queue_entry_dict)
+            
+            # Debug: Log first few entries to verify created_by is in dict
+            if len(queue_entries) <= 3:
+                logger.info(f"Queue entry {len(queue_entries)}: encounter_id={encounter_id[:8] if encounter_id else 'None'}..., created_by={repr(queue_entry_dict.get('created_by'))}, has_created_by_key={'created_by' in queue_entry_dict}")
         
         # Calculate pagination metadata
         has_next = current_page < total_pages
@@ -552,6 +557,15 @@ async def queue_list_ui(
         start_page = max(1, current_page - 2)
         end_page = min(total_pages, current_page + 2)
         page_numbers = list(range(start_page, end_page + 1))
+        
+        # Debug: Log what's being passed to template
+        if queue_entries:
+            sample_entry = queue_entries[0]
+            logger.info(f"Passing {len(queue_entries)} queue entries to template. Sample entry keys: {list(sample_entry.keys())}")
+            logger.info(f"Sample entry created_by: {repr(sample_entry.get('created_by'))}")
+            # Count entries with created_by
+            entries_with_created_by = sum(1 for e in queue_entries if e.get('created_by'))
+            logger.info(f"Entries with created_by data: {entries_with_created_by}/{len(queue_entries)}")
         
         response = templates.TemplateResponse(
             "queue_list.html",
