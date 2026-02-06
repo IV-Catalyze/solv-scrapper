@@ -632,6 +632,11 @@
             <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
                 Encounter created: {{ encounter_created_date }}
             </div>
+            {% if encounter_created_by %}
+            <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
+                Created by: {{ encounter_created_by }}
+            </div>
+            {% endif %}
             {% endif %}
             {% if complaints|length == 1 and complaints[0].last_validation_date %}
             <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">

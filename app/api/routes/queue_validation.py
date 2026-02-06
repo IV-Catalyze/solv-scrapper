@@ -352,7 +352,7 @@ async def manual_validation_page(
 
         
 
-        # Fetch queue entry by encounter_id
+        # Fetch queue entry by encounter_id with createdBy from encounters table
 
         cursor.execute(
 
@@ -360,21 +360,32 @@ async def manual_validation_page(
 
             SELECT 
 
-                queue_id,
+                q.queue_id,
 
-                encounter_id,
+                q.encounter_id,
 
-                parsed_payload,
+                q.parsed_payload,
 
-                raw_payload,
+                q.raw_payload,
 
-                created_at
+                q.created_at,
+                COALESCE(
+                    q.raw_payload->>'createdBy',
+                    q.raw_payload->>'created_by',
+                    e.encounter_payload->>'createdBy',
+                    e.encounter_payload->>'created_by',
+                    e.encounter_payload->'createdByUser'->>'email',
+                    e.encounter_payload->'createdByUser'->>'name',
+                    e.encounter_payload->'createdByUser'->>'id',
+                    e.encounter_payload->'createdByUser'->>'username'
+                ) as encounter_created_by
 
-            FROM queue
+            FROM queue q
+            LEFT JOIN encounters e ON q.encounter_id = e.encounter_id
 
-            WHERE encounter_id = %s
+            WHERE q.encounter_id = %s
 
-            ORDER BY created_at DESC
+            ORDER BY q.created_at DESC
 
             LIMIT 1
 
@@ -441,6 +452,9 @@ async def manual_validation_page(
                 encounter_created_date_str = encounter_created_at.strftime('%b %d, %Y at %I:%M %p')
             else:
                 encounter_created_date_str = str(encounter_created_at)
+        
+        # Get encounter created by
+        encounter_created_by = queue_entry.get('encounter_created_by')
         
         # Parse raw_payload if it's a string
         if isinstance(raw_payload, str):
@@ -891,6 +905,7 @@ async def manual_validation_page(
                 "page_subtitle": f"Encounter ID: {encounter_id}",
 
                 "encounter_created_date": encounter_created_date_str,
+                "encounter_created_by": encounter_created_by,
 
                 "show_navigation": False,
 
