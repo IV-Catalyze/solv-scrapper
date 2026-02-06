@@ -465,6 +465,22 @@ async def manual_validation_page(
                 raw_payload = {}
         elif raw_payload is None:
             raw_payload = {}
+        
+        # Fallback: If encounter_created_by is None/empty, try extracting from raw_payload
+        if not encounter_created_by and isinstance(raw_payload, dict):
+            created_by_user = raw_payload.get('createdByUser', {}) or {}
+            encounter_created_by = (
+                raw_payload.get('createdBy') or 
+                raw_payload.get('created_by') or
+                created_by_user.get('email') or
+                created_by_user.get('name') or
+                created_by_user.get('id') or
+                created_by_user.get('username')
+            )
+        
+        # Ensure it's a string if not None, and handle empty strings
+        if encounter_created_by is not None:
+            encounter_created_by = str(encounter_created_by).strip() or None
 
         # Create a filtered copy of raw_payload for display (remove predictedDiagnoses)
         raw_payload_for_display = copy.deepcopy(raw_payload)
