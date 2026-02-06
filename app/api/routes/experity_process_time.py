@@ -93,6 +93,7 @@ async def create_process_time(
     - `processName` (required): Process name - 'Encounter process time' or 'Experity process time'
     - `startedAt` (required): ISO 8601 timestamp when the process started
     - `endedAt` (required): ISO 8601 timestamp when the process ended
+    - `encounterId` (optional): Encounter ID associated with this process time
     
     **Response:**
     Returns the created process time record with `processTimeId`, `success`, and timestamps.
@@ -102,7 +103,8 @@ async def create_process_time(
     {
       "processName": "Encounter process time",
       "startedAt": "2025-01-22T10:30:00Z",
-      "endedAt": "2025-01-22T10:35:00Z"
+      "endedAt": "2025-01-22T10:35:00Z",
+      "encounterId": "96e8b1bd-10e9-476c-9725-f14bb1d54397"
     }
     ```
     """
@@ -115,6 +117,10 @@ async def create_process_time(
             'started_at': process_time_data.startedAt,
             'ended_at': process_time_data.endedAt,
         }
+        
+        # Add encounter_id if provided
+        if process_time_data.encounterId:
+            process_time_dict['encounter_id'] = process_time_data.encounterId
         
         # Get database connection
         conn = get_db_connection()
@@ -157,6 +163,10 @@ async def create_process_time(
             'durationSeconds': saved_process_time.get('duration_seconds'),
             'createdAt': created_at_str,
         }
+        
+        # Add encounterId if present
+        if saved_process_time.get('encounter_id'):
+            response_data['encounterId'] = str(saved_process_time['encounter_id'])
         
         # Create response model and serialize
         process_time_response = ExperityProcessTimeResponse(**response_data)
@@ -231,6 +241,7 @@ async def get_process_times_list(
     startedAfter: Optional[str] = Query(None, description="Filter by start time (ISO 8601 timestamp) - only records started after this"),
     startedBefore: Optional[str] = Query(None, description="Filter by start time (ISO 8601 timestamp) - only records started before this"),
     completedOnly: Optional[bool] = Query(False, description="Only return completed processes (with endedAt set)"),
+    encounterId: Optional[str] = Query(None, description="Filter by encounter ID"),
     limit: int = Query(50, ge=1, le=100, description="Number of records to return (max 100)"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     current_user: dict = Depends(require_auth)
@@ -243,6 +254,7 @@ async def get_process_times_list(
     - `startedAfter` (optional): Filter by start time - only records started after this timestamp
     - `startedBefore` (optional): Filter by start time - only records started before this timestamp
     - `completedOnly` (optional): Only return completed processes (default: false)
+    - `encounterId` (optional): Filter by encounter ID
     - `limit` (optional): Number of records to return (default: 50, max: 100)
     - `offset` (optional): Pagination offset (default: 0)
     
@@ -269,6 +281,8 @@ async def get_process_times_list(
             filters['started_before'] = startedBefore
         if completedOnly:
             filters['completed_only'] = True
+        if encounterId:
+            filters['encounter_id'] = encounterId
         
         # Get database connection
         conn = get_db_connection()
@@ -312,6 +326,11 @@ async def get_process_times_list(
                 'durationSeconds': process_time.get('duration_seconds'),
                 'createdAt': created_at_str,
             }
+            
+            # Add encounterId if present
+            if process_time.get('encounter_id'):
+                formatted_process_time['encounterId'] = str(process_time['encounter_id'])
+            
             formatted_process_times.append(ExperityProcessTimeItem(**formatted_process_time))
         
         # Create response

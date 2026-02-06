@@ -921,6 +921,12 @@ class ExperityProcessTimeRequest(BaseModel):
         example="2025-01-22T10:35:00Z",
         alias="ended_at"
     )
+    encounterId: Optional[str] = Field(
+        None,
+        description="Encounter ID associated with this process time",
+        example="96e8b1bd-10e9-476c-9725-f14bb1d54397",
+        alias="encounter_id"
+    )
     
     @field_validator('processName')
     @classmethod
@@ -936,7 +942,8 @@ class ExperityProcessTimeRequest(BaseModel):
             "example": {
                 "processName": "Encounter process time",
                 "startedAt": "2025-01-22T10:30:00Z",
-                "endedAt": "2025-01-22T10:35:00Z"
+                "endedAt": "2025-01-22T10:35:00Z",
+                "encounterId": "96e8b1bd-10e9-476c-9725-f14bb1d54397"
             }
         }
 
@@ -950,6 +957,7 @@ class ExperityProcessTimeResponse(BaseModel):
     endedAt: str = Field(..., description="ISO 8601 timestamp when the process ended", example="2025-01-22T10:35:00Z", alias="ended_at")
     durationSeconds: Optional[int] = Field(None, description="Duration in seconds (calculated)", example=300, alias="duration_seconds")
     createdAt: str = Field(..., description="ISO 8601 timestamp when record was created", example="2025-01-22T10:35:00Z", alias="created_at")
+    encounterId: Optional[str] = Field(None, description="Encounter ID associated with this process time", example="96e8b1bd-10e9-476c-9725-f14bb1d54397", alias="encounter_id")
     
     class Config:
         populate_by_name = True
@@ -963,6 +971,7 @@ class ExperityProcessTimeItem(BaseModel):
     endedAt: str = Field(..., description="ISO 8601 timestamp when the process ended", example="2025-01-22T10:35:00Z", alias="ended_at")
     durationSeconds: Optional[int] = Field(None, description="Duration in seconds", example=300, alias="duration_seconds")
     createdAt: str = Field(..., description="ISO 8601 timestamp when record was created", example="2025-01-22T10:35:00Z", alias="created_at")
+    encounterId: Optional[str] = Field(None, description="Encounter ID associated with this process time", example="96e8b1bd-10e9-476c-9725-f14bb1d54397", alias="encounter_id")
     
     class Config:
         populate_by_name = True

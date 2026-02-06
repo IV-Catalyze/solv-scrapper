@@ -1636,6 +1636,7 @@ def save_experity_process_time(conn, process_time_dict: Dict[str, Any]) -> Dict[
             - process_name: str (required) - 'Encounter process time' or 'Experity process time'
             - started_at: str (required) - ISO 8601 timestamp
             - ended_at: str (required) - ISO 8601 timestamp
+            - encounter_id: str (optional) - Encounter ID UUID
     
     Returns:
         Dictionary with the saved process time data including process_time_id and created_at
@@ -1681,15 +1682,18 @@ def save_experity_process_time(conn, process_time_dict: Dict[str, Any]) -> Dict[
             except ValueError:
                 raise ValueError(f"Invalid ended_at timestamp format: {ended_at}")
         
+        # Get encounter_id if provided
+        encounter_id = process_time_dict.get('encounter_id')
+        
         # Insert process time record
         query = """
-            INSERT INTO experity_process_time (process_name, started_at, ended_at)
-            VALUES (%s, %s, %s)
+            INSERT INTO experity_process_time (process_name, started_at, ended_at, encounter_id)
+            VALUES (%s, %s, %s, %s)
             RETURNING process_time_id, process_name, started_at, ended_at, 
-                      duration_seconds, created_at, updated_at
+                      duration_seconds, created_at, updated_at, encounter_id
         """
         
-        cursor.execute(query, (process_time_dict['process_name'], started_at, ended_at))
+        cursor.execute(query, (process_time_dict['process_name'], started_at, ended_at, encounter_id))
         result = cursor.fetchone()
         conn.commit()
         
@@ -1718,6 +1722,7 @@ def get_experity_process_times(conn, filters: Optional[Dict[str, Any]] = None, l
             - started_after: str - ISO 8601 timestamp (only records started after this)
             - started_before: str - ISO 8601 timestamp (only records started before this)
             - completed_only: bool - Only return records with ended_at set
+            - encounter_id: str - Filter by encounter ID
         limit: Maximum number of records to return (default: 50, max: 100)
         offset: Number of records to skip (default: 0)
     
@@ -1735,6 +1740,10 @@ def get_experity_process_times(conn, filters: Optional[Dict[str, Any]] = None, l
             if 'process_name' in filters:
                 where_conditions.append("process_name = %s")
                 params.append(filters['process_name'])
+            
+            if 'encounter_id' in filters:
+                where_conditions.append("encounter_id = %s")
+                params.append(filters['encounter_id'])
             
             if 'started_after' in filters:
                 where_conditions.append("started_at >= %s")
@@ -1773,7 +1782,7 @@ def get_experity_process_times(conn, filters: Optional[Dict[str, Any]] = None, l
         # Get paginated results
         query = f"""
             SELECT process_time_id, process_name, started_at, ended_at, 
-                   duration_seconds, created_at, updated_at
+                   duration_seconds, created_at, updated_at, encounter_id
             FROM experity_process_time
             WHERE {where_clause}
             ORDER BY started_at DESC

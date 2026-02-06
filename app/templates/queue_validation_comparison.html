@@ -638,6 +638,11 @@
             </div>
             {% endif %}
             {% endif %}
+            {% if process_time %}
+            <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
+                Process time: {{ process_time.duration_display }}
+            </div>
+            {% endif %}
             {% if complaints|length == 1 and complaints[0].last_validation_date %}
             <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
                 Last validated: {{ complaints[0].last_validation_date }}

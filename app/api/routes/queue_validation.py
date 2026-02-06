@@ -23,6 +23,7 @@ from app.api.routes.dependencies import (
     get_summary_by_encounter_id,
     format_summary_response,
 )
+from app.api.database import get_experity_process_times
 
 router = APIRouter()
 
@@ -880,6 +881,38 @@ async def manual_validation_page(
         has_vitals_image = find_encounter_image(encounter_id, "vitals") is not None
         has_summary_image = find_encounter_image(encounter_id, "summary") is not None
 
+        # Fetch process time for this encounter
+        process_time_data = None
+        try:
+            process_time_filters = {
+                'encounter_id': encounter_id,
+                'process_name': 'Encounter process time'
+            }
+            process_times_list, _ = get_experity_process_times(conn, filters=process_time_filters, limit=1, offset=0)
+            if process_times_list:
+                process_time = process_times_list[0]
+                # Format duration for display
+                duration_seconds = process_time.get('duration_seconds')
+                if duration_seconds:
+                    minutes = duration_seconds // 60
+                    seconds = duration_seconds % 60
+                    if minutes > 0:
+                        process_time_display = f"{minutes}m {seconds}s"
+                    else:
+                        process_time_display = f"{seconds}s"
+                else:
+                    process_time_display = "N/A"
+                
+                process_time_data = {
+                    'duration_seconds': duration_seconds,
+                    'duration_display': process_time_display,
+                    'started_at': process_time.get('started_at'),
+                    'ended_at': process_time.get('ended_at'),
+                }
+        except Exception as e:
+            logger.warning(f"Could not fetch process time for encounter {encounter_id}: {str(e)}")
+            process_time_data = None
+
         return templates.TemplateResponse(
 
             "queue_validation_comparison.html",
@@ -906,6 +939,7 @@ async def manual_validation_page(
 
                 "encounter_created_date": encounter_created_date_str,
                 "encounter_created_by": encounter_created_by,
+                "process_time": process_time_data,
 
                 "show_navigation": False,
 
