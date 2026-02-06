@@ -632,15 +632,15 @@
             <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
                 Encounter created: {{ encounter_created_date }}
             </div>
+            {% endif %}
             {% if encounter_created_by %}
             <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
                 Created by: {{ encounter_created_by }}
             </div>
             {% endif %}
-            {% endif %}
-            {% if process_time %}
-            <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
-                Process time: {{ process_time.duration_display }}
+            {% if process_time and process_time.duration_display %}
+            <div class="subtitle" style="margin-top: 6px; font-size: 14px; color: rgba(255, 255, 255, 0.95); font-weight: 600; background: rgba(255, 255, 255, 0.1); padding: 4px 8px; border-radius: 4px; display: inline-block;">
+                ⏱️ Process time: <strong>{{ process_time.duration_display }}</strong>
             </div>
             {% endif %}
             {% if complaints|length == 1 and complaints[0].last_validation_date %}
