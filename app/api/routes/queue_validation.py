@@ -373,9 +373,15 @@ async def manual_validation_page(
                 COALESCE(
                     q.raw_payload->>'createdBy',
                     q.raw_payload->>'created_by',
+                    q.raw_payload->'createdByUser'->>'email',
+                    q.raw_payload->'createdByUser'->>'emailAddress',
+                    q.raw_payload->'createdByUser'->>'name',
+                    q.raw_payload->'createdByUser'->>'id',
+                    q.raw_payload->'createdByUser'->>'username',
                     e.encounter_payload->>'createdBy',
                     e.encounter_payload->>'created_by',
                     e.encounter_payload->'createdByUser'->>'email',
+                    e.encounter_payload->'createdByUser'->>'emailAddress',
                     e.encounter_payload->'createdByUser'->>'name',
                     e.encounter_payload->'createdByUser'->>'id',
                     e.encounter_payload->'createdByUser'->>'username'

@@ -259,9 +259,10 @@ def remove_excluded_fields(encounter_payload: Dict[str, Any]) -> Dict[str, Any]:
         created_by_user = encounter_payload.get('createdByUser') or encounter_payload.get('created_by_user')
         if created_by_user:
             if isinstance(created_by_user, dict):
-                # Extract email, name, or id from createdByUser object
+                # Extract email, emailAddress, name, or id from createdByUser object
                 created_by = (
                     created_by_user.get('email') or 
+                    created_by_user.get('emailAddress') or 
                     created_by_user.get('name') or 
                     created_by_user.get('id') or
                     created_by_user.get('username')
