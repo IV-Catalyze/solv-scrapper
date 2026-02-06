@@ -444,13 +444,16 @@ async def manual_validation_page(
 
         raw_payload = queue_entry.get('raw_payload')
         
-        # Get encounter created date from queue
+        # Get encounter created date from queue - send as ISO format with UTC timezone for client-side conversion
         encounter_created_at = queue_entry.get('created_at')
         encounter_created_date_str = None
         if encounter_created_at:
             if isinstance(encounter_created_at, datetime):
-                # Format as "Jan 21, 2025 at 10:30 AM" for display
-                encounter_created_date_str = encounter_created_at.strftime('%b %d, %Y at %I:%M %p')
+                # If timezone-naive, assume UTC (common practice for PostgreSQL TIMESTAMP)
+                if encounter_created_at.tzinfo is None:
+                    encounter_created_at = encounter_created_at.replace(tzinfo=timezone.utc)
+                # Convert to ISO format with timezone info for client-side conversion
+                encounter_created_date_str = encounter_created_at.isoformat()
             else:
                 encounter_created_date_str = str(encounter_created_at)
         
@@ -827,7 +830,7 @@ async def manual_validation_page(
 
             last_validation_date = validation_dates.get(complaint_id_str)
 
-            # Convert datetime to formatted string for JSON serialization and display
+            # Convert datetime to ISO format with UTC timezone for client-side conversion
 
             last_validation_date_str = None
 
@@ -835,9 +838,11 @@ async def manual_validation_page(
 
                 if isinstance(last_validation_date, datetime):
 
-                    # Format as "Jan 21, 2025 at 10:30 AM" for display
-
-                    last_validation_date_str = last_validation_date.strftime('%b %d, %Y at %I:%M %p')
+                    # If timezone-naive, assume UTC (common practice for PostgreSQL TIMESTAMP)
+                    if last_validation_date.tzinfo is None:
+                        last_validation_date = last_validation_date.replace(tzinfo=timezone.utc)
+                    # Convert to ISO format with timezone info for client-side conversion
+                    last_validation_date_str = last_validation_date.isoformat()
 
                 else:
 

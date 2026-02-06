@@ -630,7 +630,7 @@
             <div class="subtitle">Encounter ID: {{ encounter_id }}</div>
             {% if encounter_created_date %}
             <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
-                Encounter created: {{ encounter_created_date }}
+                Encounter created: <time datetime="{{ encounter_created_date }}" class="local-time-format">{{ encounter_created_date }}</time>
             </div>
             {% endif %}
             {% if encounter_created_by %}
@@ -645,7 +645,7 @@
             {% endif %}
             {% if complaints|length == 1 and complaints[0].last_validation_date %}
             <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
-                Last validated: {{ complaints[0].last_validation_date }}
+                Last validated: <time datetime="{{ complaints[0].last_validation_date }}" class="local-time-format">{{ complaints[0].last_validation_date }}</time>
             </div>
             {% if complaints[0].validated_by %}
             <div class="subtitle" style="margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, 0.85);">
@@ -670,7 +670,7 @@
                 <span class="complaint-tab-id">{{ complaint.complaint_id }}</span>
                 {% if complaint.last_validation_date %}
                 <span class="complaint-tab-date" title="Last validated: {{ complaint.last_validation_date }}{% if complaint.validated_by %} by {{ complaint.validated_by }}{% endif %}">
-                    Last validated: {{ complaint.last_validation_date }}
+                    Last validated: <time datetime="{{ complaint.last_validation_date }}" class="local-time-format">{{ complaint.last_validation_date }}</time>
                 </span>
                 {% endif %}
             </button>
@@ -1386,6 +1386,35 @@
                 saveBtn.textContent = originalText;
             }
         }
+    </script>
+    <script>
+        // Convert UTC timestamps to browser's local timezone with formatted display
+        document.addEventListener('DOMContentLoaded', function() {
+            const timeElements = document.querySelectorAll('time.local-time-format');
+            timeElements.forEach(function(element) {
+                const utcTime = element.getAttribute('datetime');
+                if (utcTime) {
+                    try {
+                        const date = new Date(utcTime);
+                        // Format as "Jan 21, 2025 at 10:30 AM" in local timezone
+                        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                        const month = months[date.getMonth()];
+                        const day = date.getDate();
+                        const year = date.getFullYear();
+                        let hours = date.getHours();
+                        const minutes = String(date.getMinutes()).padStart(2, '0');
+                        const ampm = hours >= 12 ? 'PM' : 'AM';
+                        hours = hours % 12;
+                        hours = hours ? hours : 12; // the hour '0' should be '12'
+                        const formatted = `${month} ${day}, ${year} at ${hours}:${minutes} ${ampm}`;
+                        element.textContent = formatted;
+                    } catch (e) {
+                        // If parsing fails, keep original value
+                        console.error('Error parsing date:', utcTime, e);
+                    }
+                }
+            });
+        });
     </script>
     <script src="/static/js/common.js"></script>
     <script src="/static/js/system-status.js"></script>

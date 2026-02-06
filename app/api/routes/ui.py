@@ -7,7 +7,7 @@ This module contains all routes that return HTML responses for the web UI.
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query, Request, Depends
@@ -528,11 +528,15 @@ async def queue_list_ui(
             if created_by is not None and isinstance(created_by, str) and not created_by.strip():
                 created_by = None
             
-            # Format created_at
+            # Format created_at - send as ISO format with UTC timezone for client-side conversion
             created_at = record.get('created_at')
             if created_at:
                 if isinstance(created_at, datetime):
-                    created_at = created_at.strftime('%Y-%m-%d %H:%M:%S')
+                    # If timezone-naive, assume UTC (common practice for PostgreSQL TIMESTAMP)
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+                    # Convert to ISO format with timezone info
+                    created_at = created_at.isoformat()
                 else:
                     created_at = str(created_at)
             
