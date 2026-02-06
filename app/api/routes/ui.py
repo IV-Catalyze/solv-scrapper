@@ -506,6 +506,7 @@ async def queue_list_ui(
                 patient_name = None
             
             # Get created_by from record (same as validation page - no processing)
+            # This extracts the encounter creator, not the validation creator
             created_by = record.get('created_by')
             
             # Format created_at
