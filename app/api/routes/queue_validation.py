@@ -886,10 +886,10 @@ async def manual_validation_page(
         try:
             process_time_filters = {
                 'encounter_id': encounter_id,
-                'process_name': 'Encounter process time'
+                'process_name': 'Experity process time'
             }
-            process_times_list, _ = get_experity_process_times(conn, filters=process_time_filters, limit=1, offset=0)
-            if process_times_list:
+            process_times_list, total = get_experity_process_times(conn, filters=process_time_filters, limit=1, offset=0)
+            if process_times_list and len(process_times_list) > 0:
                 process_time = process_times_list[0]
                 # Format duration for display
                 duration_seconds = process_time.get('duration_seconds')
@@ -909,8 +909,11 @@ async def manual_validation_page(
                     'started_at': process_time.get('started_at'),
                     'ended_at': process_time.get('ended_at'),
                 }
+                logger.info(f"Found process time for encounter {encounter_id}: {process_time_display}")
+            else:
+                logger.info(f"No process time found for encounter {encounter_id} (searched {total} records)")
         except Exception as e:
-            logger.warning(f"Could not fetch process time for encounter {encounter_id}: {str(e)}")
+            logger.warning(f"Could not fetch process time for encounter {encounter_id}: {str(e)}", exc_info=True)
             process_time_data = None
 
         return templates.TemplateResponse(
