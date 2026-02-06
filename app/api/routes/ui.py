@@ -446,6 +446,14 @@ async def queue_list_ui(
         cursor.execute(query, tuple(params))
         results = cursor.fetchall()
         
+        # Debug: Log created_by extraction results for first few records
+        if results:
+            logger.info(f"Queue list query returned {len(results)} records")
+            for i, record in enumerate(results[:3], 1):
+                created_by = record.get('created_by')
+                encounter_id = str(record.get('encounter_id', '')) if record.get('encounter_id') else None
+                logger.info(f"Record {i} (encounter {encounter_id[:8] if encounter_id else 'None'}...): created_by = {repr(created_by)}")
+        
         # Get all queue_ids to check for validations
         queue_ids = [str(r.get('queue_id', '')) for r in results if r.get('queue_id')]
         
@@ -508,6 +516,9 @@ async def queue_list_ui(
             # Get created_by from record (same as validation page - no processing)
             # This extracts the encounter creator, not the validation creator
             created_by = record.get('created_by')
+            # Handle empty strings - convert to None so template shows "—" instead of blank
+            if created_by is not None and isinstance(created_by, str) and not created_by.strip():
+                created_by = None
             
             # Format created_at
             created_at = record.get('created_at')
