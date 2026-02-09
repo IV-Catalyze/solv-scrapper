@@ -50,7 +50,8 @@ router = APIRouter()
                                     "type": "search"
                                 }
                             ],
-                            "status": "COMPLETE"
+                            "status": "COMPLETE",
+                            "createdBy": "user@example.com"
                         }
                     }
                 }
@@ -89,14 +90,19 @@ async def create_encounter(
             "type": "search"
           }
         ],
-        "status": "COMPLETE"
+        "status": "COMPLETE",
+        "createdBy": "user@example.com",
       }
-    }
-    ```
+      }
+   
     
     **Response:**
     Returns the stored encounter with `emrId` and `encounterPayload`.
     If an encounter with the same `encounterId` (from `encounterPayload.id` or `encounterPayload.encounterId`) exists, it will be updated.
+    
+    **Note on createdBy:**
+    - The `createdBy` field is preserved in the encounter record exactly as provided.
+
     """
     conn = None
     

@@ -115,7 +115,8 @@ class EncounterCreateRequest(BaseModel):
             "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
             "attributes": {"gender": "male", "ageYears": 69},
             "chiefComplaints": [{"id": "00f9612e-f37d-451b-9172-25cbddee58a9", "description": "cough"}],
-            "status": "COMPLETE"
+            "status": "COMPLETE",
+            "createdBy": "user@example.com"
         },
         alias="encounter_payload"
     )
@@ -130,7 +131,8 @@ class EncounterCreateRequest(BaseModel):
                     "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
                     "attributes": {"gender": "male", "ageYears": 69},
                     "chiefComplaints": [{"id": "00f9612e-f37d-451b-9172-25cbddee58a9", "description": "cough"}],
-                    "status": "COMPLETE"
+                    "status": "COMPLETE",
+                    "createdBy": "user@example.com"
                 }
             }
         }
