@@ -74,11 +74,26 @@ def extract_guardian(encounter_data: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning("additionalQuestions is not a dict, returning default guardian")
         return _create_default_guardian()
     
+    # IMPORTANT: First check if guardianAssistedInterview is an object format
+    # This allows us to extract guardianName before processing string format
+    guardian_obj = additional_questions.get("guardianAssistedInterview")
+    guardian_name_from_object = None
+    notes_from_object = None
+    
+    # If it's an object, extract guardianName and notes for potential use
+    if isinstance(guardian_obj, dict):
+        guardian_name_from_object = guardian_obj.get("guardianName")
+        notes_from_object = guardian_obj.get("notes")
+        # If it's an object, we'll handle it in the fallback section below
+        # But we extract guardianName here in case we need it for string format processing
+    
     # Check if guardianAssistedInterview is a string (new format)
     guardian_interview_value = additional_questions.get("guardianAssistedInterview")
     guardian_interview_by = additional_questions.get("guardianAssistedInterviewBy", [])
     
     # Handle string-based format ("Yes"/"No")
+    # Note: If guardianAssistedInterview is a string, it can't also be an object
+    # But we check for guardianName in additionalQuestions directly as a fallback
     if isinstance(guardian_interview_value, str):
         guardian_interview_value = guardian_interview_value.strip()
         
@@ -101,11 +116,16 @@ def extract_guardian(encounter_data: Dict[str, Any]) -> Dict[str, Any]:
             
             # Case 2a: Empty array → relationship = "Other"
             if not normalized_by:
+                # Check for guardianName in additionalQuestions or object format
+                guardian_name = additional_questions.get("guardianName")
+                if not guardian_name:
+                    guardian_name = guardian_name_from_object
+                
                 return {
                     "present": True,
-                    "guardianName": None,
+                    "guardianName": guardian_name,  # Use guardianName from object if available
                     "relationship": "Other",
-                    "notes": None
+                    "notes": notes_from_object  # Also preserve notes from object if available
                 }
             
             first_value = normalized_by[0]
@@ -115,20 +135,39 @@ def extract_guardian(encounter_data: Dict[str, Any]) -> Dict[str, Any]:
             if first_value_lower in ["mother", "father"]:
                 # Capitalize properly: "Mother" or "Father"
                 relationship = "Mother" if first_value_lower == "mother" else "Father"
+                
+                # IMPORTANT: Check for guardianName in object format or elsewhere
+                # Even though we're processing string format, check if there's a guardianName
+                # in additionalQuestions (might exist as a separate field)
+                guardian_name = additional_questions.get("guardianName")
+                
+                # If not found in additionalQuestions, check if we extracted it from object format
+                # (This handles edge cases where both formats might exist)
+                if not guardian_name:
+                    guardian_name = guardian_name_from_object
+                
                 return {
                     "present": True,
-                    "guardianName": None,
+                    "guardianName": guardian_name,  # Use guardianName from object if available
                     "relationship": relationship,
-                    "notes": None
+                    "notes": notes_from_object  # Also preserve notes from object if available
                 }
             
             # Case 3: Not "Mother" or "Father" → relationship = "Other", guardianName = value
             else:
+                # Check for guardianName in additionalQuestions or object format first
+                guardian_name = additional_questions.get("guardianName")
+                if not guardian_name:
+                    guardian_name = guardian_name_from_object
+                # If still not found, use first_value from guardianAssistedInterviewBy
+                if not guardian_name:
+                    guardian_name = first_value
+                
                 return {
                     "present": True,
-                    "guardianName": first_value,  # Use the value as guardianName
+                    "guardianName": guardian_name,  # Use guardianName from object if available, otherwise use first_value
                     "relationship": "Other",
-                    "notes": None
+                    "notes": notes_from_object  # Also preserve notes from object if available
                 }
     
     # Fallback: Handle object-based format (existing logic - backward compatible)
