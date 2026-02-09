@@ -114,13 +114,39 @@ def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
         conn.close()
 
 
+def get_user_by_username_or_email(identifier: str) -> Optional[Dict[str, Any]]:
+    """Get user by username or email from database."""
+    conn = get_db_connection()
+    if not conn:
+        return None
+    
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT id, username, email, password_hash, is_active FROM users WHERE username = %s OR email = %s",
+            (identifier, identifier)
+        )
+        result = cursor.fetchone()
+        cursor.close()
+        return dict(result) if result else None
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error fetching user: {e}")
+        return None
+    finally:
+        conn.close()
+
+
 def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
     """
-    Authenticate a user by username and password.
+    Authenticate a user by username/email and password.
+    Supports both username and email as the identifier.
     
     Returns user dict without password_hash if authentication succeeds, None otherwise.
     """
-    user = get_user_by_username(username)
+    # Try to get user by username or email
+    user = get_user_by_username_or_email(username)
     if not user:
         return None
     
