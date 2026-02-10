@@ -164,7 +164,18 @@ Then extract data according to the rules above before processing.
 
 ## Body Part ID Mapping
 
-HEAD_PARENT=1, NECK_PARENT=2, CHEST_PARENT=3, ABD_PARENT=4, GU_PARENT=5, R_SHOULDER_PARENT=9, L_SHOULDER_PARENT=8, R_UPPER_ARM_PARENT=15, L_UPPER_ARM_PARENT=14, R_ELBOW_PARENT=6, L_ELBOW_PARENT=7, R_FOREARM_PARENT=17, L_FOREARM_PARENT=16, R_HAND_PARENT=11, L_HAND_PARENT=10, R_HIP_THIGH_PARENT=19, L_HIP_THIGH_PARENT=20, R_KNEE_PARENT=18, L_KNEE_PARENT=21, R_LOWER_LEG_PARENT=22, L_LOWER_LEG_PARENT=23, R_FOOT_PARENT=12, L_FOOT_PARENT=13, BACK_UPPER_PARENT=24, BACK_L_SCAP_PARENT=26, BACK_R_SCAP_PARENT=25, BACK_MID_PARENT=27, BACK_LOWER_PARENT=28, BACK_BUTTOCKS_PARENT=29, TOGGLE_FRONT_BACK=null
+**CRITICAL: Body Part IDs are CODE-HANDLED**
+
+- The `bodyPartId` field in `ui` is automatically assigned by code-based mapping
+- **Send `null` for bodyPartId** - it will be overwritten by code-based extraction
+- Code-based extraction uses gender from vitals to assign gender-specific body part IDs
+- If gender is unknown, defaults to female body part IDs
+- Body part IDs are different for male and female patients (mappings are gender-specific)
+
+**You should still:**
+- Set `coordKey` correctly (this is used to determine bodyPartId)
+- Set `ui.bodyMapClick` coordinates correctly
+- Leave `ui.bodyPartId` as `null` or omit it (will be set automatically based on coordKey and gender)
 
 ---
 
@@ -261,7 +272,7 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
 - `coordKey`: REQUIRED (from COORDS)
 - `bodyMapSide`: REQUIRED ("front" or "back")
 - `ui.bodyMapClick`: REQUIRED (x, y coordinates)
-- `ui.bodyPartId`: REQUIRED (from mapping table, or null if not found)
+- `ui.bodyPartId`: CODE-HANDLED (send `null` - will be automatically assigned based on coordKey and gender from vitals)
 - `mainProblem`: REQUIRED (from problemSets if keyword match found, otherwise use complaint description)
 - `experityTemplate`: REQUIRED (template key)
 - `notesTemplateKey`: REQUIRED (same as experityTemplate)
@@ -313,7 +324,7 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
    - "leg pain" → Use R_LOWER_LEG_PARENT or L_LOWER_LEG_PARENT (based on side, or default to R)
    - "knee pain" → Use R_KNEE_PARENT or L_KNEE_PARENT (specific)
 
-4. Body Part ID: From mapping table, omit if not found
+4. Body Part ID: CODE-HANDLED - Send `null` (will be automatically assigned based on coordKey and gender from vitals)
 
 5. Main Problem: 
    - First, attempt to match keywords from the complaint description to problems in problemSets[problemSet] (e.g., cut=Laceration, burn=Burn, cough=Cough)

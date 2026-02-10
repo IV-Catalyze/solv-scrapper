@@ -1359,6 +1359,23 @@ async def map_queue_to_experity(
                         logger.warning(f"Failed to merge vitals (continuing anyway): {str(merge_error)}")
                         # Continue even if merge fails
                 
+                # Merge gender-specific body part IDs into complaints (always enabled - code-based mapping)
+                try:
+                    from app.utils.experity_mapper import merge_body_part_ids_into_complaints
+                    
+                    # Extract gender from pre-extracted vitals
+                    gender = pre_extracted_vitals.get("gender") if pre_extracted_vitals else None
+                    
+                    experity_mapping = merge_body_part_ids_into_complaints(
+                        experity_mapping,
+                        gender=gender,
+                        overwrite=True  # Always use deterministic extraction
+                    )
+                    logger.info("Merged gender-specific body part IDs into LLM response")
+                except Exception as body_part_id_error:
+                    logger.warning(f"Failed to merge body part IDs (continuing anyway): {str(body_part_id_error)}")
+                    # Continue even if merge fails
+                
                 # Merge pre-extracted guardian into LLM response (always enabled - code-based mapping)
                 if pre_extracted_guardian:
                     try:

@@ -60,6 +60,11 @@ from .lab_orders_mapper import (
     extract_lab_orders,
 )
 
+from .body_part_id_mapper import (
+    get_body_part_id,
+    merge_body_part_ids_into_complaints,
+)
+
 __all__ = [
     # ICD functions (re-exported from parent module)
     "extract_icd_updates",
@@ -87,4 +92,7 @@ __all__ = [
     "extract_guardian",
     # Lab orders mapper
     "extract_lab_orders",
+    # Body part ID mapper
+    "get_body_part_id",
+    "merge_body_part_ids_into_complaints",
 ]
