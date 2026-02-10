@@ -13,7 +13,6 @@ import psycopg2
 
 from app.api.routes.dependencies import (
     logger,
-    require_auth,
     TokenData,
     get_db_connection,
 )
@@ -206,7 +205,7 @@ async def create_process_time(
     "/experity/process-time",
     tags=["Experity"],
     summary="Retrieve Experity process time records",
-    description="Retrieve process time records with filtering and pagination. Supports filtering by process name and date range.",
+    description="Retrieve process time records with filtering and pagination. Supports filtering by process name and date range. No authentication required.",
     response_model=ExperityProcessTimeListResponse,
     status_code=200,
     responses={
@@ -232,7 +231,6 @@ async def create_process_time(
                 }
             }
         },
-        401: {"description": "Authentication required"},
         500: {"description": "Server error"},
     },
 )
@@ -243,8 +241,7 @@ async def get_process_times_list(
     completedOnly: Optional[bool] = Query(False, description="Only return completed processes (with endedAt set)"),
     encounterId: Optional[str] = Query(None, description="Filter by encounter ID"),
     limit: int = Query(50, ge=1, le=100, description="Number of records to return (max 100)"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-    current_user: dict = Depends(require_auth)
+    offset: int = Query(0, ge=0, description="Pagination offset")
 ) -> ExperityProcessTimeListResponse:
     """
     Retrieve process time records with filtering and pagination.
