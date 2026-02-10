@@ -70,12 +70,15 @@ async def create_encounter(
     **Request Body:**
     - `emrId` (required): EMR identifier for the patient
     - `encounterPayload` (required): Full encounter JSON object. Must contain `id` (the ID of the encounter) field.
+    - `bookingId` (optional): Booking identifier. If provided, will be added to `encounterPayload.bookingId`.
+    - `createdByUser` (optional): User who created the encounter. If provided, will be added to `encounterPayload.createdBy`.
     
     **Example:**
     ```json
     POST /encounter
     {
       "emrId": "EMR12345",
+      "bookingId": "BOOKING123",
       "encounterPayload": {
         "id": "550e8400-e29b-41d4-a716-446655440000",
         "clientId": "fb5f549a-11e5-4e2d-9347-9fc41bc59424",
@@ -90,18 +93,20 @@ async def create_encounter(
             "type": "search"
           }
         ],
-        "status": "COMPLETE",
-        "createdBy": "user@example.com",
-      }
-      }
-   
+        "status": "COMPLETE"
+      },
+      "createdByUser": "user@example.com"
+    }
+    ```
     
     **Response:**
     Returns the stored encounter with `emrId` and `encounterPayload`.
     If an encounter with the same `encounterId` (from `encounterPayload.id` or `encounterPayload.encounterId`) exists, it will be updated.
     
-    **Note on createdBy:**
-    - The `createdBy` field is preserved in the encounter record exactly as provided.
+    **Note on root-level fields:**
+    - `createdByUser` from root level is automatically added to `encounterPayload.createdBy`
+    - `bookingId` from root level is automatically added to `encounterPayload.bookingId`
+    - These fields are preserved in both `encounters.encounter_payload` and `queue.raw_payload`
 
     """
     conn = None
@@ -132,6 +137,23 @@ async def create_encounter(
                 status_code=400,
                 detail="encounterPayload must be a JSON object."
             )
+        
+        # Extract createdByUser from root level and add to encounter_payload
+        # Support both camelCase and snake_case
+        created_by_user = request_body.get('createdByUser') or request_body.get('created_by_user')
+        if created_by_user:
+            # Add to encounter_payload as 'createdBy' for consistency
+            # This ensures it's preserved in both encounters.encounter_payload and queue.raw_payload
+            encounter_payload['createdBy'] = str(created_by_user)
+            logger.info(f"Added createdByUser '{created_by_user}' to encounter payload")
+        
+        # Extract bookingId from root level and add to encounter_payload
+        # Support both camelCase and snake_case
+        booking_id = request_body.get('bookingId') or request_body.get('booking_id')
+        if booking_id:
+            # Add to encounter_payload as 'bookingId' for consistency
+            encounter_payload['bookingId'] = str(booking_id)
+            logger.info(f"Added bookingId '{booking_id}' to encounter payload")
         
         # Extract encounter_id from within encounterPayload
         # Try both 'id' and 'encounterId' fields (support both camelCase and snake_case)
