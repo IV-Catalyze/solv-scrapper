@@ -1892,6 +1892,77 @@ def update_server_health_partial(conn, server_data: Dict[str, Any]) -> Dict[str,
         cursor.close()
 
 
+def sync_server_health_from_vms(conn, server_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Recalculate a server's status from all of its VMs.
+    
+    Rules:
+      - If any VM is 'unhealthy'          -> server = 'unhealthy'
+      - Else if any VM is healthy or idle -> server = 'healthy'
+      - Else (no VMs or only unknown)     -> 'down'
+    """
+    if not server_id:
+        return None
+
+    # Get all VMs for this server
+    vms = get_vms_by_server_id(conn, server_id)
+
+    if not vms:
+        # No VMs for this server; just return current server record (if any)
+        return get_server_health_by_server_id(conn, server_id)
+
+    # Determine aggregate server status from VM statuses
+    vm_statuses = [str(vm.get("status", "")).lower() for vm in vms]
+
+    if any(status == "unhealthy" for status in vm_statuses):
+        new_status = "unhealthy"
+    elif any(status in ("healthy", "idle") for status in vm_statuses):
+        new_status = "healthy"
+    else:
+        new_status = "down"
+
+    # Use existing partial update helper so timestamps/metadata are handled consistently
+    return update_server_health_partial(
+        conn,
+        {
+            "server_id": server_id,
+            "status": new_status,
+        },
+    )
+
+
+def sync_vms_from_server_status(conn, server_id: str, server_status: str) -> None:
+    """
+    Propagate a server status change down to its VMs.
+    
+    Behaviour:
+      - If server is 'down' or 'unhealthy' -> mark all its VMs as 'unhealthy'
+      - If server is 'healthy'             -> do nothing (VMs stay independent)
+    """
+    if not server_id or not server_status:
+        return
+
+    normalized_status = str(server_status).lower()
+    if normalized_status not in ("down", "unhealthy"):
+        # Only push "bad" states down; otherwise VMs manage their own status
+        return
+
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            UPDATE vm_health
+            SET status = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE server_id = %s
+            """,
+            ("unhealthy", server_id),
+        )
+        conn.commit()
+    finally:
+        cursor.close()
+        
+        
 def update_vm_health_partial(conn, vm_data: Dict[str, Any]) -> Dict[str, Any]:
     """Partially update a VM health record (only updates provided fields).
     

@@ -35,6 +35,7 @@ from app.api.database import (
     get_all_servers_health,
     get_all_vms_health,
     update_server_health_partial,
+    sync_vms_from_server_status,
 )
 from app.utils.auth import verify_api_key_auth
 
@@ -157,6 +158,20 @@ async def server_heartbeat(
 
         # Save/update the server health record
         saved_server_health = save_server_health(conn, server_health_dict)
+
+        # Propagate "bad" server states down to its VMs so VM/Server health stay in sync
+        try:
+            sync_vms_from_server_status(
+                conn,
+                saved_server_health["server_id"],
+                saved_server_health["status"],
+            )
+        except Exception as e:
+            # Log but don't fail the heartbeat if VM sync fails
+            logger.warning(
+                f"Failed to sync VM health from server heartbeat "
+                f"(server_id={saved_server_health.get('server_id')}): {str(e)}"
+            )
 
         # Check resource thresholds and create/resolve alerts if needed
         try:
@@ -324,6 +339,19 @@ async def patch_server_health(
 
         # Update the server health record (partial update)
         saved_server_health = update_server_health_partial(conn, server_health_dict)
+
+        # Propagate "bad" server states down to its VMs so VM/Server health stay in sync
+        try:
+            sync_vms_from_server_status(
+                conn,
+                saved_server_health["server_id"],
+                saved_server_health["status"],
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to sync VM health from server PATCH "
+                f"(server_id={saved_server_health.get('server_id')}): {str(e)}"
+            )
 
         # Check resource thresholds and create/resolve alerts if needed
         try:
