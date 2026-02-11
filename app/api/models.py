@@ -266,6 +266,18 @@ class QueueResponse(BaseModel):
         description="Parsed payload containing experityAction/experityActions (internal use)",
         alias="parsed_payload"
     )
+    createdAt: Optional[str] = Field(
+        None,
+        description="Timestamp when the queue entry was created (ISO 8601 format)",
+        example="2026-02-10T17:32:52.893683",
+        alias="created_at"
+    )
+    updatedAt: Optional[str] = Field(
+        None,
+        description="Timestamp when the queue entry was last updated (ISO 8601 format)",
+        example="2026-02-11T00:55:01.117116",
+        alias="updated_at"
+    )
     
     class Config:
         populate_by_name = True
@@ -284,7 +296,9 @@ class QueueResponse(BaseModel):
                 },
                 "parsedPayload": {
                     "experityAction": []
-                }
+                },
+                "createdAt": "2026-02-10T17:32:52.893683",
+                "updatedAt": "2026-02-11T00:55:01.117116"
             }
         }
         extra = "allow"

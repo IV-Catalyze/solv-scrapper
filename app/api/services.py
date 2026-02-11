@@ -85,6 +85,35 @@ def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
     if emr_id is not None:
         emr_id = str(emr_id)
     
+    # Handle timestamps - convert to ISO format strings if present
+    created_at = record.get('created_at')
+    if created_at:
+        if isinstance(created_at, str):
+            # Already a string, keep as-is
+            created_at_str = created_at
+        else:
+            # datetime object - convert to ISO format
+            if isinstance(created_at, datetime):
+                created_at_str = created_at.isoformat()
+            else:
+                created_at_str = None
+    else:
+        created_at_str = None
+    
+    updated_at = record.get('updated_at')
+    if updated_at:
+        if isinstance(updated_at, str):
+            # Already a string, keep as-is
+            updated_at_str = updated_at
+        else:
+            # datetime object - convert to ISO format
+            if isinstance(updated_at, datetime):
+                updated_at_str = updated_at.isoformat()
+            else:
+                updated_at_str = None
+    else:
+        updated_at_str = None
+    
     formatted = {
         'queue_id': queue_id,
         'emr_id': emr_id,
@@ -92,6 +121,8 @@ def format_queue_response(record: Dict[str, Any]) -> Dict[str, Any]:
         'attempts': record.get('attempts', 0),
         'encounter_payload': raw_payload,
         'parsed_payload': parsed_payload,  # Include parsed_payload for internal use
+        'created_at': created_at_str,  # Add created_at timestamp
+        'updated_at': updated_at_str,  # Add updated_at timestamp
     }
     
     return formatted
