@@ -339,8 +339,12 @@ The output structure MUST be exactly as shown below. Do NOT use snake_case field
    - **Onset**: Send `null` (CODE-HANDLED - will be overwritten from durationDays)
    - **ImportantQuestions**: Extract from encounter-level `importantQuestions` array (if present) and include in `notesPayload.importantQuestions` for each complaint. Preserve all fields from source (id, name, fullQuestion, answer, type, etc.). If encounter has no importantQuestions, omit this field or use empty array `[]`
 
-8. Free Text: Write as a medical clinician - concise clinical note (MAXIMUM 30 words)
+8. Free Text: Write as a medical assistant - concise clinical note (MAXIMUM 30 words)
+   **ROLE & SCOPE:**
+   - You are a medical assistant, not a doctor. Refrain from presenting possible diagnoses; strictly reference stated symptoms only.
    **CRITICAL REQUIREMENTS:**
+   - You are a medical assistant, not a doctor - do not present possible diagnoses
+   - Strictly reference stated symptoms only; do not infer or suggest diagnoses
    - Write in professional medical terminology (e.g., erythema, vesicles, pruritus, serous discharge, constitutional symptoms)
    - Include ALL important questions findings where relevant to the main complaint
    - Structure: "[Duration] [location] [main complaint] with [all relevant findings from important questions]. [Severity if applicable]."
